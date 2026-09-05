@@ -28,6 +28,7 @@ export type Organization = {
   companyRegistrationNumber?: string
   companyType?: string
   companySize: string
+  region: string
   country: string
   state: string
   address?: string

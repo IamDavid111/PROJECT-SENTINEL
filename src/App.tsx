@@ -1,3 +1,15 @@
+import { useEffect, useState } from 'react'
+import type { FormEvent, ReactNode } from 'react'
+import type { Session } from '@supabase/supabase-js'
+
+import customerBenefitsDashboard from './assets/srcassetscustomer-benefits-dashboard.png'
+import authIllustration from './assets/auth-illustration.jpg'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
+import { registrationSchema } from './lib/schemas'
+import { countries, worldRegions } from './lib/locations'
+import type { Role } from './types'
+import { DashboardPage } from './features/dashboard/DashboardPage'
+
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
 
 const featureCards = [
@@ -34,9 +46,855 @@ function ThemeIcon() {
   )
 }
 
-export default function App() {
+type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'mfa' | 'change-password' | 'demo'
+
+function getAuthRoute(): AuthRoute | null {
+  const route = window.location.hash.replace('#/', '').replace('#', '')
+  return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'mfa' || route === 'change-password' || route === 'demo'
+    ? route
+    : null
+}
+
+function AuthShell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
-    <div className="app-shell">
+    <main className="auth-page">
+      <div className="auth-visual" style={{ backgroundImage: `linear-gradient(110deg, rgba(7, 18, 37, 0.78), rgba(7, 18, 37, 0.32)), url(${authIllustration})` }}>
+        <a className="brand auth-brand" href="#top">
+          <BrandMark />
+          <span className="brand-copy">
+            <strong>SentinelQHSE<sup>™</sup></strong>
+            <small>SAFETY INTELLIGENCE</small>
+          </span>
+        </a>
+        <div className="auth-visual-copy">
+          <div className="eyebrow">SECURE OPERATIONS</div>
+          <h1>Safety intelligence for every shift, site and decision.</h1>
+          <p>Secure access to the operational workflows your teams rely on.</p>
+        </div>
+      </div>
+      <section className="auth-panel">
+        <a className="auth-back" href="#top">← Back to home</a>
+        <div className="auth-card">
+          <div className="eyebrow">SENTINELQHSE PORTAL</div>
+          <h2>{title}</h2>
+          <p className="auth-subtitle">{subtitle}</p>
+          {children}
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function AuthMessage({ error, success }: { error?: string; success?: string }) {
+  if (!error && !success) return null
+  return <div className={`auth-message ${error ? 'error' : 'success'}`}>{error || success}</div>
+}
+
+function SignInPage() {
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    const form = new FormData(event.currentTarget)
+    const email = String(form.get('email') || '')
+    const password = String(form.get('password') || '')
+    const companyCode = String(form.get('companyCode') || '').trim().toUpperCase()
+    if (!email || !password || !companyCode) {
+      setError('Company code, email, and password are required.')
+      return
+    }
+    if (!isSupabaseConfigured) {
+      setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.')
+      return
+    }
+    setLoading(true)
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    setLoading(false)
+    if (signInError) setError(signInError.message)
+    else {
+      const { data: profile } = await supabase.from('profiles').select('id, organization_id').eq('id', (await supabase.auth.getUser()).data.user?.id || '').maybeSingle()
+      if (profile?.organization_id) await recordActivity(profile.organization_id, profile.id, 'User logged in')
+      window.location.hash = '#mfa'
+    }
+  }
+
+  return (
+    <AuthShell title="Sign in" subtitle="Use your organization credentials to access the safety intelligence platform.">
+      <form className="auth-form" onSubmit={submit}>
+        <label>Company Code<input name="companyCode" placeholder="SENT-OP" autoComplete="organization" /></label>
+        <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
+        <label>Password<input name="password" type="password" placeholder="Enter your password" autoComplete="current-password" /></label>
+        <div className="auth-options">
+          <label className="checkbox-label"><input name="rememberMe" type="checkbox" defaultChecked /> Remember me</label>
+          <a href="#forgot-password">Forgot password?</a>
+        </div>
+        <AuthMessage error={error} />
+        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Signing in...' : 'Sign In →'}</button>
+        <p className="auth-footer-copy">New organization? <a href="#register">Register your company</a></p>
+      </form>
+    </AuthShell>
+  )
+}
+
+function ForgotPasswordPage() {
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const email = String(new FormData(event.currentTarget).get('email') || '')
+    if (!email) return setError('Enter your work email.')
+    if (!isSupabaseConfigured) return setError('Supabase is not configured. Add the required environment variables first.')
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/#/reset-password` })
+    if (resetError) setError(resetError.message)
+    else setMessage('If an account exists for that email, a password reset link has been sent.')
+  }
+  return (
+    <AuthShell title="Forgot password?" subtitle="Enter your work email and we will send a secure reset link.">
+      <form className="auth-form" onSubmit={submit}>
+        <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
+        <AuthMessage error={error} success={message} />
+        <button className="button button-green auth-submit">Send reset link →</button>
+        <p className="auth-footer-copy"><a href="#sign-in">Return to sign in</a></p>
+      </form>
+    </AuthShell>
+  )
+}
+
+function PasswordPage({ reset = false }: { reset?: boolean }) {
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const password = String(form.get('password') || '')
+    const confirmation = String(form.get('confirmation') || '')
+    if (password.length < 8 || password !== confirmation) return setError('Passwords must match and contain at least 8 characters.')
+    if (!isSupabaseConfigured) return setError('Supabase is not configured. Add the required environment variables first.')
+    const { error: updateError } = await supabase.auth.updateUser({ password })
+    if (updateError) setError(updateError.message)
+    else setMessage(reset ? 'Your password has been reset successfully.' : 'Your password has been changed successfully.')
+  }
+  return (
+    <AuthShell title={reset ? 'Reset password' : 'Change password'} subtitle="Create a strong password for your SentinelQHSE account.">
+      <form className="auth-form" onSubmit={submit}>
+        {!reset && <label>Current password<input name="currentPassword" type="password" autoComplete="current-password" /></label>}
+        <label>New password<input name="password" type="password" autoComplete="new-password" /></label>
+        <label>Confirm new password<input name="confirmation" type="password" autoComplete="new-password" /></label>
+        <AuthMessage error={error} success={message} />
+        <button className="button button-green auth-submit">Update password →</button>
+      </form>
+    </AuthShell>
+  )
+}
+
+function MfaPage() {
+  const [error, setError] = useState('')
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const code = String(new FormData(event.currentTarget).get('code') || '')
+    if (code.length !== 6) setError('Enter the 6-digit verification code.')
+    else window.location.hash = '#top'
+  }
+  return (
+    <AuthShell title="Verify your identity" subtitle="Enter the verification code from your authenticator app. This MFA step is ready for provider integration.">
+      <form className="auth-form" onSubmit={submit}>
+        <label>Verification code<input name="code" inputMode="numeric" maxLength={6} placeholder="000000" /></label>
+        <AuthMessage error={error} />
+        <button className="button button-green auth-submit">Verify and continue →</button>
+      </form>
+    </AuthShell>
+  )
+}
+
+function DemoRequestPage() {
+  const [submitted, setSubmitted] = useState(false)
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitted(true)
+  }
+  return (
+    <AuthShell title="Request a demo" subtitle="Tell us about your operation and our team will arrange a SentinelQHSE walkthrough.">
+      {submitted ? (
+        <div className="auth-form">
+          <AuthMessage success="Thanks. Your demo request has been recorded for follow-up." />
+          <a className="button button-green auth-submit" href="#top">Return to landing page</a>
+        </div>
+      ) : (
+        <form className="auth-form" onSubmit={submit}>
+          <label>Full name<input name="name" placeholder="Your full name" required /></label>
+          <label>Work email<input name="email" type="email" placeholder="you@company.com" required /></label>
+          <label>Company<input name="company" placeholder="Company name" required /></label>
+          <label>What would you like to explore?<textarea name="message" rows={4} placeholder="Sites, teams, or QHSE workflows" /></label>
+          <button className="button button-green auth-submit" type="submit">Request demo →</button>
+          <p className="auth-footer-copy"><a href="#top">Return to landing page</a></p>
+        </form>
+      )}
+    </AuthShell>
+  )
+}
+
+type AppRoute = 'dashboard' | 'report-incident' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'users' | 'profile' | 'preferences' | 'activity-log' | 'settings'
+type Permission = 'view_dashboard' | 'report_incident' | 'use_ai_assistant' | 'view_executive_analytics' | 'view_marketplace' | 'create_inspection' | 'create_corrective_action' | 'start_audit' | 'view_reports' | 'manage_users' | 'view_profile' | 'view_activity' | 'manage_settings'
+
+const rolePermissions: Record<Role, Permission[]> = {
+  'Super Administrator': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'manage_users', 'view_profile', 'view_activity', 'manage_settings'],
+  'Organization Administrator': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'manage_users', 'view_profile', 'view_activity', 'manage_settings'],
+  'QHSE Manager': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
+  'Site Supervisor': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'create_corrective_action', 'view_profile'],
+  'Safety Officer / HSE Officer': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_profile'],
+  Auditor: ['view_dashboard', 'use_ai_assistant', 'view_executive_analytics', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
+  'Maintenance Engineer': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_corrective_action', 'view_marketplace', 'view_profile'],
+  'Field Worker': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_profile'],
+  Contractor: ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'view_marketplace', 'view_profile'],
+  'Executive / Management': ['view_dashboard', 'use_ai_assistant', 'view_executive_analytics', 'view_reports', 'view_profile'],
+}
+
+const primaryNavigation: { route: AppRoute; label: string; icon: string; permission: Permission }[] = [
+  { route: 'dashboard', label: 'Dashboard', icon: '▣', permission: 'view_dashboard' },
+  { route: 'report-incident', label: 'Report Incident', icon: '+', permission: 'report_incident' },
+  { route: 'ai-assistant', label: 'AI Safety Assistant', icon: '✦', permission: 'use_ai_assistant' },
+  { route: 'executive-analytics', label: 'Executive Analytics', icon: '◈', permission: 'view_executive_analytics' },
+  { route: 'marketplace', label: 'HSE Marketplace', icon: '▱', permission: 'view_marketplace' },
+  { route: 'settings', label: 'Settings', icon: '⚙', permission: 'manage_settings' },
+]
+
+const secondaryNavigation: { route: AppRoute; label: string; permission: Permission }[] = [
+  { route: 'profile', label: 'User Profile', permission: 'view_profile' },
+  { route: 'preferences', label: 'Notification Preferences', permission: 'view_profile' },
+  { route: 'activity-log', label: 'Activity Log', permission: 'view_activity' },
+  { route: 'users', label: 'User Management', permission: 'manage_users' },
+]
+
+const futureModuleRoutes: { route: AppRoute; label: string; permission: Permission }[] = [
+  { route: 'incidents', label: 'Incident Management', permission: 'view_dashboard' },
+  { route: 'corrective-actions', label: 'Corrective Actions', permission: 'view_dashboard' },
+  { route: 'inspections', label: 'Safety Inspections', permission: 'view_dashboard' },
+  { route: 'audits', label: 'Audit Management', permission: 'view_dashboard' },
+  { route: 'reports', label: 'Reports', permission: 'view_reports' },
+]
+
+function getAppRoute(): AppRoute {
+  const route = window.location.hash.replace('#/', '').replace('#', '')
+  return route === 'report-incident' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'users' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+}
+
+function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
+  const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
+  const [role, setRole] = useState<Role | null>(null)
+  const [organizationId, setOrganizationId] = useState('')
+  const [profileName, setProfileName] = useState(session.user.email || 'User')
+  const [organizationName, setOrganizationName] = useState('Organization workspace')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const handleHashChange = () => setRoute(getAppRoute())
+    window.addEventListener('hashchange', handleHashChange)
+    const loadMembership = async () => {
+      const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id').eq('id', session.user.id).maybeSingle()
+      if (profileError) setError(profileError.message)
+      if (profile?.full_name) setProfileName(profile.full_name)
+      if (profile?.organization_id) {
+        setOrganizationId(profile.organization_id)
+        const [{ data: membership }, { data: organization }] = await Promise.all([
+          supabase.from('memberships').select('role').eq('user_id', session.user.id).eq('organization_id', profile.organization_id).maybeSingle(),
+          supabase.from('organizations').select('company_name').eq('id', profile.organization_id).maybeSingle(),
+        ])
+        if (membership?.role) setRole(membership.role as Role)
+        if (organization?.company_name) setOrganizationName(organization.company_name)
+      }
+      setLoading(false)
+    }
+    void loadMembership()
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [session.user.email, session.user.id])
+
+  const permissions = role ? rolePermissions[role] : []
+  const canAccess = (permission: Permission) => permissions.includes(permission)
+  const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
+  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => canAccess(item.permission))
+  const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
+
+  useEffect(() => {
+    if (!loading && (!currentNavigation || !canAccess(currentNavigation.permission))) {
+      const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
+      if (route !== fallback) window.location.hash = `#${fallback}`
+    }
+  }, [currentNavigation, loading, route, visiblePrimaryNavigation])
+
+  const signOut = async () => {
+    await recordActivity(organizationId, session.user.id, 'User logged out')
+    await supabase.auth.signOut()
+    window.location.hash = '#top'
+  }
+
+  if (loading) return <div className="protected-state">Loading your organization access...</div>
+  if (error) return <div className="protected-state"><div className="auth-message error">Unable to load your organization access: {error}</div></div>
+  if (!role) return <div className="protected-state"><div className="auth-message error">Your account is not assigned to an organization yet.</div><a className="button button-green" href="#top">Return to home</a></div>
+
+  return (
+    <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}>
+      <aside className="workspace-sidebar">
+        <a className="brand workspace-brand" href="#dashboard">
+          <BrandMark />
+          <span className="brand-copy"><strong>SentinelQHSE<sup>™</sup></strong><small>SAFETY INTELLIGENCE</small></span>
+        </a>
+        <div className="workspace-org"><small>ORGANIZATION</small><strong>{organizationName}</strong><span>{role}</span></div>
+        <nav className="workspace-nav" aria-label="Workspace navigation">
+          {visiblePrimaryNavigation.map((item) => <a className={item.route === route ? 'active' : ''} href={`#${item.route}`} key={item.route}><span className="workspace-nav-icon" aria-hidden="true">{item.icon}</span>{item.label}</a>)}
+        </nav>
+        <div className="workspace-secondary-links">
+          <small>ACCOUNT</small>
+          {visibleSecondaryNavigation.filter((item) => item.route !== 'users').map((item) => <a className={item.route === route ? 'active' : ''} href={`#${item.route}`} key={item.route}>{item.label}</a>)}
+          {visibleSecondaryNavigation.some((item) => item.route === 'users') && <a href="#users">Administration</a>}
+        </div>
+        <button className="workspace-signout" type="button" onClick={signOut}>Sign out</button>
+      </aside>
+      <main className="workspace-main">
+        <header className="workspace-topbar">
+          <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
+          <div className="workspace-actions">
+            <label className="global-search"><span className="sr-only">Global search</span><input placeholder="Search workspace" aria-label="Global search" /></label>
+            <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications">♧</a>
+            <a className="workspace-header-action" href="#ai-assistant" title="AI Safety Assistant" aria-label="AI Safety Assistant">✦</a>
+            <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon">▱</button>
+            <select className="language-select" aria-label="Language"><option>EN</option><option>FR</option></select>
+            <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><ThemeIcon /></button>
+            <a className="workspace-user" href="#profile">{profileName}</a>
+          </div>
+        </header>
+        <section className="workspace-content">
+          {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={role} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
+          {route === 'report-incident' && canAccess('report_incident') && <WorkspacePlaceholder title="Report Incident" description="Incident capture will connect to the QHSE incident workflow in the next operational module." action="Create incident report" />}
+          {route === 'incidents' && <WorkspacePlaceholder title="Incident Management" description="Incident Management is the next operational module. Dashboard drill-downs will connect here when the incident data model is available." action="Module coming next" />}
+          {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
+          {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
+          {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
+          {route === 'reports' && canAccess('view_reports') && <WorkspacePlaceholder title="Reports" description="Reporting and exports will connect to validated operational records in the reporting module." action="Module coming next" />}
+          {route === 'ai-assistant' && canAccess('use_ai_assistant') && <WorkspacePlaceholder title="AI Safety Assistant" description="AI analysis will appear here once sufficient QHSE data and the AI service are connected." action="Review available data" />}
+          {route === 'executive-analytics' && canAccess('view_executive_analytics') && <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open analytics foundation" />}
+          {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
+          {route === 'users' && canAccess('manage_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} />}
+          {route === 'profile' && <ProfileWorkspace userId={session.user.id} organizationId={organizationId} email={session.user.email || ''} />}
+          {route === 'preferences' && <NotificationPreferencesWorkspace userId={session.user.id} organizationId={organizationId} />}
+          {route === 'activity-log' && canAccess('view_activity') && <ActivityLogWorkspace organizationId={organizationId} />}
+          {route === 'settings' && canAccess('manage_settings') && <CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} />}
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function WorkspacePlaceholder({ title, description, action }: { title: string; description: string; action: string }) {
+  return <div className="workspace-panel workspace-placeholder"><div className="eyebrow">MODULE FOUNDATION</div><h2>{title}</h2><p>{description}</p><div className="workspace-placeholder-action"><span aria-hidden="true">→</span><strong>{action}</strong></div></div>
+}
+
+async function recordActivity(organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
+  await supabase.from('activity_logs').insert({ organization_id: organizationId, user_id: userId, activity, metadata })
+}
+
+type ActivityRecord = {
+  id: string
+  created_at: string
+  activity: string
+  ip_address: string | null
+  location: string | null
+  user_id: string | null
+}
+
+function ActivityLogWorkspace({ organizationId }: { organizationId: string }) {
+  const [logs, setLogs] = useState<ActivityRecord[]>([])
+  const [userNames, setUserNames] = useState<Record<string, string>>({})
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const loadLogs = async () => {
+      const { data, error: logsError } = await supabase.from('activity_logs').select('id, created_at, activity, ip_address, location, user_id').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(200)
+      if (logsError) setError(logsError.message)
+      else {
+        setLogs(data || [])
+        const userIds = [...new Set((data || []).map((log) => log.user_id).filter((id): id is string => Boolean(id)))]
+        if (userIds.length) {
+          const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds)
+          setUserNames(Object.fromEntries((profiles || []).map((profile) => [profile.id, profile.full_name])))
+        }
+      }
+      setLoading(false)
+    }
+    void loadLogs()
+  }, [organizationId])
+
+  const filteredLogs = logs.filter((log) => `${log.activity} ${log.location || ''} ${userNames[log.user_id || ''] || ''}`.toLowerCase().includes(query.toLowerCase()))
+  return <div className="workspace-panel activity-panel"><div className="workspace-panel-heading"><div><div className="eyebrow">AUDIT HISTORY</div><h2>Activity Log</h2><p>Every recorded action in this organization is retained with its actor, time, and context.</p></div></div><div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search activity, user, or location" /></div>{error && <AuthMessage error={error} />}{loading ? <div className="workspace-empty">Loading audit history...</div> : filteredLogs.length === 0 ? <div className="workspace-empty">No activity matches this search.</div> : <div className="user-table-wrap"><table className="user-table activity-table"><thead><tr><th>Timestamp</th><th>User</th><th>Activity</th><th>IP address</th><th>Location</th></tr></thead><tbody>{filteredLogs.map((log) => <tr key={log.id}><td>{new Date(log.created_at).toLocaleString()}</td><td>{log.user_id ? userNames[log.user_id] || log.user_id : 'System'}</td><td><strong>{log.activity}</strong></td><td>{log.ip_address || 'Not captured'}</td><td>{log.location || 'Not captured'}</td></tr>)}</tbody></table></div>}</div>
+}
+
+type PreferenceState = {
+  email: boolean
+  sms: boolean
+  push: boolean
+  incident_assignments: boolean
+  corrective_action_reminders: boolean
+  audit_reminders: boolean
+}
+
+function NotificationPreferencesWorkspace({ userId, organizationId }: { userId: string; organizationId: string }) {
+  const [preferences, setPreferences] = useState<PreferenceState>({ email: true, sms: false, push: true, incident_assignments: true, corrective_action_reminders: true, audit_reminders: true })
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    const loadPreferences = async () => {
+      const { data, error: preferencesError } = await supabase.from('notification_preferences').select('email, sms, push, incident_assignments, corrective_action_reminders, audit_reminders').eq('user_id', userId).maybeSingle()
+      if (preferencesError) setError(preferencesError.message)
+      else if (data) setPreferences(data)
+      setLoading(false)
+    }
+    void loadPreferences()
+  }, [userId])
+  const savePreferences = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    const { error: saveError } = await supabase.from('notification_preferences').upsert({ user_id: userId, ...preferences })
+    if (saveError) setError(saveError.message)
+    else {
+      await recordActivity(organizationId, userId, 'Notification preferences changed')
+      setMessage('Notification preferences saved.')
+    }
+  }
+  if (loading) return <div className="workspace-panel">Loading notification preferences...</div>
+  const labels: [keyof PreferenceState, string][] = [['email', 'Email notifications'], ['sms', 'SMS notifications'], ['push', 'Push notifications'], ['incident_assignments', 'Incident assignments'], ['corrective_action_reminders', 'Corrective action reminders'], ['audit_reminders', 'Audit reminders']]
+  return <div className="workspace-panel preferences-panel"><div className="eyebrow">PERSONAL SETTINGS</div><h2>Notification Preferences</h2><p>Choose how SentinelQHSE keeps you informed about operational work.</p><form className="preference-form" onSubmit={savePreferences}>{labels.map(([key, label]) => <label className="preference-row" key={key}><span><strong>{label}</strong><small>Receive relevant updates through this channel</small></span><input type="checkbox" checked={preferences[key]} onChange={(event) => setPreferences((current) => ({ ...current, [key]: event.target.checked }))} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save preferences</button></form></div>
+}
+
+type CompanySettingsState = {
+  working_hours: string
+  departments: string
+  operational_sites: string
+  emergency_contacts: string
+  incident_categories: string
+  risk_categories: string
+  severity_levels: string
+  inspection_templates: string
+}
+
+function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: string; userId: string }) {
+  const [settings, setSettings] = useState<CompanySettingsState>({ working_hours: '{}', departments: '[]', operational_sites: '[]', emergency_contacts: '[]', incident_categories: '[]', risk_categories: '[]', severity_levels: '[]', inspection_templates: '[]' })
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    const loadSettings = async () => {
+      const { data, error: settingsError } = await supabase.from('company_settings').select('working_hours, departments, operational_sites, emergency_contacts, incident_categories, risk_categories, severity_levels, inspection_templates').eq('organization_id', organizationId).maybeSingle()
+      if (settingsError) setError(settingsError.message)
+      else if (data) setSettings(Object.fromEntries(Object.entries(data).map(([key, value]) => [key, JSON.stringify(value, null, 2)])) as CompanySettingsState)
+      setLoading(false)
+    }
+    void loadSettings()
+  }, [organizationId])
+  const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    let parsed: Record<string, unknown>
+    try {
+      parsed = Object.fromEntries(Object.entries(settings).map(([key, value]) => [key, JSON.parse(value)]))
+    } catch {
+      setError('Each settings field must contain valid JSON.')
+      return
+    }
+    const { error: saveError } = await supabase.from('company_settings').upsert({ organization_id: organizationId, ...parsed })
+    if (saveError) setError(saveError.message)
+    else {
+      await recordActivity(organizationId, userId, 'Company settings changed')
+      setMessage('Company settings saved.')
+    }
+  }
+  if (loading) return <div className="workspace-panel">Loading company settings...</div>
+  const fields: [keyof CompanySettingsState, string][] = [['working_hours', 'Working hours'], ['departments', 'Departments'], ['operational_sites', 'Operational sites'], ['emergency_contacts', 'Emergency contacts'], ['incident_categories', 'Incident categories'], ['risk_categories', 'Risk categories'], ['severity_levels', 'Severity levels'], ['inspection_templates', 'Inspection templates']]
+  return <div className="workspace-panel settings-panel"><div className="eyebrow">ORGANIZATION CONFIGURATION</div><h2>Company Settings</h2><p>Maintain the organization reference data used by operational workflows. Values are stored as structured JSON.</p><form className="settings-form" onSubmit={saveSettings}>{fields.map(([key, label]) => <label key={key}>{label}<textarea value={settings[key]} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} rows={4} spellCheck={false} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save company settings</button></form></div>
+}
+
+type ManagedUser = {
+  id: string
+  full_name: string
+  employee_id: string | null
+  department: string | null
+  job_title: string | null
+  account_status: string
+  role: Role
+}
+
+const allRoles: Role[] = [
+  'Super Administrator',
+  'Organization Administrator',
+  'QHSE Manager',
+  'Site Supervisor',
+  'Safety Officer / HSE Officer',
+  'Auditor',
+  'Maintenance Engineer',
+  'Field Worker',
+  'Contractor',
+  'Executive / Management',
+]
+
+function ProfileWorkspace({ userId, organizationId, email }: { userId: string; organizationId: string; email: string }) {
+  const [profile, setProfile] = useState<Record<string, string>>({ full_name: '', employee_id: '', department: '', job_title: '', phone: '', emergency_contact: '', site_location: '', supervisor: '', certification_status: '' })
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      const { data, error: profileError } = await supabase.from('profiles').select('full_name, employee_id, department, job_title, phone, emergency_contact, site_location, supervisor, certification_status').eq('id', userId).single()
+      if (profileError) setError(profileError.message)
+      else if (data) setProfile(Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value || ''])))
+      setLoading(false)
+    }
+    void loadProfile()
+  }, [userId])
+
+  const updateField = (field: string, value: string) => setProfile((current) => ({ ...current, [field]: value }))
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    const { error: updateError } = await supabase.from('profiles').update(profile).eq('id', userId).eq('organization_id', organizationId)
+    if (updateError) setError(updateError.message)
+    else {
+      await recordActivity(organizationId, userId, 'Profile updated')
+      setMessage('Profile updated successfully.')
+    }
+  }
+
+  if (loading) return <div className="workspace-panel">Loading profile...</div>
+  return (
+    <div className="workspace-panel">
+      <div className="eyebrow">ACCOUNT PROFILE</div>
+      <h2>My Profile</h2>
+      <p>Maintain the identity and contact information used across your organization.</p>
+      <form className="workspace-form" onSubmit={saveProfile}>
+        <label>Full name<input value={profile.full_name} onChange={(event) => updateField('full_name', event.target.value)} required /></label>
+        <label>Work email<input value={email} disabled /></label>
+        <label>Employee ID<input value={profile.employee_id} onChange={(event) => updateField('employee_id', event.target.value)} /></label>
+        <label>Department<input value={profile.department} onChange={(event) => updateField('department', event.target.value)} /></label>
+        <label>Job title<input value={profile.job_title} onChange={(event) => updateField('job_title', event.target.value)} /></label>
+        <label>Phone number<input value={profile.phone} onChange={(event) => updateField('phone', event.target.value)} /></label>
+        <label>Emergency contact<input value={profile.emergency_contact} onChange={(event) => updateField('emergency_contact', event.target.value)} /></label>
+        <label>Site location<input value={profile.site_location} onChange={(event) => updateField('site_location', event.target.value)} /></label>
+        <label>Supervisor<input value={profile.supervisor} onChange={(event) => updateField('supervisor', event.target.value)} /></label>
+        <label>Certification status<input value={profile.certification_status} onChange={(event) => updateField('certification_status', event.target.value)} /></label>
+        <AuthMessage error={error} success={message} />
+        <button className="button button-green auth-submit">Save profile</button>
+      </form>
+    </div>
+  )
+}
+
+function UsersWorkspace({ organizationId, currentUserId }: { organizationId: string; currentUserId: string }) {
+  const [users, setUsers] = useState<ManagedUser[]>([])
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteName, setInviteName] = useState('')
+  const [inviteRole, setInviteRole] = useState<Role>('Field Worker')
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const loadUsers = async () => {
+    setLoading(true)
+    const [{ data: profiles, error: profileError }, { data: memberships, error: membershipError }] = await Promise.all([
+      supabase.from('profiles').select('id, full_name, employee_id, department, job_title, account_status').eq('organization_id', organizationId).order('full_name'),
+      supabase.from('memberships').select('user_id, role').eq('organization_id', organizationId),
+    ])
+    if (profileError || membershipError) setError(profileError?.message || membershipError?.message || 'Unable to load users.')
+    else {
+      const roleByUser = new Map((memberships || []).map((membership) => [membership.user_id, membership.role as Role]))
+      setUsers((profiles || []).map((profile) => ({ ...profile, role: roleByUser.get(profile.id) || 'Field Worker' })))
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { void loadUsers() }, [organizationId])
+
+  const inviteUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    setInviteLoading(true)
+    const { error: inviteError } = await supabase.functions.invoke('admin-invite-user', {
+      body: { organizationId, email: inviteEmail, fullName: inviteName, role: inviteRole },
+    })
+    setInviteLoading(false)
+    if (inviteError) setError(inviteError.message)
+    else {
+      setMessage(`Invitation sent to ${inviteEmail}.`)
+      setInviteEmail('')
+      setInviteName('')
+      void loadUsers()
+    }
+  }
+
+  const updateUser = async (user: ManagedUser, field: 'role' | 'account_status', value: string) => {
+    setError('')
+    setMessage('')
+    if (field === 'role') {
+      const { error: updateError } = await supabase.from('memberships').update({ role: value }).eq('user_id', user.id).eq('organization_id', organizationId)
+      if (updateError) return setError(updateError.message)
+    } else {
+      const { error: updateError } = await supabase.from('profiles').update({ account_status: value }).eq('id', user.id).eq('organization_id', organizationId)
+      if (updateError) return setError(updateError.message)
+    }
+    setUsers((current) => current.map((item) => item.id === user.id ? { ...item, [field]: value } as ManagedUser : item))
+    await recordActivity(organizationId, currentUserId, `User ${field} changed`, { target_user_id: user.id, value })
+    setMessage(`${user.full_name} updated successfully.`)
+  }
+
+  const exportUsers = () => {
+    const header = 'Name,Employee ID,Department,Job Title,Role,Account Status'
+    const rows = filteredUsers.map((user) => [user.full_name, user.employee_id || '', user.department || '', user.job_title || '', user.role, user.account_status].map((value) => `"${value.replaceAll('"', '""')}"`).join(','))
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'sentinelqhse-users.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const filteredUsers = users.filter((user) => {
+    const matchesQuery = `${user.full_name} ${user.employee_id || ''} ${user.department || ''} ${user.role}`.toLowerCase().includes(query.toLowerCase())
+    return matchesQuery && (statusFilter === 'all' || user.account_status === statusFilter)
+  })
+
+  return (
+    <div className="workspace-panel users-panel">
+      <div className="workspace-panel-heading"><div><div className="eyebrow">ADMINISTRATION</div><h2>User Management</h2><p>Manage organization members, roles, and account status.</p></div><button className="button button-green button-small" type="button" onClick={exportUsers}>Export users</button></div>
+      <form className="invite-form" onSubmit={inviteUser}>
+        <div><strong>Invite a user</strong><span>Invitation emails are sent through Supabase Auth.</span></div>
+        <input value={inviteName} onChange={(event) => setInviteName(event.target.value)} placeholder="Full name" required />
+        <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} type="email" placeholder="Work email" required />
+        <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as Role)}>{allRoles.filter((role) => role !== 'Super Administrator').map((role) => <option value={role} key={role}>{role}</option>)}</select>
+        <button className="button button-green button-small" disabled={inviteLoading}>{inviteLoading ? 'Sending...' : 'Send invite'}</button>
+      </form>
+      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
+      <AuthMessage error={error} success={message} />
+      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{user.department || 'Not set'}</td><td><select value={user.role} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{allRoles.map((role) => <option value={role} key={role}>{role}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select></td><td><button className="table-action" type="button" disabled={user.id === currentUserId} onClick={() => void updateUser(user, 'account_status', user.account_status === 'suspended' ? 'active' : 'suspended')}>{user.account_status === 'suspended' ? 'Activate' : 'Suspend'}</button></td></tr>)}</tbody></table></div>}
+      <p className="workspace-note">Password resets remain server-side through Supabase Auth. The browser never receives the service-role credential.</p>
+    </div>
+  )
+}
+
+function RegistrationPage() {
+  const [companyCode, setCompanyCode] = useState(`SENT-${Math.random().toString(36).slice(2, 8).toUpperCase()}`)
+  const [region, setRegion] = useState('')
+  const [country, setCountry] = useState('')
+  const [selectedState, setSelectedState] = useState('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    const form = new FormData(event.currentTarget)
+    const values = {
+      companyCode: companyCode.trim().toUpperCase(),
+      companyName: String(form.get('companyName') || ''),
+      companyRegistrationNumber: String(form.get('companyRegistrationNumber') || ''),
+      companyType: String(form.get('companyType') || ''),
+      industry: String(form.get('industry') || ''),
+      companySize: String(form.get('companySize') || ''),
+      region,
+      country,
+      state: selectedState,
+      address: String(form.get('address') || ''),
+      contactEmail: String(form.get('contactEmail') || ''),
+      contactPhone: String(form.get('contactPhone') || ''),
+      adminName: String(form.get('adminName') || ''),
+      adminEmail: String(form.get('adminEmail') || ''),
+      password: String(form.get('password') || ''),
+      passwordConfirmation: String(form.get('passwordConfirmation') || ''),
+      acceptTerms: form.get('acceptTerms') === 'on',
+    }
+    const parsed = registrationSchema.safeParse(values)
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message || 'Check the registration details and try again.')
+      return
+    }
+    if (!isSupabaseConfigured) {
+      setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.')
+      return
+    }
+
+    setLoading(true)
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: parsed.data.adminEmail,
+      password: parsed.data.password,
+      options: { data: { full_name: parsed.data.adminName } },
+    })
+    if (signUpError) {
+      setLoading(false)
+      setError(signUpError.message)
+      return
+    }
+    if (!signUpData.user) {
+      setLoading(false)
+      setError('The administrator account could not be created.')
+      return
+    }
+    if (!signUpData.session) {
+      setLoading(false)
+      setMessage('Account created. Confirm the administrator email, then sign in to complete organization setup.')
+      return
+    }
+
+    const { data: organization, error: organizationError } = await supabase.rpc('create_organization_with_owner', {
+      organization_data: {
+        company_code: parsed.data.companyCode,
+        company_name: parsed.data.companyName,
+        logo_url: '',
+        industry: parsed.data.industry,
+        company_registration_number: parsed.data.companyRegistrationNumber,
+        company_type: parsed.data.companyType,
+        company_size: parsed.data.companySize,
+        region: parsed.data.region,
+        country: parsed.data.country,
+        state: parsed.data.state,
+        address: parsed.data.address,
+        contact_email: parsed.data.contactEmail,
+        contact_phone: parsed.data.contactPhone,
+      },
+      owner_full_name: parsed.data.adminName,
+    })
+    if (organizationError || !organization) {
+      setLoading(false)
+      setError(organizationError?.message || 'The organization could not be created.')
+      return
+    }
+
+    const logo = form.get('logo')
+    if (logo instanceof File && logo.size > 0) {
+      if (!logo.type.startsWith('image/') || logo.size > 5 * 1024 * 1024) {
+        setLoading(false)
+        setError('Organization created, but the logo must be an image smaller than 5 MB.')
+        return
+      }
+      const logoPath = `${organization.id}/${crypto.randomUUID()}-${logo.name}`
+      const { error: uploadError } = await supabase.storage.from('organization-assets').upload(logoPath, logo, { upsert: false })
+      if (uploadError) {
+        setLoading(false)
+        setError(`Organization created, but logo upload failed: ${uploadError.message}`)
+        return
+      }
+      const { error: logoUpdateError } = await supabase.from('organizations').update({ logo_url: logoPath }).eq('id', organization.id)
+      if (logoUpdateError) {
+        setLoading(false)
+        setError(`Organization created, but logo linking failed: ${logoUpdateError.message}`)
+        return
+      }
+    }
+
+    setLoading(false)
+    setMessage(`Organization created. ${parsed.data.adminName} is now the Super Administrator. You can sign in.`)
+  }
+
+  return (
+    <AuthShell title="Register your organization" subtitle="Create your company workspace and become its first Super Administrator.">
+      <form className="auth-form registration-form" onSubmit={submit}>
+        <div className="form-section-title">Company details</div>
+        <div className="form-grid">
+          <label>Company name<input name="companyName" placeholder="Acme Energy Ltd" /></label>
+          <label>Company code<input value={companyCode} onChange={(event) => setCompanyCode(event.target.value.toUpperCase())} maxLength={20} /></label>
+          <label>Industry<select name="industry" defaultValue=""><option value="" disabled>Select industry</option><option>Oil & Gas</option><option>Mining</option><option>Power & Utilities</option><option>Construction</option><option>Manufacturing</option></select></label>
+          <label>Company type<input name="companyType" placeholder="Private limited" /></label>
+          <label>Company size<select name="companySize" defaultValue=""><option value="" disabled>Select size</option><option>1-50</option><option>51-250</option><option>251-1,000</option><option>1,001+</option></select></label>
+          <label>Registration number<input name="companyRegistrationNumber" placeholder="Optional" /></label>
+          <label>Region<select name="region" value={region} onChange={(event) => setRegion(event.target.value)}><option value="" disabled>Select region</option>{worldRegions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
+          <label>Country<select name="country" value={country} onChange={(event) => { setCountry(event.target.value); setSelectedState('') }}><option value="" disabled>Select country</option>{countries.map((option) => <option value={option.name} key={option.code}>{option.name}</option>)}</select></label>
+          <label>State / Province<select name="state" value={selectedState} onChange={(event) => setSelectedState(event.target.value)} disabled={!country}><option value="" disabled>{country ? 'Select state or province' : 'Select a country first'}</option>{countries.find((option) => option.name === country)?.regions.map(([name, code]) => <option value={name} key={code}>{name}</option>)}</select></label>
+        </div>
+        <label>Address<input name="address" placeholder="Company address" /></label>
+        <div className="form-grid">
+          <label>Contact email<input name="contactEmail" type="email" placeholder="contact@company.com" /></label>
+          <label>Contact phone<input name="contactPhone" type="tel" placeholder="+234 ..." /></label>
+        </div>
+        <label>Company logo <input name="logo" type="file" accept="image/*" /></label>
+        <div className="form-section-title">Administrator account</div>
+        <div className="form-grid">
+          <label>Full name<input name="adminName" placeholder="Your full name" autoComplete="name" /></label>
+          <label>Work email<input name="adminEmail" type="email" placeholder="admin@company.com" autoComplete="email" /></label>
+        </div>
+        <div className="form-grid">
+          <label>Password<input name="password" type="password" autoComplete="new-password" /></label>
+          <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" /></label>
+        </div>
+        <label className="checkbox-label"><input name="acceptTerms" type="checkbox" /> I agree to the platform terms and privacy policy.</label>
+        <AuthMessage error={error} success={message} />
+        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : 'Create organization →'}</button>
+        <p className="auth-footer-copy">Already registered? <a href="#sign-in">Sign in</a></p>
+      </form>
+    </AuthShell>
+  )
+}
+
+export default function App() {
+  const [authRoute, setAuthRoute] = useState<AuthRoute | null>(() => getAuthRoute())
+  const [session, setSession] = useState<Session | null>(null)
+  const [sessionLoading, setSessionLoading] = useState(true)
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('sentinel-theme') === 'dark')
+
+  useEffect(() => {
+    const handleHashChange = () => setAuthRoute(getAuthRoute())
+    void supabase.auth.getSession().then(({ data: sessionData }) => {
+      setSession(sessionData.session)
+      setSessionLoading(false)
+    })
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession)
+      setSessionLoading(false)
+      if (event === 'PASSWORD_RECOVERY') setAuthRoute('reset-password')
+    })
+    window.addEventListener('hashchange', handleHashChange)
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+      data.subscription.unsubscribe()
+    }
+  }, [])
+
+  const toggleTheme = () => {
+    setIsDarkMode((current) => {
+      const next = !current
+      localStorage.setItem('sentinel-theme', next ? 'dark' : 'light')
+      return next
+    })
+  }
+
+  if (authRoute === 'sign-in') return <SignInPage />
+  if (authRoute === 'register') return <RegistrationPage />
+  if (authRoute === 'forgot-password') return <ForgotPasswordPage />
+  if (authRoute === 'reset-password') return <PasswordPage reset />
+  if (authRoute === 'change-password') return <PasswordPage />
+  if (authRoute === 'mfa') return <MfaPage />
+  if (authRoute === 'demo') return <DemoRequestPage />
+
+  const requestedRoute = window.location.hash.replace('#/', '').replace('#', '')
+  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'users' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
+  if (protectedRoute) {
+    if (sessionLoading) return <div className="protected-state">Checking your session...</div>
+    if (!session) return <SignInPage />
+    return <ProtectedApp session={session} isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
+  }
+
+  return (
+    <div className={`app-shell${isDarkMode ? ' dark-theme' : ''}`}>
       <header className="site-header">
         <div className="container nav-wrap">
           <a className="brand" href="#top" aria-label="SentinelQHSE home">
@@ -44,10 +902,10 @@ export default function App() {
             <span className="brand-copy">
               <strong>
                 SentinelQHSE<sup>™</sup>
-              </strong>
+              </strong> 
               <small>SAFETY INTELLIGENCE</small>
             </span>
-          </a>
+          </a> 
 
           <nav className="desktop-nav" aria-label="Primary navigation">
             {navItems.map((item) => (
@@ -58,13 +916,22 @@ export default function App() {
           </nav>
 
           <div className="nav-actions">
-            <button className="theme-button" type="button" aria-label="Theme">
+            <button
+              className="theme-button"
+              type="button"
+              aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-pressed={isDarkMode}
+              onClick={toggleTheme}
+            >
               <ThemeIcon />
             </button>
-            <a className="signin-link" href="signin.html">
+            <a className="signup-link" href="#register">
+              Sign Up
+            </a>
+            <a className="signin-link" href="#sign-in">
               Sign In
             </a>
-            <a className="button button-green button-small" href="#contact">
+            <a className="button button-green button-small" href="#demo">
               Request Demo
             </a>
           </div>
@@ -77,8 +944,9 @@ export default function App() {
                   {item}
                 </a>
               ))}
-              <a href="signin.html">Sign In</a>
-              <a className="button button-green" href="#contact">
+              <a href="#register">Sign Up</a>
+              <a href="#sign-in">Sign In</a>
+              <a className="button button-green" href="#demo">
                 Request Demo
               </a>
             </div>
@@ -99,14 +967,14 @@ export default function App() {
               </p>
 
               <div className="hero-actions">
-                <a className="button button-green button-large" href="#contact">
+                <a className="button button-green button-large" href="#demo">
                   Request Demo
                   <span aria-hidden="true">→</span>
                 </a>
-                <a className="button button-outline button-large" href="signin.html">
+                <a className="button button-outline button-large" href="#sign-in">
                   Sign In
                 </a>
-                <a className="text-link" href="#contact">
+                <a className="text-link" href="#demo">
                   Contact Sales
                 </a>
               </div>
@@ -355,25 +1223,11 @@ export default function App() {
             </div>
 
             <div className="outcome-dashboard">
-              <div className="mini-dashboard">
-                <div className="mini-top">
-                  <strong>SentinelQHSE</strong>
-                  <span>Operational Safety</span>
-                </div>
-                <div className="mini-stats">
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </div>
-                <div className="mini-body">
-                  <div className="mini-chart" />
-                  <div className="mini-panel" />
-                  <div className="mini-heat" />
-                  <div className="mini-bars" />
-                </div>
-              </div>
+              <img
+                className="customer-benefits-image"
+                src={customerBenefitsDashboard}
+                alt="SentinelQHSE safety analytics dashboard"
+              />
             </div>
           </div>
         </section>
@@ -427,12 +1281,12 @@ export default function App() {
           <div>
             <h4>Company</h4>
             <a href="#contact">Contact sales</a>
-            <a href="register.html">Register organization</a>
+            <a href="#register">Register organization</a>
           </div>
           <div>
             <h4>Access</h4>
-            <a href="signin.html">Sign in</a>
-            <a href="forgot-password.html">Forgot password</a>
+            <a href="#sign-in">Sign in</a>
+            <a href="#forgot-password">Forgot password</a>
           </div>
         </div>
         <div className="container footer-bottom">© 2026 SentinelQHSE™. All rights reserved.</div>
