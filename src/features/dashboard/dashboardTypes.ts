@@ -47,9 +47,11 @@ export type DashboardDistributionPoint = { name: string; value: number }
 export type DashboardComparisonPoint = { name: string; value: number }
 export type CorrectiveActionPoint = { status: string; value: number }
 export type InspectionSummary = { scheduled: number; completed: number; overdue: number; findings: number }
+export type DashboardIncident = { id: string; referenceNumber: string; title: string; reportType: string; status: string; occurredAt: string | null; location: string | null; severity: string | null }
 
 export type DashboardSnapshot = {
   activities: DashboardActivity[]
+  recentIncidents: DashboardIncident[]
   metrics: DashboardMetric[]
   incidentTrend: DashboardTrendPoint[]
   incidentSeverity: DashboardDistributionPoint[]

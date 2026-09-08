@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import type { DashboardActivity, DashboardFilters, DashboardMetric, DashboardSnapshot } from './dashboardTypes'
+import type { DashboardActivity, DashboardFilters, DashboardIncident, DashboardMetric, DashboardSnapshot } from './dashboardTypes'
 
 const dateRangeDays: Record<DashboardFilters['dateRange'], number | null> = {
   '7d': 7,
@@ -71,6 +71,55 @@ export async function getDashboardSnapshot(
     .eq('organization_id', organizationId)
     .maybeSingle()
 
+  const countIncidents = async (status?: 'submitted' | 'under_review' | 'closed', reportType?: 'near_miss') => {
+    let query = client
+      .from('incidents')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+    if (status) query = query.eq('status', status)
+    if (reportType) query = query.eq('report_type', reportType)
+    if (since) query = query.gte('occurred_at', since)
+    if (filters.site !== 'all') query = query.eq('site_id', filters.site)
+    if (filters.department !== 'all') query = query.eq('department', filters.department)
+    if (filters.severity !== 'all') query = query.eq('severity', filters.severity)
+    if (filters.incidentType !== 'all') query = query.eq('report_type', filters.incidentType)
+    return query
+  }
+
+  const [totalResult, submittedResult, reviewResult, closedResult, nearMissResult, recentIncidentResult] = await Promise.all([
+    countIncidents(),
+    countIncidents('submitted'),
+    countIncidents('under_review'),
+    countIncidents('closed'),
+    countIncidents(undefined, 'near_miss'),
+    client.from('incidents').select('id, reference_number, title, report_type, status, occurred_at, location, severity').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(5),
+  ])
+  const incidentQueryError = [totalResult, submittedResult, reviewResult, closedResult, nearMissResult].find((result) => result.error)?.error
+  if (incidentQueryError || recentIncidentResult.error) throw new Error('Unable to load incident dashboard metrics.')
+  const incidentCount = totalResult.count || 0
+  const incidentMetricValues: Record<string, number> = {
+    'total-incidents': incidentCount,
+    'open-incidents': submittedResult.count || 0,
+    'under-review-incidents': reviewResult.count || 0,
+    'closed-incidents': closedResult.count || 0,
+    'near-misses': nearMissResult.count || 0,
+  }
+  const metrics = unavailableMetrics().map((metric) => {
+    const value = incidentMetricValues[metric.key]
+    if (value === undefined) return metric
+    return { ...metric, value: String(value), detail: 'Organization incident data', available: true, tone: metric.key === 'open-incidents' ? 'orange' as const : 'green' as const }
+  })
+  const recentIncidents = (recentIncidentResult.data || []).map((incident) => ({
+    id: incident.id,
+    referenceNumber: incident.reference_number,
+    title: incident.title,
+    reportType: incident.report_type,
+    status: incident.status,
+    occurredAt: incident.occurred_at,
+    location: incident.location,
+    severity: incident.severity,
+  })) as DashboardIncident[]
+
   const filteredData = (data || []).filter((item) => {
     const metadata = (item.metadata || {}) as Record<string, unknown>
     const matches = (filter: string, key: string) => filter === 'all' || metadataText(metadata, key) === filter
@@ -98,7 +147,8 @@ export async function getDashboardSnapshot(
 
   return {
     activities,
-    metrics: unavailableMetrics(),
+    recentIncidents,
+    metrics,
     incidentTrend: [],
     incidentSeverity: [],
     incidentTypes: [],
@@ -110,6 +160,6 @@ export async function getDashboardSnapshot(
     configuredIncidentTypes: configuredNames(settings?.incident_categories),
     configuredDepartments: configuredNames(settings?.departments),
     configuredSites: configuredNames(settings?.operational_sites),
-    hasOperationalData: false,
+    hasOperationalData: incidentCount > 0,
   }
 }

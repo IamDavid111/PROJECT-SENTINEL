@@ -9,6 +9,9 @@ import { registrationSchema } from './lib/schemas'
 import { countries, worldRegions } from './lib/locations'
 import type { Role } from './types'
 import { DashboardPage } from './features/dashboard/DashboardPage'
+import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
+import { MyReportsPage } from './features/incidents/MyReportsPage'
+import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
 
@@ -235,7 +238,7 @@ function DemoRequestPage() {
   )
 }
 
-type AppRoute = 'dashboard' | 'report-incident' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'users' | 'profile' | 'preferences' | 'activity-log' | 'settings'
+type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'users' | 'profile' | 'preferences' | 'activity-log' | 'settings'
 type Permission = 'view_dashboard' | 'report_incident' | 'use_ai_assistant' | 'view_executive_analytics' | 'view_marketplace' | 'create_inspection' | 'create_corrective_action' | 'start_audit' | 'view_reports' | 'manage_users' | 'view_profile' | 'view_activity' | 'manage_settings'
 
 const rolePermissions: Record<Role, Permission[]> = {
@@ -261,6 +264,7 @@ const primaryNavigation: { route: AppRoute; label: string; icon: string; permiss
 ]
 
 const secondaryNavigation: { route: AppRoute; label: string; permission: Permission }[] = [
+  { route: 'my-reports', label: 'My Reports', permission: 'view_profile' },
   { route: 'profile', label: 'User Profile', permission: 'view_profile' },
   { route: 'preferences', label: 'Notification Preferences', permission: 'view_profile' },
   { route: 'activity-log', label: 'Activity Log', permission: 'view_activity' },
@@ -276,8 +280,8 @@ const futureModuleRoutes: { route: AppRoute; label: string; permission: Permissi
 ]
 
 function getAppRoute(): AppRoute {
-  const route = window.location.hash.replace('#/', '').replace('#', '')
-  return route === 'report-incident' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'users' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+  const route = window.location.hash.replace('#/', '').replace('#', '').split('?')[0]
+  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'users' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
 }
 
 function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
@@ -367,7 +371,10 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
         </header>
         <section className="workspace-content">
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={role} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
-          {route === 'report-incident' && canAccess('report_incident') && <WorkspacePlaceholder title="Report Incident" description="Incident capture will connect to the QHSE incident workflow in the next operational module." action="Create incident report" />}
+          {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage role={role} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
+          {route === 'my-reports' && <MyReportsPage supabase={supabase} />}
+          {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
+          {route === 'incident-detail' && <WorkspacePlaceholder title="Incident detail" description="The submitted incident is saved and ready for the incident detail foundation in the next batch." action="Incident reference available in My Reports" />}
           {route === 'incidents' && <WorkspacePlaceholder title="Incident Management" description="Incident Management is the next operational module. Dashboard drill-downs will connect here when the incident data model is available." action="Module coming next" />}
           {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
           {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
@@ -886,7 +893,7 @@ export default function App() {
   if (authRoute === 'demo') return <DemoRequestPage />
 
   const requestedRoute = window.location.hash.replace('#/', '').replace('#', '')
-  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'users' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
+  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'users' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>
     if (!session) return <SignInPage />

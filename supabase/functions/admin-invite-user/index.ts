@@ -1,11 +1,29 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2'
+
+type InviteRole =
+  | 'Organization Administrator'
+  | 'QHSE Manager'
+  | 'Site Supervisor'
+  | 'Safety Officer / HSE Officer'
+  | 'Auditor'
+  | 'Maintenance Engineer'
+  | 'Field Worker'
+  | 'Contractor'
+  | 'Executive / Management'
+
+type InviteRequest = {
+  organizationId: string
+  email: string
+  fullName: string
+  role: InviteRole
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-Deno.serve(async (request) => {
+Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
@@ -19,7 +37,7 @@ Deno.serve(async (request) => {
     const { data: { user: requester }, error: requesterError } = await userClient.auth.getUser()
     if (requesterError || !requester) throw new Error('Invalid authentication token')
 
-    const body = await request.json()
+    const body = await request.json() as InviteRequest
     const { organizationId, email, fullName, role } = body
     if (!organizationId || !email || !fullName || !role) throw new Error('Organization, email, name, and role are required')
 
