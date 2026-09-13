@@ -374,8 +374,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage role={role} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
           {route === 'my-reports' && <MyReportsPage supabase={supabase} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
-          {route === 'incident-detail' && <WorkspacePlaceholder title="Incident detail" description="The submitted incident is saved and ready for the incident detail foundation in the next batch." action="Incident reference available in My Reports" />}
-          {route === 'incidents' && <WorkspacePlaceholder title="Incident Management" description="Incident Management is the next operational module. Dashboard drill-downs will connect here when the incident data model is available." action="Module coming next" />}
+          {route === 'incidents' && <MyReportsPage supabase={supabase} />}
           {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
           {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}

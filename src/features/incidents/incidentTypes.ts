@@ -8,7 +8,7 @@ export const incidentReportTypes = [
 
 export type IncidentReportType = (typeof incidentReportTypes)[number]
 
-export const incidentStatuses = ['draft', 'submitted', 'under_review', 'closed'] as const
+export const incidentStatuses = ['draft', 'submitted', 'under_review', 'investigation', 'corrective_action', 'pending_verification', 'closed'] as const
 export type IncidentStatus = (typeof incidentStatuses)[number]
 
 export const incidentSeverities = ['low', 'medium', 'high', 'critical'] as const
@@ -56,6 +56,7 @@ export type IncidentSummary = {
   severity: string | null
   potentialSeverity: string | null
   incidentCategory: string | null
+  siteName?: string | null
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -72,6 +73,15 @@ export type IncidentDetail = IncidentSummary & {
   propertyDamage: boolean
   workRelated: boolean
   immediateCorrection: string | null
+  priority: string | null
+  gpsCoordinates: string | null
+  weatherConditions: string | null
+  equipmentInvolved: string | null
+  peopleInvolved: string | null
+  witnesses: string | null
+  potentialRootCause: string | null
+  digitalSignature: string | null
+  accuracyConfirmed: boolean
   evidence: IncidentEvidence[]
   people: IncidentPerson[]
 }
@@ -96,6 +106,15 @@ export type IncidentDraftInput = {
   propertyDamage?: boolean
   workRelated?: boolean
   immediateCorrection?: string
+  priority?: string
+  gpsCoordinates?: string
+  weatherConditions?: string
+  equipmentInvolved?: string
+  peopleInvolved?: string
+  witnesses?: string
+  potentialRootCause?: string
+  digitalSignature?: string
+  accuracyConfirmed?: boolean
 }
 
 export type IncidentSubmissionInput = IncidentDraftInput & {
@@ -111,6 +130,8 @@ export type IncidentListFilters = {
   search?: string
   status?: IncidentStatus | 'all'
   reportType?: IncidentReportType | 'all'
+  severity?: string | 'all'
+  siteId?: string | 'all'
   dateFrom?: string
   dateTo?: string
   page?: number

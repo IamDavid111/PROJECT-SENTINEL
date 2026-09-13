@@ -25,6 +25,15 @@ const incidentDraftFields = z.object({
   propertyDamage: z.boolean().optional(),
   workRelated: z.boolean().optional(),
   immediateCorrection: z.string().trim().max(5000).optional(),
+  priority: z.string().trim().max(80).optional(),
+  gpsCoordinates: z.string().trim().max(120).optional(),
+  weatherConditions: z.string().trim().max(240).optional(),
+  equipmentInvolved: z.string().trim().max(240).optional(),
+  peopleInvolved: z.string().trim().max(5000).optional(),
+  witnesses: z.string().trim().max(5000).optional(),
+  potentialRootCause: z.string().trim().max(5000).optional(),
+  digitalSignature: z.string().trim().max(240).optional(),
+  accuracyConfirmed: z.boolean().optional(),
 })
 
 function addCommonIncidentRules(data: { contractorInvolved?: boolean; contractorOrganization?: string; reportType: string; environmentalImpact?: boolean }, context: z.RefinementCtx) {
@@ -69,7 +78,7 @@ export const incidentFormSchema = incidentDraftFields.extend({
 export const incidentEvidenceMetadataSchema = z.object({
   incidentId: uuid,
   originalFilename: z.string().trim().min(1).max(255),
-  mimeType: z.string().regex(/^(image\/(jpeg|png|webp)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|text\/plain)$/, 'Unsupported evidence file type.'),
+  mimeType: z.string().regex(/^(image\/(jpeg|png|webp)|video\/(mp4|webm|quicktime)|audio\/(mpeg|mp4|wav|webm)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|text\/plain)$/, 'Unsupported evidence file type.'),
   fileSize: z.number().int().positive().max(10 * 1024 * 1024, 'Evidence must be 10 MB or smaller.'),
 })
 
@@ -86,6 +95,8 @@ export const incidentListFiltersSchema = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.enum([...incidentStatuses, 'all'] as const).optional().default('all'),
   reportType: z.enum([...incidentReportTypes, 'all'] as const).optional().default('all'),
+  severity: z.string().trim().max(80).optional().default('all'),
+  siteId: uuid.or(z.literal('all')).optional().default('all'),
   dateFrom: z.string().date().optional(),
   dateTo: z.string().date().optional(),
   page: z.number().int().min(1).optional().default(1),

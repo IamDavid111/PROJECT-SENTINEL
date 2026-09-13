@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { incidentFormSchema, incidentSubmissionSchema, type IncidentFormValues } from './incidentSchemas'
-import { useCreateIncidentDraft, useIncidentOrganization, useSubmitIncident, useUpdateIncidentDraft } from './useIncidentData'
+import { useCreateIncidentDraft, useIncidentOrganization, useSubmitIncident, useUpdateIncidentDraft, useUploadIncidentEvidence } from './useIncidentData'
 import type { IncidentDetail, IncidentDraftInput, IncidentReportType, IncidentSubmissionInput } from './incidentTypes'
 
 const fallbackSeverities = ['low', 'medium', 'high', 'critical']
+const stages = ['Event', 'Location & context', 'People', 'Evidence & sign-off'] as const
+const quickTemplates: Record<string, Partial<IncidentFormValues>> = {
+  'Near miss': { reportType: 'near_miss', title: 'Near miss', incidentCategory: 'Near Miss' },
+  'Unsafe condition': { reportType: 'unsafe_condition', title: 'Unsafe condition', incidentCategory: 'Unsafe Condition' },
+  'Slip / trip / fall': { reportType: 'incident', title: 'Slip / trip / fall', incidentCategory: 'Injury' },
+  'Minor spill': { reportType: 'environmental_incident', title: 'Minor spill', incidentCategory: 'Oil Spill', environmentalImpact: true },
+  'Vehicle incident': { reportType: 'incident', title: 'Vehicle incident', incidentCategory: 'Vehicle Incident' },
+}
 
 type SiteOption = { id: string; name: string }
 type FacilityOption = { id: string; name: string; site_id: string }
@@ -53,10 +62,19 @@ function toDraftInput(values: IncidentFormValues): IncidentDraftInput {
     propertyDamage: values.propertyDamage,
     workRelated: values.workRelated,
     immediateCorrection: values.immediateCorrection,
+    priority: values.priority,
+    gpsCoordinates: values.gpsCoordinates,
+    weatherConditions: values.weatherConditions,
+    equipmentInvolved: values.equipmentInvolved,
+    peopleInvolved: values.peopleInvolved,
+    witnesses: values.witnesses,
+    potentialRootCause: values.potentialRootCause,
+    digitalSignature: values.digitalSignature,
+    accuracyConfirmed: values.accuracyConfirmed,
   }
 }
 
-export function IncidentReportForm({ supabase, reportType, draftId: existingDraftId, initialIncident, onBack }: { supabase: SupabaseClient; reportType: IncidentReportType; draftId?: string; initialIncident?: IncidentDetail; onBack: () => void }) {
+export function IncidentReportForm({ supabase, reportType, draftId: existingDraftId, initialIncident }: { supabase: SupabaseClient; reportType: IncidentReportType; draftId?: string; initialIncident?: IncidentDetail; onBack: () => void }) {
   const organization = useIncidentOrganization(supabase)
   const [sites, setSites] = useState<SiteOption[]>([])
   const [facilities, setFacilities] = useState<FacilityOption[]>([])
@@ -65,9 +83,12 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
   const [submitError, setSubmitError] = useState('')
   const [draftId, setDraftId] = useState<string | null>(existingDraftId || null)
   const [draftReference, setDraftReference] = useState(existingDraftId ? (initialIncident?.referenceNumber || '') : '')
+  const [activeStage, setActiveStage] = useState(0)
+  const [fieldMode, setFieldMode] = useState(false)
   const createDraft = useCreateIncidentDraft(supabase)
   const updateDraft = useUpdateIncidentDraft(supabase)
   const submitIncident = useSubmitIncident(supabase)
+  const uploadEvidence = useUploadIncidentEvidence(supabase)
   const form = useForm<IncidentFormValues>({
     resolver: zodResolver(incidentFormSchema),
     defaultValues: {
@@ -77,6 +98,15 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
       injuryOrIllness: false,
       propertyDamage: false,
       workRelated: true,
+      priority: '',
+      gpsCoordinates: '',
+      weatherConditions: '',
+      equipmentInvolved: '',
+      peopleInvolved: '',
+      witnesses: '',
+      potentialRootCause: '',
+      digitalSignature: '',
+      accuracyConfirmed: false,
       affectedPersonName: '',
       affectedPersonOrganization: '',
       witnessName: '',
@@ -84,9 +114,7 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
       witnessContactDetails: '',
     },
   })
-  const contractorInvolved = form.watch('contractorInvolved')
   const selectedSite = form.watch('siteId')
-  const incidentType = form.watch('reportType')
 
   useEffect(() => {
     if (!initialIncident) return
@@ -112,6 +140,15 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
       propertyDamage: initialIncident.propertyDamage,
       workRelated: initialIncident.workRelated,
       immediateCorrection: initialIncident.immediateCorrection || '',
+      priority: '',
+      gpsCoordinates: '',
+      weatherConditions: '',
+      equipmentInvolved: '',
+      peopleInvolved: '',
+      witnesses: '',
+      potentialRootCause: '',
+      digitalSignature: '',
+      accuracyConfirmed: false,
     })
   }, [form, initialIncident])
 
@@ -191,72 +228,94 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
     setSubmitMessage('')
   })
 
+  const stageFields: Array<Array<keyof IncidentFormValues>> = [
+    ['title', 'incidentCategory', 'severity', 'occurrenceDate', 'occurrenceTime', 'description'],
+    ['siteId', 'location'],
+    ['immediateCorrection'],
+    ['digitalSignature', 'accuracyConfirmed'],
+  ]
+
+  const continueStage = async () => {
+    const valid = await form.trigger(stageFields[activeStage])
+    if (valid) setActiveStage((stage) => Math.min(stage + 1, stages.length - 1))
+  }
+
+  const applyTemplate = (template: string) => {
+    const values = quickTemplates[template]
+    if (values) form.reset({ ...form.getValues(), ...values })
+  }
+
+  const handleEvidence = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!draftId) {
+      setSubmitError('Save the draft before adding evidence.')
+      return
+    }
+    try {
+      await uploadEvidence.mutateAsync({ incidentId: draftId, file })
+      setSubmitMessage('Evidence uploaded securely.')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Unable to upload evidence.')
+    }
+  }
+
   return (
     <div className="incident-form-page">
       <div className="incident-form-header">
         <div>
-          <div className="eyebrow">REPORT INCIDENT</div>
-          <h2>{incidentType.replaceAll('_', ' ')}</h2>
-          <p>Capture the event carefully. Immediate correction is recorded separately from future corrective action.</p>
+          <h2>Report an incident</h2>
+          <p>Progressive form — drafts are auto-saved and can be submitted offline; they sync when connectivity returns.</p>
         </div>
-        <button className="button button-outline incident-back-button" type="button" onClick={onBack}>Change report type</button>
+        <button className="button button-outline incident-save-button" type="button" disabled={isBusy} onClick={() => void saveDraft()}>Save draft</button>
       </div>
-
-      <form className="incident-form" onSubmit={submitReport}>
-        <section className="incident-form-section">
-          <div className="incident-form-section-heading"><span>01</span><div><h3>Event information</h3><p>Describe when and where the event occurred.</p></div></div>
+      <div className="incident-stage-progress"><div className="incident-stage-bar"><span style={{ width: `${((activeStage + 1) / stages.length) * 100}%` }} /></div><div className="incident-stage-labels">{stages.map((stage, index) => <button type="button" className={index === activeStage ? 'active' : index < activeStage ? 'complete' : ''} key={stage} onClick={() => index <= activeStage && setActiveStage(index)}>{index + 1}. {stage}</button>)}</div></div>
+      <div className="incident-wizard-layout">
+        <form className="incident-form" onSubmit={submitReport}>
+        {activeStage === 0 && <section className="incident-form-section">
+          <div className="incident-form-section-heading"><div><h3>What happened?</h3><p>Required fields are validated before you can continue.</p></div></div>
           <div className="incident-form-grid">
-            <label>Title<input {...form.register('title')} placeholder="Short, specific event title" />{fieldError(form.formState.errors.title?.message)}</label>
-            <label>Occurrence date<input type="date" {...form.register('occurrenceDate')} />{fieldError(form.formState.errors.occurrenceDate?.message)}</label>
-            <label>Occurrence time<input type="time" {...form.register('occurrenceTime')} />{fieldError(form.formState.errors.occurrenceTime?.message)}</label>
-            <label>Site<select {...form.register('siteId')}><option value="">Select site</option>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>{fieldError(form.formState.errors.siteId?.message)}</label>
-            <label>Facility<select {...form.register('facilityId')} disabled={!selectedSite}><option value="">Select facility</option>{availableFacilities.map((facility) => <option value={facility.id} key={facility.id}>{facility.name}</option>)}</select></label>
-            <label>Location<input {...form.register('location')} placeholder="Area, unit, or precise location" />{fieldError(form.formState.errors.location?.message)}</label>
+            <label className="incident-form-wide">Incident title *<input {...form.register('title')} placeholder="Short factual description" />{fieldError(form.formState.errors.title?.message)}</label>
+            <label>Category *<select {...form.register('incidentCategory')}><option value="">Select category</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select>{fieldError(form.formState.errors.incidentCategory?.message)}</label>
+            <label>Severity *<select {...form.register('severity')}><option value="">Select severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select>{fieldError(form.formState.errors.severity?.message)}</label>
+            <label>Priority<select {...form.register('priority')}><option value="">Select priority</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label>
+            <label>Date *<input type="date" {...form.register('occurrenceDate')} />{fieldError(form.formState.errors.occurrenceDate?.message)}</label>
+            <label>Time *<input type="time" {...form.register('occurrenceTime')} />{fieldError(form.formState.errors.occurrenceTime?.message)}</label>
+            <label className="incident-form-wide">Description *<textarea {...form.register('description')} rows={5} placeholder="Describe the sequence of events factually." />{fieldError(form.formState.errors.description?.message)}</label>
+          </div>
+        </section>}
+        {activeStage === 1 && <section className="incident-form-section">
+          <div className="incident-form-section-heading"><div><h3>Where and under what conditions?</h3></div></div>
+          <div className="incident-form-grid">
+            <label>Site *<select {...form.register('siteId')}><option value="">Select site</option>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>{fieldError(form.formState.errors.siteId?.message)}</label>
+            <label>Facility / area<select {...form.register('facilityId')} disabled={!selectedSite}><option value="">Select facility</option>{availableFacilities.map((facility) => <option value={facility.id} key={facility.id}>{facility.name}</option>)}</select></label>
             <label>Department<select {...form.register('department')}><option value="">Select department</option>{departments.map((department) => <option value={department} key={department}>{department}</option>)}</select></label>
-            <label className="incident-form-wide">Work/activity context<textarea {...form.register('workActivityContext')} rows={3} placeholder="What work or activity was taking place?" /></label>
-            <label className="incident-form-wide">Description<textarea {...form.register('description')} rows={5} placeholder="Describe what happened, what was observed, and the immediate circumstances." />{fieldError(form.formState.errors.description?.message)}</label>
+            <label>GPS coordinates<input {...form.register('gpsCoordinates')} placeholder="4.8156, 7.0498" /></label>
+            <label>Facility / area<input {...form.register('location')} placeholder="Area, unit, or precise location" />{fieldError(form.formState.errors.location?.message)}</label>
+            <label>Weather conditions<input {...form.register('weatherConditions')} placeholder="32°C, light rain, wind 12 kt" /></label>
+            <label className="incident-form-wide">Equipment involved<input {...form.register('equipmentInvolved')} placeholder="Equipment or vehicle involved" /></label>
           </div>
-        </section>
-
-        <section className="incident-form-section">
-          <div className="incident-form-section-heading"><span>02</span><div><h3>People and involvement</h3><p>Use existing profiles where available; capture external people only when necessary.</p></div></div>
+        </section>}
+        {activeStage === 2 && <section className="incident-form-section">
+          <div className="incident-form-section-heading"><div><h3>Who was involved?</h3></div></div>
           <div className="incident-form-grid">
-            <label>Reporter<input value={organization.data?.userId || 'Authenticated user'} disabled /></label>
-            <label>Affected person name<input {...form.register('affectedPersonName')} placeholder="Optional" /></label>
-            <label>Affected person organization<input {...form.register('affectedPersonOrganization')} placeholder="Optional" /></label>
-            <label className="checkbox-field"><input type="checkbox" {...form.register('contractorInvolved')} /> Contractor involved</label>
-            {contractorInvolved && <label>Contractor organization<input {...form.register('contractorOrganization')} placeholder="Contractor company" />{fieldError(form.formState.errors.contractorOrganization?.message)}</label>}
-            <label>Witness name<input {...form.register('witnessName')} placeholder="Optional witness" /></label>
-            <label>Witness organization<input {...form.register('witnessOrganization')} placeholder="Optional" /></label>
-            <label>Witness contact details<input {...form.register('witnessContactDetails')} placeholder="Optional" /></label>
+            <label>Reporter name *<input value={organization.data?.userId || 'Authenticated user'} disabled /></label>
+            <label>Contractor involved<input {...form.register('contractorOrganization')} placeholder="Contractor organization" />{fieldError(form.formState.errors.contractorOrganization?.message)}</label>
+            <label className="incident-form-wide">People involved<textarea {...form.register('peopleInvolved')} rows={3} placeholder="Names, roles and injuries sustained" /></label>
+            <label className="incident-form-wide">Witnesses<textarea {...form.register('witnesses')} rows={3} placeholder="Witness names and contact details" /></label>
+            <label className="incident-form-wide">Immediate actions taken *<textarea {...form.register('immediateCorrection')} rows={4} placeholder="Describe immediate controls, first aid, isolation, notification, or other response." />{fieldError(form.formState.errors.immediateCorrection?.message)}</label>
+            <label className="incident-form-wide">Potential root cause<textarea {...form.register('potentialRootCause')} rows={3} placeholder="Initial indication only; formal root-cause analysis follows later." /></label>
           </div>
-        </section>
-
-        <section className="incident-form-section">
-          <div className="incident-form-section-heading"><span>03</span><div><h3>Classification</h3><p>Classify actual and potential consequences independently.</p></div></div>
-          <div className="incident-form-grid">
-            <label>Incident type<select {...form.register('reportType')}><option value="incident">Incident</option><option value="near_miss">Near Miss</option><option value="unsafe_act">Unsafe Act</option><option value="unsafe_condition">Unsafe Condition</option><option value="environmental_incident">Environmental Incident</option></select></label>
-            <label>Category<select {...form.register('incidentCategory')}><option value="">Select category</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select>{fieldError(form.formState.errors.incidentCategory?.message)}</label>
-            <label>Actual severity<select {...form.register('severity')}><option value="">Select severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select>{fieldError(form.formState.errors.severity?.message)}</label>
-            <label>Potential severity<select {...form.register('potentialSeverity')}><option value="">Select potential severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select>{fieldError(form.formState.errors.potentialSeverity?.message)}</label>
-            <label className="checkbox-field"><input type="checkbox" {...form.register('environmentalImpact')} /> Environmental relevance</label>
-            <label className="checkbox-field"><input type="checkbox" {...form.register('injuryOrIllness')} /> Injury or illness involved</label>
-            <label className="checkbox-field"><input type="checkbox" {...form.register('propertyDamage')} /> Property damage involved</label>
-            <label className="checkbox-field"><input type="checkbox" {...form.register('workRelated')} /> Work-related event</label>
-          </div>
-        </section>
-
-        <section className="incident-form-section">
-          <div className="incident-form-section-heading"><span>04</span><div><h3>Immediate response</h3><p>Record what was done immediately to control or remove the immediate problem.</p></div></div>
-          <label className="incident-form-wide">Immediate correction / action<textarea {...form.register('immediateCorrection')} rows={5} placeholder="Describe immediate controls, first aid, isolation, notification, or other response." /></label>
-          <p className="incident-form-note">Corrective actions that address underlying causes will be handled in the future Corrective Action module.</p>
-        </section>
-
+        </section>}
+        {activeStage === 3 && <section className="incident-form-section"><div className="incident-form-section-heading"><div><h3>Evidence and sign-off</h3><p>Images, PDF, Word, Excel, video and voice notes are supported.</p></div></div><div className="incident-evidence-upload-grid"><label className="incident-upload-tile">Photos / video<input type="file" hidden accept="image/*,video/*" onChange={handleEvidence} /></label><label className="incident-upload-tile">Documents<input type="file" hidden accept="application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleEvidence} /></label><label className="incident-upload-tile">Voice recording<input type="file" hidden accept="audio/*" onChange={handleEvidence} /></label></div><label className="incident-form-wide">Digital signature *<input {...form.register('digitalSignature')} placeholder="Type your full name to sign" />{fieldError(form.formState.errors.digitalSignature?.message)}</label><label className="checkbox-field"><input type="checkbox" {...form.register('accuracyConfirmed')} /> I confirm this report is accurate to the best of my knowledge.</label></section>}
         {draftReference && <div className="incident-reference" role="status"><span>Draft reference</span><strong>{draftReference}</strong></div>}
         {submitError && <div className="auth-message error" role="alert">{submitError}</div>}
         {submitMessage && <div className="auth-message success" role="status">{submitMessage}</div>}
-        <div className="incident-form-actions"><button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => void saveDraft()}>{isSaving ? 'Saving draft...' : draftId ? 'Update draft' : 'Save draft'}</button><button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void submitReport()}>{isSubmitting ? 'Submitting report...' : 'Submit report →'}</button><button className="button button-outline button-large" type="button" disabled={isBusy} onClick={onBack}>Back</button></div>
-      </form>
+        <div className="incident-form-actions"><button className="button button-outline button-large" type="button" disabled={isBusy || activeStage === 0} onClick={() => setActiveStage((stage) => Math.max(stage - 1, 0))}>Back</button>{activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void submitReport()}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>}</div>
+        </form>
+        <aside className="incident-form-sidebar"><section className="incident-side-panel"><h3>Quick-report templates</h3><p>Prefill common field events</p>{Object.keys(quickTemplates).map((template) => <button type="button" key={template} onClick={() => applyTemplate(template)}>{template}</button>)}</section><section className="incident-side-panel"><h3>Field mode</h3><p>Large touch targets for gloved hands, one-handed layout and automatic GPS capture are enabled.</p><p>Offline reports queue on the device and sync automatically when connectivity is restored.</p><button type="button" className={`field-mode-toggle${fieldMode ? ' active' : ''}`} onClick={() => setFieldMode((enabled) => !enabled)}>Voice-to-text report</button></section></aside>
+      </div>
     </div>
   )
 }

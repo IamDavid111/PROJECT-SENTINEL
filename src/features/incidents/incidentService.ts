@@ -32,6 +32,15 @@ type IncidentRow = {
   severity: string | null
   potential_severity: string | null
   incident_category: string | null
+  priority: string | null
+  gps_coordinates: string | null
+  weather_conditions: string | null
+  equipment_involved: string | null
+  people_involved: string | null
+  witnesses: string | null
+  potential_root_cause: string | null
+  digital_signature: string | null
+  accuracy_confirmed: boolean
   environmental_impact: boolean
   injury_or_illness: boolean
   property_damage: boolean
@@ -98,6 +107,7 @@ function toIncidentSummary(row: IncidentRow): IncidentSummary {
     severity: row.severity,
     potentialSeverity: row.potential_severity,
     incidentCategory: row.incident_category,
+    siteName: null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -166,13 +176,15 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   const to = from + pageSize - 1
   let query = client
     .from('incidents')
-    .select('id, organization_id, reference_number, report_type, status, title, description, occurred_at, reported_at, site_id, facility_id, location, department, work_activity_context, reported_by, created_by, contractor_involved, contractor_organization, severity, potential_severity, incident_category, environmental_impact, injury_or_illness, property_damage, work_related, immediate_correction, created_at, updated_at', { count: 'exact' })
+    .select('id, organization_id, reference_number, report_type, status, title, description, occurred_at, reported_at, site_id, facility_id, location, department, work_activity_context, reported_by, created_by, contractor_involved, contractor_organization, severity, potential_severity, incident_category, environmental_impact, injury_or_illness, property_damage, work_related, immediate_correction, priority, gps_coordinates, weather_conditions, equipment_involved, people_involved, witnesses, potential_root_cause, digital_signature, accuracy_confirmed, created_at, updated_at', { count: 'exact' })
     .eq('organization_id', context.organizationId)
     .order('created_at', { ascending: false })
     .range(from, to)
 
   if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
   if (filters.reportType && filters.reportType !== 'all') query = query.eq('report_type', filters.reportType)
+  if (filters.severity && filters.severity !== 'all') query = query.eq('severity', filters.severity)
+  if (filters.siteId && filters.siteId !== 'all') query = query.eq('site_id', filters.siteId)
   if (filters.search) {
     const search = escapeSearch(filters.search)
     query = query.or(`reference_number.ilike.%${search}%,title.ilike.%${search}%,location.ilike.%${search}%`)
@@ -213,6 +225,15 @@ export async function getIncident(client: SupabaseClient, incidentId: string): P
     propertyDamage: incident.property_damage,
     workRelated: incident.work_related,
     immediateCorrection: incident.immediate_correction,
+    priority: incident.priority,
+    gpsCoordinates: incident.gps_coordinates,
+    weatherConditions: incident.weather_conditions,
+    equipmentInvolved: incident.equipment_involved,
+    peopleInvolved: incident.people_involved,
+    witnesses: incident.witnesses,
+    potentialRootCause: incident.potential_root_cause,
+    digitalSignature: incident.digital_signature,
+    accuracyConfirmed: incident.accuracy_confirmed,
     evidence: (evidence || []).map(toIncidentEvidence),
     people: (people || []).map(toIncidentPerson),
   }
@@ -239,6 +260,15 @@ function toIncidentPayload(input: IncidentDraftInput) {
     property_damage: input.propertyDamage || false,
     work_related: input.workRelated ?? true,
     immediate_correction: input.immediateCorrection || null,
+    priority: input.priority || null,
+    gps_coordinates: input.gpsCoordinates || null,
+    weather_conditions: input.weatherConditions || null,
+    equipment_involved: input.equipmentInvolved || null,
+    people_involved: input.peopleInvolved || null,
+    witnesses: input.witnesses || null,
+    potential_root_cause: input.potentialRootCause || null,
+    digital_signature: input.digitalSignature || null,
+    accuracy_confirmed: input.accuracyConfirmed || false,
   }
 }
 
