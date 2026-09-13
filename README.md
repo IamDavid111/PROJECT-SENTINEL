@@ -104,7 +104,7 @@ Filters are part of the TanStack Query key and are applied to available activity
 
 ## Supabase data model
 
-Prompt 1 establishes the common organization source of truth:
+ 1 establishes the common organization source of truth:
 
 ### Current tables
 
@@ -263,7 +263,7 @@ Workspace navigation and access are derived from the user membership role. Datab
 
 ## Incident and near-miss foundation
 
-Prompt 3 establishes the report/classify foundation for this lifecycle:
+3 establishes the report/classify foundation for this lifecycle:
 
 ```text
 REPORT -> CLASSIFY -> ASSIGN -> INVESTIGATE -> CORRECTION -> ROOT CAUSE -> CORRECTIVE ACTION -> VERIFICATION -> CLOSE
@@ -403,7 +403,7 @@ The existing dashboard now consumes real incident data where available:
 
 Incident counts are organization-scoped and respond to dashboard date, site, department, severity, and report-type filters. Metrics whose underlying modules do not exist remain unavailable rather than showing fabricated values. Historical trends, corrective-action metrics, inspection metrics, and audit metrics remain deferred until their operational tables exist.
 
-## Prompt 3 deferred scope
+## deferred scope
 
 The following are intentionally not implemented in the incident foundation:
 
