@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 
 import customerBenefitsDashboard from './assets/srcassetscustomer-benefits-dashboard.png'
 import authIllustration from './assets/auth-illustration.jpg'
+import heroFacility from './assets/hero-facility.jpg'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { registrationSchema } from './lib/schemas'
 import { countries, worldRegions } from './lib/locations'
@@ -49,11 +50,11 @@ function ThemeIcon() {
   )
 }
 
-type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'mfa' | 'change-password' | 'demo'
+type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'demo'
 
 function getAuthRoute(): AuthRoute | null {
   const route = window.location.hash.replace('#/', '').replace('#', '')
-  return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'mfa' || route === 'change-password' || route === 'demo'
+  return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'change-password' || route === 'demo'
     ? route
     : null
 }
@@ -119,7 +120,7 @@ function SignInPage() {
     else {
       const { data: profile } = await supabase.from('profiles').select('id, organization_id').eq('id', (await supabase.auth.getUser()).data.user?.id || '').maybeSingle()
       if (profile?.organization_id) await recordActivity(profile.organization_id, profile.id, 'User logged in')
-      window.location.hash = '#mfa'
+      window.location.hash = '#dashboard'
     }
   }
 
@@ -187,25 +188,6 @@ function PasswordPage({ reset = false }: { reset?: boolean }) {
         <label>Confirm new password<input name="confirmation" type="password" autoComplete="new-password" /></label>
         <AuthMessage error={error} success={message} />
         <button className="button button-green auth-submit">Update password →</button>
-      </form>
-    </AuthShell>
-  )
-}
-
-function MfaPage() {
-  const [error, setError] = useState('')
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const code = String(new FormData(event.currentTarget).get('code') || '')
-    if (code.length !== 6) setError('Enter the 6-digit verification code.')
-    else window.location.hash = '#top'
-  }
-  return (
-    <AuthShell title="Verify your identity" subtitle="Enter the verification code from your authenticator app. This MFA step is ready for provider integration.">
-      <form className="auth-form" onSubmit={submit}>
-        <label>Verification code<input name="code" inputMode="numeric" maxLength={6} placeholder="000000" /></label>
-        <AuthMessage error={error} />
-        <button className="button button-green auth-submit">Verify and continue →</button>
       </form>
     </AuthShell>
   )
@@ -291,6 +273,9 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const [profileName, setProfileName] = useState(session.user.email || 'User')
   const [organizationName, setOrganizationName] = useState('Organization workspace')
   const [loading, setLoading] = useState(true)
+  const [loadingGateComplete, setLoadingGateComplete] = useState(false)
+  const [proceedToWorkspace, setProceedToWorkspace] = useState(false)
+  const [autoProceedSeconds, setAutoProceedSeconds] = useState(5)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -315,6 +300,27 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     return () => window.removeEventListener('hashchange', handleHashChange)
   }, [session.user.email, session.user.id])
 
+  useEffect(() => {
+    if (loading) {
+      setLoadingGateComplete(false)
+      setProceedToWorkspace(false)
+      return
+    }
+    const gateTimer = window.setTimeout(() => setLoadingGateComplete(true), 5000)
+    return () => window.clearTimeout(gateTimer)
+  }, [loading])
+
+  useEffect(() => {
+    if (!loadingGateComplete || proceedToWorkspace) return
+    setAutoProceedSeconds(5)
+    const countdown = window.setInterval(() => setAutoProceedSeconds((seconds) => Math.max(0, seconds - 1)), 1000)
+    const autoProceed = window.setTimeout(() => setProceedToWorkspace(true), 5000)
+    return () => {
+      window.clearInterval(countdown)
+      window.clearTimeout(autoProceed)
+    }
+  }, [loadingGateComplete, proceedToWorkspace])
+
   const permissions = role ? rolePermissions[role] : []
   const canAccess = (permission: Permission) => permissions.includes(permission)
   const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
@@ -334,7 +340,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     window.location.hash = '#top'
   }
 
-  if (loading) return <div className="protected-state">Loading your organization access...</div>
+  if (loading || !loadingGateComplete || !proceedToWorkspace) return <WorkspaceLoadingState backgroundImage={heroFacility} canProceed={loadingGateComplete} secondsUntilAuto={autoProceedSeconds} onProceed={() => setProceedToWorkspace(true)} />
   if (error) return <div className="protected-state"><div className="auth-message error">Unable to load your organization access: {error}</div></div>
   if (!role) return <div className="protected-state"><div className="auth-message error">Your account is not assigned to an organization yet.</div><a className="button button-green" href="#top">Return to home</a></div>
 
@@ -391,6 +397,29 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       </main>
     </div>
   )
+}
+
+function WorkspaceLoadingState({ backgroundImage, canProceed, secondsUntilAuto, onProceed }: { backgroundImage: string; canProceed: boolean; secondsUntilAuto: number; onProceed: () => void }) {
+  const safetyBriefs = [
+    'Every incident reported is an opportunity to prevent the next one.',
+    'Safe operations begin with visible leadership.',
+    'Near misses are early warnings, not minor events.',
+    'Every corrective action should prevent recurrence.',
+    'Good safety data turns uncertainty into action.',
+    'The strongest safety culture makes reporting easy.',
+    'Stop work when conditions change.',
+    'Report the hazard before it becomes an incident.',
+    'Control the immediate risk first.',
+    'Verify that the fix actually worked.',
+  ]
+  const [briefIndex, setBriefIndex] = useState(0)
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setBriefIndex((current) => (current + 1) % safetyBriefs.length), 1400)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  return <div className="workspace-loading-backdrop" style={{ backgroundImage: `linear-gradient(90deg, rgba(4, 13, 28, 0.92), rgba(4, 13, 28, 0.62)), url(${backgroundImage})` }}><div className="workspace-loading-state"><div className="workspace-loading-mark"><BrandMark /></div><div className="eyebrow">FIELD SAFETY BRIEF</div><h2>Preparing your SentinelQHSE workspace</h2><p className="workspace-loading-brief">{safetyBriefs[briefIndex]}</p><div className="workspace-loading-steps"><span className="active">Organization access</span><span>Operational settings</span><span>Applying role permissions</span></div><div className="workspace-loading-line"><span /></div><small>{canProceed ? `Dashboard will open automatically in ${secondsUntilAuto || 1} seconds` : 'Loading securely...'}</small>{canProceed && <button className="button button-green workspace-loading-proceed" type="button" onClick={onProceed}>Proceed to Dashboard</button>}</div></div>
 }
 
 function WorkspacePlaceholder({ title, description, action }: { title: string; description: string; action: string }) {
@@ -888,10 +917,13 @@ export default function App() {
   if (authRoute === 'forgot-password') return <ForgotPasswordPage />
   if (authRoute === 'reset-password') return <PasswordPage reset />
   if (authRoute === 'change-password') return <PasswordPage />
-  if (authRoute === 'mfa') return <MfaPage />
   if (authRoute === 'demo') return <DemoRequestPage />
 
   const requestedRoute = window.location.hash.replace('#/', '').replace('#', '')
+  if (requestedRoute === 'mfa') {
+    window.location.hash = '#dashboard'
+    return <div className="protected-state">Opening your workspace...</div>
+  }
   const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'users' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>
@@ -1280,9 +1312,9 @@ export default function App() {
           </div>
           <div>
             <h4>Platform</h4>
-            <a href="#platform">Dashboard</a>
-            <a href="#product">Incidents</a>
-            <a href="#product">Audits</a>
+            <a href="#sign-in">Dashboard</a>
+            <a href="#sign-in">Incidents</a>
+            <a href="#sign-in">Audits</a>
           </div>
           <div>
             <h4>Company</h4>
