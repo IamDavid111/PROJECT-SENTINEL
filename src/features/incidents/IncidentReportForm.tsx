@@ -10,13 +10,6 @@ import type { IncidentDetail, IncidentDraftInput, IncidentReportType, IncidentSu
 
 const fallbackSeverities = ['low', 'medium', 'high', 'critical']
 const stages = ['Event', 'Location & context', 'People', 'Evidence & sign-off'] as const
-const quickTemplates: Record<string, Partial<IncidentFormValues>> = {
-  'Near miss': { reportType: 'near_miss', title: 'Near miss', incidentCategory: 'Near Miss' },
-  'Unsafe condition': { reportType: 'unsafe_condition', title: 'Unsafe condition', incidentCategory: 'Unsafe Condition' },
-  'Slip / trip / fall': { reportType: 'incident', title: 'Slip / trip / fall', incidentCategory: 'Injury' },
-  'Minor spill': { reportType: 'environmental_incident', title: 'Minor spill', incidentCategory: 'Oil Spill', environmentalImpact: true },
-  'Vehicle incident': { reportType: 'incident', title: 'Vehicle incident', incidentCategory: 'Vehicle Incident' },
-}
 
 type SiteOption = { id: string; name: string }
 type FacilityOption = { id: string; name: string; site_id: string }
@@ -74,7 +67,7 @@ function toDraftInput(values: IncidentFormValues): IncidentDraftInput {
   }
 }
 
-export function IncidentReportForm({ supabase, reportType, draftId: existingDraftId, initialIncident }: { supabase: SupabaseClient; reportType: IncidentReportType; draftId?: string; initialIncident?: IncidentDetail; onBack: () => void }) {
+export function IncidentReportForm({ supabase, reportType, initialTitle, initialCategory, initialEnvironmentalImpact, draftId: existingDraftId, initialIncident, onBack }: { supabase: SupabaseClient; reportType: IncidentReportType; initialTitle?: string; initialCategory?: string; initialEnvironmentalImpact?: boolean; draftId?: string; initialIncident?: IncidentDetail; onBack: () => void }) {
   const organization = useIncidentOrganization(supabase)
   const [sites, setSites] = useState<SiteOption[]>([])
   const [facilities, setFacilities] = useState<FacilityOption[]>([])
@@ -93,8 +86,10 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
     resolver: zodResolver(incidentFormSchema),
     defaultValues: {
       reportType,
+      title: initialTitle || '',
+      incidentCategory: initialCategory || '',
       contractorInvolved: false,
-      environmentalImpact: reportType === 'environmental_incident',
+      environmentalImpact: initialEnvironmentalImpact !== undefined ? initialEnvironmentalImpact : (reportType === 'environmental_incident'),
       injuryOrIllness: false,
       propertyDamage: false,
       workRelated: true,
@@ -240,11 +235,6 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
     if (valid) setActiveStage((stage) => Math.min(stage + 1, stages.length - 1))
   }
 
-  const applyTemplate = (template: string) => {
-    const values = quickTemplates[template]
-    if (values) form.reset({ ...form.getValues(), ...values })
-  }
-
   const handleEvidence = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     event.target.value = ''
@@ -312,9 +302,32 @@ export function IncidentReportForm({ supabase, reportType, draftId: existingDraf
         {draftReference && <div className="incident-reference" role="status"><span>Draft reference</span><strong>{draftReference}</strong></div>}
         {submitError && <div className="auth-message error" role="alert">{submitError}</div>}
         {submitMessage && <div className="auth-message success" role="status">{submitMessage}</div>}
-        <div className="incident-form-actions"><button className="button button-outline button-large" type="button" disabled={isBusy || activeStage === 0} onClick={() => setActiveStage((stage) => Math.max(stage - 1, 0))}>Back</button>{activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void submitReport()}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>}</div>
+        <div className="incident-form-actions">
+          <button
+            className="button button-outline button-large"
+            type="button"
+            disabled={isBusy}
+            onClick={() => {
+              if (activeStage > 0) {
+                setActiveStage((stage) => stage - 1)
+              } else {
+                onBack()
+              }
+            }}
+          >
+            Back
+          </button>
+          {activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void submitReport()}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>}
+        </div>
         </form>
-        <aside className="incident-form-sidebar"><section className="incident-side-panel"><h3>Quick-report templates</h3><p>Prefill common field events</p>{Object.keys(quickTemplates).map((template) => <button type="button" key={template} onClick={() => applyTemplate(template)}>{template}</button>)}</section><section className="incident-side-panel"><h3>Field mode</h3><p>Large touch targets for gloved hands, one-handed layout and automatic GPS capture are enabled.</p><p>Offline reports queue on the device and sync automatically when connectivity is restored.</p><button type="button" className={`field-mode-toggle${fieldMode ? ' active' : ''}`} onClick={() => setFieldMode((enabled) => !enabled)}>Voice-to-text report</button></section></aside>
+        <aside className="incident-form-sidebar">
+          <section className="incident-side-panel">
+            <h3>Field mode</h3>
+            <p>Large touch targets for gloved hands, one-handed layout and automatic GPS capture are enabled.</p>
+            <p>Offline reports queue on the device and sync automatically when connectivity is restored.</p>
+            <button type="button" className={`field-mode-toggle${fieldMode ? ' active' : ''}`} onClick={() => setFieldMode((enabled) => !enabled)}>Voice-to-text report</button>
+          </section>
+        </aside>
       </div>
     </div>
   )

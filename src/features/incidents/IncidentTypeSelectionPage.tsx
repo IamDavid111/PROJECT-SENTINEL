@@ -45,12 +45,51 @@ const roleReportTypes: Partial<Record<Role, IncidentReportType[]>> = {
   Contractor: ['incident', 'near_miss', 'unsafe_act', 'unsafe_condition'],
 }
 
+export type QuickIncidentOption = {
+  id: string
+  title: string
+  reportType: IncidentReportType
+  category: string
+  environmentalImpact?: boolean
+}
+
+export const quickIncidentOptions: QuickIncidentOption[] = [
+  { id: 'near_miss', title: 'Near miss', reportType: 'near_miss', category: 'Near Miss' },
+  { id: 'unsafe_condition', title: 'Unsafe condition', reportType: 'unsafe_condition', category: 'Unsafe Condition' },
+  { id: 'slip_trip_fall', title: 'Slip / trip / fall', reportType: 'incident', category: 'Injury' },
+  { id: 'minor_spill', title: 'Minor spill', reportType: 'environmental_incident', category: 'Oil Spill', environmentalImpact: true },
+  { id: 'vehicle_incident', title: 'Vehicle incident', reportType: 'incident', category: 'Vehicle Incident' },
+]
+
 export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: Role; supabase: SupabaseClient; draftId?: string | null }) {
   const allowedTypes = useMemo(() => roleReportTypes[role] || [], [role])
   const [selectedType, setSelectedType] = useState<IncidentReportType | null>(allowedTypes[0] || null)
+  const [selectedQuickId, setSelectedQuickId] = useState<string | null>(null)
+  const [selectedTitle, setSelectedTitle] = useState<string>('Incident')
+  const [selectedCategory, setSelectedCategory] = useState<string>('')
+  const [selectedEnvironmentalImpact, setSelectedEnvironmentalImpact] = useState<boolean>(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const draft = useIncident(supabase, draftId || null)
   const [message, setMessage] = useState('')
+
+  const handleSelectReportType = (type: IncidentReportType) => {
+    setSelectedType(type)
+    setSelectedQuickId(null)
+    const label = reportTypeDetails[type]?.label.replace('Report ', '') || 'Incident'
+    setSelectedTitle(label)
+    setSelectedCategory('')
+    setSelectedEnvironmentalImpact(type === 'environmental_incident')
+    setMessage('')
+  }
+
+  const handleSelectQuickOption = (option: QuickIncidentOption) => {
+    setSelectedQuickId(option.id)
+    setSelectedType(option.reportType)
+    setSelectedTitle(option.title)
+    setSelectedCategory(option.category)
+    setSelectedEnvironmentalImpact(!!option.environmentalImpact)
+    setMessage('')
+  }
 
   const continueToReport = () => {
     if (!selectedType) return
@@ -67,7 +106,89 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
     return <IncidentReportForm supabase={supabase} reportType={draft.data.reportType} draftId={draft.data.id} initialIncident={draft.data} onBack={() => { window.location.hash = '#my-reports' }} />
   }
 
-  if (isFormOpen && selectedType) return <IncidentReportForm supabase={supabase} reportType={selectedType} onBack={() => setIsFormOpen(false)} />
+  if (isFormOpen && selectedType) {
+    return (
+      <IncidentReportForm
+        supabase={supabase}
+        reportType={selectedType}
+        initialTitle={selectedTitle}
+        initialCategory={selectedCategory}
+        initialEnvironmentalImpact={selectedEnvironmentalImpact}
+        onBack={() => setIsFormOpen(false)}
+      />
+    )
+  }
 
-  return <div className="incident-type-page"><div className="incident-type-header"><div><div className="eyebrow">REPORT INCIDENT</div><h2>What would you like to report?</h2><p>Select the report type that best describes the event. Each type follows its own classification requirements.</p></div><div className="incident-role-context"><span>Reporting as</span><strong>{role}</strong></div></div><div className="incident-type-grid">{allowedTypes.map((type) => { const detail = reportTypeDetails[type]; const selected = selectedType === type; return <button className={`incident-type-card${selected ? ' selected' : ''}`} type="button" key={type} onClick={() => { setSelectedType(type); setMessage('') }} aria-pressed={selected}><span className="incident-type-icon" aria-hidden="true">{detail.icon}</span><span className="incident-type-copy"><strong>{detail.label}</strong><small>{detail.description}</small></span><span className="incident-type-check" aria-hidden="true">{selected ? '✓' : '○'}</span></button> })}</div><div className="incident-type-actions"><button className="button button-green button-large" type="button" disabled={!selectedType} onClick={continueToReport}>Continue to report →</button><a className="button button-outline button-large" href="#dashboard">Cancel</a></div>{message && <div className="auth-message success" role="status">{message}</div>}</div>
+  return (
+    <div className="incident-type-page">
+      <div className="incident-type-header">
+        <div>
+          <div className="eyebrow">REPORT INCIDENT</div>
+          <h2>What would you like to report?</h2>
+          <p>Select the report type or a quick field event that best describes the incident. Each selection automatically pre-fills and can be edited on the report slides.</p>
+        </div>
+        <div className="incident-role-context">
+          <span>Reporting as</span>
+          <strong>{role}</strong>
+        </div>
+      </div>
+
+      <div className="incident-selection-container">
+        <div className="incident-type-grid">
+          {allowedTypes.map((type) => {
+            const detail = reportTypeDetails[type]
+            const selected = selectedType === type && !selectedQuickId
+            return (
+              <button
+                className={`incident-type-card${selected ? ' selected' : ''}`}
+                type="button"
+                key={type}
+                onClick={() => handleSelectReportType(type)}
+                aria-pressed={selected}
+              >
+                <span className="incident-type-icon" aria-hidden="true">{detail.icon}</span>
+                <span className="incident-type-copy">
+                  <strong>{detail.label}</strong>
+                  <small>{detail.description}</small>
+                </span>
+                <span className="incident-type-check" aria-hidden="true">{selected ? '✓' : '○'}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="incident-quick-options-panel">
+          <div className="incident-quick-header">
+            <h3>Quick event classifications</h3>
+            <p>Auto-populates the incident title and category for immediate reporting:</p>
+          </div>
+          <div className="incident-quick-list">
+            {quickIncidentOptions.map((opt) => {
+              const selected = selectedQuickId === opt.id
+              return (
+                <button
+                  className={`incident-quick-pill${selected ? ' selected' : ''}`}
+                  type="button"
+                  key={opt.id}
+                  onClick={() => handleSelectQuickOption(opt)}
+                  aria-pressed={selected}
+                >
+                  <span className="incident-quick-title">{opt.title}</span>
+                  <span className="incident-quick-badge">{opt.category}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="incident-type-actions">
+        <button className="button button-green button-large" type="button" disabled={!selectedType} onClick={continueToReport}>
+          Continue to report →
+        </button>
+        <a className="button button-outline button-large" href="#dashboard">Cancel</a>
+      </div>
+      {message && <div className="auth-message success" role="status">{message}</div>}
+    </div>
+  )
 }

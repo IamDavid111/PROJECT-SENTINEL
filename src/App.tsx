@@ -53,7 +53,10 @@ function ThemeIcon() {
 type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'demo'
 
 function getAuthRoute(): AuthRoute | null {
-  const route = window.location.hash.replace('#/', '').replace('#', '')
+  const route = window.location.hash.replace('#/', '').replace('#', '').split('?')[0]
+  if (route === 'contact' || route === 'contact-sales' || route === 'request-demo') {
+    return 'demo'
+  }
   return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'change-password' || route === 'demo'
     ? route
     : null
@@ -200,10 +203,10 @@ function DemoRequestPage() {
     setSubmitted(true)
   }
   return (
-    <AuthShell title="Request a demo" subtitle="Tell us about your operation and our team will arrange a SentinelQHSE walkthrough.">
+    <AuthShell title="Contact sales & request a demo" subtitle="Tell us about your operation and our team will arrange a SentinelQHSE walkthrough or commercial consultation.">
       {submitted ? (
         <div className="auth-form">
-          <AuthMessage success="Thanks. Your demo request has been recorded for follow-up." />
+          <AuthMessage success="Thanks. Your request has been recorded for follow-up." />
           <a className="button button-green auth-submit" href="#top">Return to landing page</a>
         </div>
       ) : (
@@ -211,8 +214,8 @@ function DemoRequestPage() {
           <label>Full name<input name="name" placeholder="Your full name" required /></label>
           <label>Work email<input name="email" type="email" placeholder="you@company.com" required /></label>
           <label>Company<input name="company" placeholder="Company name" required /></label>
-          <label>What would you like to explore?<textarea name="message" rows={4} placeholder="Sites, teams, or QHSE workflows" /></label>
-          <button className="button button-green auth-submit" type="submit">Request demo →</button>
+          <label>What would you like to explore?<textarea name="message" rows={4} placeholder="Sites, teams, pricing, or QHSE workflows" /></label>
+          <button className="button button-green auth-submit" type="submit">Submit request →</button>
           <p className="auth-footer-copy"><a href="#top">Return to landing page</a></p>
         </form>
       )}
@@ -242,15 +245,15 @@ const primaryNavigation: { route: AppRoute; label: string; icon: string; permiss
   { route: 'ai-assistant', label: 'AI Safety Assistant', icon: '✦', permission: 'use_ai_assistant' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: '◈', permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: '▱', permission: 'view_marketplace' },
-  { route: 'settings', label: 'Settings', icon: '⚙', permission: 'manage_settings' },
 ]
 
 const secondaryNavigation: { route: AppRoute; label: string; permission: Permission }[] = [
-  { route: 'my-reports', label: 'My Reports', permission: 'view_profile' },
   { route: 'profile', label: 'User Profile', permission: 'view_profile' },
   { route: 'preferences', label: 'Notification Preferences', permission: 'view_profile' },
   { route: 'activity-log', label: 'Activity Log', permission: 'view_activity' },
-  { route: 'users', label: 'User Management', permission: 'manage_users' },
+  { route: 'users', label: 'Administration', permission: 'manage_users' },
+  { route: 'settings', label: 'Settings', permission: 'manage_settings' },
+  { route: 'my-reports', label: 'My Reports', permission: 'view_profile' },
 ]
 
 const futureModuleRoutes: { route: AppRoute; label: string; permission: Permission }[] = [
@@ -277,6 +280,14 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const [proceedToWorkspace, setProceedToWorkspace] = useState(false)
   const [autoProceedSeconds, setAutoProceedSeconds] = useState(5)
   const [error, setError] = useState('')
+  const [navResetKey, setNavResetKey] = useState(0)
+  const [accountExpanded, setAccountExpanded] = useState<boolean>(false)
+
+  const handleNavClick = (targetRoute: AppRoute) => {
+    if (targetRoute === route) {
+      setNavResetKey((prev) => prev + 1)
+    }
+  }
 
   useEffect(() => {
     const handleHashChange = () => setRoute(getAppRoute())
@@ -347,18 +358,48 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   return (
     <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}>
       <aside className="workspace-sidebar">
-        <a className="brand workspace-brand" href="#dashboard">
+        <a className="brand workspace-brand" href="#dashboard" onClick={() => handleNavClick('dashboard')}>
           <BrandMark />
           <span className="brand-copy"><strong>SentinelQHSE<sup>™</sup></strong><small>SAFETY INTELLIGENCE</small></span>
         </a>
         <div className="workspace-org"><small>ORGANIZATION</small><strong>{organizationName}</strong><span>{role}</span></div>
         <nav className="workspace-nav" aria-label="Workspace navigation">
-          {visiblePrimaryNavigation.map((item) => <a className={item.route === route ? 'active' : ''} href={`#${item.route}`} key={item.route}><span className="workspace-nav-icon" aria-hidden="true">{item.icon}</span>{item.label}</a>)}
+          {visiblePrimaryNavigation.map((item) => (
+            <a
+              className={item.route === route ? 'active' : ''}
+              href={`#${item.route}`}
+              key={item.route}
+              onClick={() => handleNavClick(item.route)}
+            >
+              <span className="workspace-nav-icon" aria-hidden="true">{item.icon}</span>
+              {item.label}
+            </a>
+          ))}
         </nav>
         <div className="workspace-secondary-links">
-          <small>ACCOUNT</small>
-          {visibleSecondaryNavigation.filter((item) => item.route !== 'users').map((item) => <a className={item.route === route ? 'active' : ''} href={`#${item.route}`} key={item.route}>{item.label}</a>)}
-          {visibleSecondaryNavigation.some((item) => item.route === 'users') && <a href="#users">Administration</a>}
+          <button
+            type="button"
+            className="workspace-account-toggle"
+            onClick={() => setAccountExpanded((open) => !open)}
+            aria-expanded={accountExpanded}
+          >
+            <span>ACCOUNT</span>
+            <span className={`workspace-account-chevron${accountExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
+          </button>
+          <div className={`workspace-account-items${accountExpanded ? ' expanded' : ''}`}>
+            <div className="workspace-account-items-inner">
+              {visibleSecondaryNavigation.map((item) => (
+                <a
+                  className={item.route === route ? 'active' : ''}
+                  href={`#${item.route}`}
+                  key={item.route}
+                  onClick={() => handleNavClick(item.route)}
+                >
+                  {item.label}
+                </a>
+              ))}
+            </div>
+          </div>
         </div>
         <button className="workspace-signout" type="button" onClick={signOut}>Sign out</button>
       </aside>
@@ -377,7 +418,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
         </header>
         <section className="workspace-content">
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={role} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
-          {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage role={role} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
+          {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={role} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
           {route === 'my-reports' && <MyReportsPage supabase={supabase} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
           {route === 'incidents' && <MyReportsPage supabase={supabase} />}
@@ -1318,7 +1359,7 @@ export default function App() {
           </div>
           <div>
             <h4>Company</h4>
-            <a href="#contact">Contact sales</a>
+            <a href="#demo">Contact sales</a>
             <a href="#register">Register organization</a>
           </div>
           <div>
