@@ -45,7 +45,7 @@ function EmptyState({ message, action }: { message: string; action?: string }) {
 }
 
 function KpiCard({ metric }: { metric: DashboardMetric }) {
-  return <article className={`dashboard-kpi tone-${metric.tone}`}><span className="dashboard-kpi-icon" aria-hidden="true">{metric.icon}</span><span>{metric.label}</span><strong>{metric.value}</strong><small>{metric.detail}</small><a href={metric.href}>View details →</a></article>
+  return <article className={`dashboard-kpi tone-${metric.tone}`}><span className="dashboard-kpi-icon" aria-hidden="true">{metric.icon}</span><span>{metric.label}</span><strong>{metric.value}</strong><a href={metric.href}>View details →</a></article>
 }
 
 function DashboardKpiGrid({ metrics }: { metrics: DashboardMetric[] }) {

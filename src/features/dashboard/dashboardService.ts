@@ -37,7 +37,7 @@ function unavailableMetrics(): DashboardMetric[] {
   ].map(([key, label, icon, href, module]) => ({
     key,
     label,
-    value: 'Not yet available',
+    value: 'Unavailable',
     detail: `Coming with ${module}`,
     icon,
     href,

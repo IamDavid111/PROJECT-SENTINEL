@@ -13,6 +13,7 @@ import { DashboardPage } from './features/dashboard/DashboardPage'
 import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
 import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
+import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/OrganizationSetupPage'
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
 
@@ -280,6 +281,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const [proceedToWorkspace, setProceedToWorkspace] = useState(false)
   const [autoProceedSeconds, setAutoProceedSeconds] = useState(5)
   const [error, setError] = useState('')
+  const [needsSetup, setNeedsSetup] = useState(false)
   const [navResetKey, setNavResetKey] = useState(0)
   const [accountExpanded, setAccountExpanded] = useState<boolean>(false)
 
@@ -295,6 +297,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     const loadMembership = async () => {
       const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id').eq('id', session.user.id).maybeSingle()
       if (profileError) setError(profileError.message)
+      else if (!profile) setNeedsSetup(true)
       if (profile?.full_name) setProfileName(profile.full_name)
       if (profile?.organization_id) {
         setOrganizationId(profile.organization_id)
@@ -353,6 +356,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
 
   if (loading || !loadingGateComplete || !proceedToWorkspace) return <WorkspaceLoadingState backgroundImage={heroFacility} canProceed={loadingGateComplete} secondsUntilAuto={autoProceedSeconds} onProceed={() => setProceedToWorkspace(true)} />
   if (error) return <div className="protected-state"><div className="auth-message error">Unable to load your organization access: {error}</div></div>
+  if (needsSetup) return <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}><main className="workspace-main"><section className="workspace-content"><OrganizationSetupPage email={session.user.email || ''} /></section></main></div>
   if (!role) return <div className="protected-state"><div className="auth-message error">Your account is not assigned to an organization yet.</div><a className="button button-green" href="#top">Return to home</a></div>
 
   return (
@@ -811,6 +815,21 @@ function RegistrationPage() {
     }
 
     setLoading(true)
+    localStorage.setItem(pendingRegistrationKey, JSON.stringify({
+      companyCode: parsed.data.companyCode,
+      companyName: parsed.data.companyName,
+      companyRegistrationNumber: parsed.data.companyRegistrationNumber,
+      companyType: parsed.data.companyType,
+      industry: parsed.data.industry,
+      companySize: parsed.data.companySize,
+      region: parsed.data.region,
+      country: parsed.data.country,
+      state: parsed.data.state,
+      address: parsed.data.address,
+      contactEmail: parsed.data.contactEmail,
+      contactPhone: parsed.data.contactPhone,
+      adminName: parsed.data.adminName,
+    }))
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: parsed.data.adminEmail,
       password: parsed.data.password,
@@ -879,6 +898,7 @@ function RegistrationPage() {
     }
 
     setLoading(false)
+    localStorage.removeItem(pendingRegistrationKey)
     setMessage(`Organization created. ${parsed.data.adminName} is now the Super Administrator. You can sign in.`)
   }
 

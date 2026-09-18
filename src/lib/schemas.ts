@@ -43,7 +43,24 @@ export const changePasswordSchema = z.object({
   path: ['confirmPassword'],
 })
 
+export const organizationSetupSchema = z.object({
+  companyCode: z.string().regex(/^[A-Z0-9-]{3,20}$/, 'Use 3-20 uppercase letters, numbers, or hyphens.'),
+  companyName: z.string().min(2, 'Company name is required.'),
+  companyRegistrationNumber: z.string().optional(),
+  companyType: z.string().optional(),
+  industry: z.string().min(2, 'Industry is required.'),
+  companySize: z.string().min(2, 'Company size is required.'),
+  region: z.string().min(2, 'Region is required.'),
+  country: z.string().min(2, 'Country is required.'),
+  state: z.string().min(2, 'State is required.'),
+  address: z.string().optional(),
+  contactEmail: z.string().email('Valid contact email is required.'),
+  contactPhone: z.string().min(6, 'Phone number is required.'),
+  adminName: z.string().min(2, 'Admin full name is required.'),
+})
+
 export type LoginFormValues = z.infer<typeof loginSchema>
 export type RegistrationFormValues = z.infer<typeof registrationSchema>
+export type OrganizationSetupFormValues = z.infer<typeof organizationSetupSchema>
 export type PasswordResetFormValues = z.infer<typeof passwordResetSchema>
 export type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>
