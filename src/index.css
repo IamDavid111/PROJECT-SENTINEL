@@ -1190,20 +1190,22 @@ blockquote footer span {
 }
 
 .workspace-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   background: #f7f9fb;
   color: #0f172a;
+  overflow: hidden;
 }
 
 .workspace-sidebar {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
   padding: 28px 18px 20px;
   background: #0b172b;
   color: #ced9e8;
+  overflow-y: auto;
 }
 
 .workspace-brand {
@@ -1370,7 +1372,11 @@ blockquote footer span {
 }
 
 .workspace-main {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .workspace-topbar {
@@ -1382,6 +1388,8 @@ blockquote footer span {
   padding: 20px clamp(24px, 4vw, 65px);
   background: #fff;
   border-bottom: 1px solid #dfe5ec;
+  flex-shrink: 0;
+  z-index: 5;
 }
 
 .workspace-topbar h1 {
@@ -1460,6 +1468,8 @@ blockquote footer span {
   width: min(1200px, calc(100% - 48px));
   margin: 0 auto;
   padding: 52px 0 80px;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .workspace-welcome,
@@ -3782,11 +3792,29 @@ blockquote footer span {
   }
 
   .workspace-shell {
+    height: auto;
     grid-template-columns: 1fr;
+    overflow: visible;
   }
 
   .workspace-sidebar {
+    height: auto;
     min-height: auto;
+    overflow-y: visible;
+  }
+
+  .workspace-main {
+    height: auto;
+    overflow: visible;
+  }
+
+  .workspace-topbar {
+    position: sticky;
+    top: 0;
+  }
+
+  .workspace-content {
+    overflow-y: visible;
   }
 
   .workspace-org {
