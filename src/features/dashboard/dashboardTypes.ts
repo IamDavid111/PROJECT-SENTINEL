@@ -1,5 +1,6 @@
 import type { Role } from '../../types'
 import type { SafetySite } from './siteSafety'
+import type { LucideIcon } from 'lucide-react'
 
 export type DashboardFilters = {
   site: string
@@ -36,7 +37,7 @@ export type DashboardMetric = {
   label: string
   value: string
   detail: string
-  icon: string
+  icon: LucideIcon
   href: string
   available: boolean
   tone: 'green' | 'orange' | 'neutral'

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ReactNode } from 'react'
+import { Inbox } from 'lucide-react'
 
 import { defaultDashboardFilters, type DashboardActivity, type DashboardFilters, type DashboardIncident, type DashboardMetric, type DashboardPageProps } from './dashboardTypes'
 import { useDashboardData } from './useDashboardData'
@@ -41,11 +42,11 @@ function DashboardFilters({ filters, onChange, onReset }: { filters: DashboardFi
 }
 
 function EmptyState({ message, action }: { message: string; action?: string }) {
-  return <div className="dashboard-empty"><span aria-hidden="true">○</span><strong>{message}</strong>{action && <a href="#report-incident">{action}</a>}</div>
+  return <div className="dashboard-empty"><span aria-hidden="true"><Inbox size={20} /></span><strong>{message}</strong>{action && <a href="#report-incident">{action}</a>}</div>
 }
 
 function KpiCard({ metric }: { metric: DashboardMetric }) {
-  return <article className={`dashboard-kpi tone-${metric.tone}`}><span className="dashboard-kpi-icon" aria-hidden="true">{metric.icon}</span><span>{metric.label}</span><strong>{metric.value}</strong><a href={metric.href}>View details →</a></article>
+  return <article className={`dashboard-kpi tone-${metric.tone}`}><span className="dashboard-kpi-icon" aria-hidden="true"><metric.icon size={16} /></span><span>{metric.label}</span><strong>{metric.value}</strong><a href={metric.href}>View details →</a></article>
 }
 
 function DashboardKpiGrid({ metrics }: { metrics: DashboardMetric[] }) {

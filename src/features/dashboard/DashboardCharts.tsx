@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { TrendingUp } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import type { CorrectiveActionPoint, DashboardComparisonPoint, DashboardDistributionPoint, DashboardTrendPoint, InspectionSummary } from './dashboardTypes'
@@ -10,7 +11,7 @@ function ChartCard({ eyebrow, title, children }: { eyebrow: string; title: strin
 }
 
 function ChartEmpty({ message, detail }: { message: string; detail: string }) {
-  return <div className="chart-empty"><span aria-hidden="true">∿</span><strong>{message}</strong><small>{detail}</small></div>
+  return <div className="chart-empty"><span aria-hidden="true"><TrendingUp size={28} /></span><strong>{message}</strong><small>{detail}</small></div>
 }
 
 export function IncidentTrendChart({ data }: { data: DashboardTrendPoint[] }) {

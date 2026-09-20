@@ -965,10 +965,12 @@ blockquote footer span {
 }
 
 .auth-page {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(420px, 0.95fr);
   background: #f8f9fa;
+  overflow: hidden;
 }
 
 .auth-visual {
@@ -1007,7 +1009,9 @@ blockquote footer span {
 .auth-panel {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  min-height: 0;
+  overflow-y: auto;
   padding: 38px clamp(24px, 6vw, 110px);
   background: #f8f9fa;
 }
@@ -1021,6 +1025,7 @@ blockquote footer span {
 
 .auth-card {
   width: min(100%, 480px);
+  margin: auto 0;
 }
 
 .auth-card h2 {
@@ -1200,7 +1205,12 @@ blockquote footer span {
 .workspace-sidebar {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  overflow-y: auto;
   padding: 28px 18px 20px;
   background: #0b172b;
   color: #ced9e8;
@@ -1374,14 +1384,17 @@ blockquote footer span {
 }
 
 .workspace-topbar {
-  min-height: 96px;
+  min-height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 20px clamp(24px, 4vw, 65px);
+  padding: 12px clamp(24px, 4vw, 65px);
   background: #fff;
   border-bottom: 1px solid #dfe5ec;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .workspace-topbar h1 {
@@ -3758,6 +3771,8 @@ blockquote footer span {
 @media (max-width: 850px) {
   .auth-page {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .auth-visual {
@@ -3775,6 +3790,7 @@ blockquote footer span {
 
   .auth-panel {
     padding: 34px 28px 56px;
+    overflow: visible;
   }
 
   .form-grid {
@@ -3787,6 +3803,9 @@ blockquote footer span {
 
   .workspace-sidebar {
     min-height: auto;
+    position: static;
+    height: auto;
+    overflow: visible;
   }
 
   .workspace-org {

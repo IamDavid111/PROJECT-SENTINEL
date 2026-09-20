@@ -1,36 +1,38 @@
 import { useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { Check, Circle, Eye, Hand, Leaf, ShieldAlert, Siren } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 import type { Role } from '../../types'
 import { incidentReportTypes, type IncidentReportType } from './incidentTypes'
 import { IncidentReportForm } from './IncidentReportForm'
 import { useIncident } from './useIncidentData'
 
-const reportTypeDetails: Record<IncidentReportType, { label: string; description: string; icon: string }> = {
+const reportTypeDetails: Record<IncidentReportType, { label: string; description: string; icon: LucideIcon }> = {
   incident: {
     label: 'Report Incident',
     description: 'Record an actual undesired event involving injury, damage, environmental impact, or operational disruption.',
-    icon: '!',
+    icon: Siren,
   },
   near_miss: {
     label: 'Report Near Miss',
     description: 'Capture an event that could reasonably have caused harm, damage, or loss but did not.',
-    icon: '◎',
+    icon: Eye,
   },
   unsafe_act: {
     label: 'Report Unsafe Act',
     description: 'Report an unsafe behavior or action observed during work.',
-    icon: '⚠',
+    icon: Hand,
   },
   unsafe_condition: {
     label: 'Report Unsafe Condition',
     description: 'Report an unsafe physical, environmental, or workplace condition.',
-    icon: '⌂',
+    icon: ShieldAlert,
   },
   environmental_incident: {
     label: 'Report Environmental Incident',
     description: 'Record an event involving actual or potential environmental impact.',
-    icon: '♧',
+    icon: Leaf,
   },
 }
 
@@ -146,12 +148,12 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
                 onClick={() => handleSelectReportType(type)}
                 aria-pressed={selected}
               >
-                <span className="incident-type-icon" aria-hidden="true">{detail.icon}</span>
+                <span className="incident-type-icon" aria-hidden="true"><detail.icon size={21} /></span>
                 <span className="incident-type-copy">
                   <strong>{detail.label}</strong>
                   <small>{detail.description}</small>
                 </span>
-                <span className="incident-type-check" aria-hidden="true">{selected ? '✓' : '○'}</span>
+                <span className="incident-type-check" aria-hidden="true">{selected ? <Check size={16} /> : <Circle size={16} />}</span>
               </button>
             )
           })}

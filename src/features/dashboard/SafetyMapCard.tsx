@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { MapPin } from 'lucide-react'
 import mapboxgl from 'mapbox-gl'
 
 import type { SafetySite } from './siteSafety'
@@ -37,5 +38,5 @@ export function SafetyMapCard({ sites }: { sites: SafetySite[] }) {
     }
   }, [sites, token])
 
-  return <article className="dashboard-card safety-map-card"><div className="dashboard-card-heading"><div><div className="eyebrow">SITE SAFETY</div><h3>Safety risk map</h3></div></div>{!token ? <div className="chart-empty"><span aria-hidden="true">⌖</span><strong>Safety Map</strong><small>Map service configuration is required to display the interactive operational map.</small></div> : !sites.length ? <div className="chart-empty"><span aria-hidden="true">⌖</span><strong>No site data available</strong><small>Configure operational sites and safety records before viewing the map.</small></div> : <div ref={containerRef} className="safety-map-canvas" aria-label="Interactive site safety map" />}</article>
+  return <article className="dashboard-card safety-map-card"><div className="dashboard-card-heading"><div><div className="eyebrow">SITE SAFETY</div><h3>Safety risk map</h3></div></div>{!token ? <div className="chart-empty"><span aria-hidden="true"><MapPin size={26} /></span><strong>Safety Map</strong><small>Map service configuration is required to display the interactive operational map.</small></div> : !sites.length ? <div className="chart-empty"><span aria-hidden="true"><MapPin size={26} /></span><strong>No site data available</strong><small>Configure operational sites and safety records before viewing the map.</small></div> : <div ref={containerRef} className="safety-map-canvas" aria-label="Interactive site safety map" />}</article>
 }

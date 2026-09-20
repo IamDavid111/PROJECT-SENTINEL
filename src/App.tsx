@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { BarChart3, Bell, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 import customerBenefitsDashboard from './assets/srcassetscustomer-benefits-dashboard.png'
 import authIllustration from './assets/auth-illustration.jpg'
@@ -17,19 +19,19 @@ import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
 
-const featureCards = [
-  { icon: '♧', title: 'Digital incident reporting', text: 'Capture near misses to fatalities in the field with GPS, photo, video and voice evidence — online or offline.' },
-  { icon: '✓', title: 'Inspections & audits', text: 'Digital inspection types, custom templates, pass/fail checklists and audit programmes with a live calendar.' },
-  { icon: '▱', title: 'Corrective action control', text: 'Every finding becomes a tracked action with owners, due dates, evidence and verification sign-off.' },
-  { icon: '◎', title: 'Predictive risk intelligence', text: 'Risk scores per facility using historical incidents, observations and operating context.' },
-  { icon: '✦', title: 'AI safety copilot', text: 'Ask plain-language questions about your safety data and get summaries, charts and recommendations.' },
-  { icon: '⌑', title: 'Enterprise governance', text: 'Multi-tenant organisations, granular roles, full activity logging and exportable audit trails.' },
+const featureCards: { icon: LucideIcon; title: string; text: string }[] = [
+  { icon: Camera, title: 'Digital incident reporting', text: 'Capture near misses to fatalities in the field with GPS, photo, video and voice evidence — online or offline.' },
+  { icon: ClipboardCheck, title: 'Inspections & audits', text: 'Digital inspection types, custom templates, pass/fail checklists and audit programmes with a live calendar.' },
+  { icon: ListChecks, title: 'Corrective action control', text: 'Every finding becomes a tracked action with owners, due dates, evidence and verification sign-off.' },
+  { icon: Radar, title: 'Predictive risk intelligence', text: 'Risk scores per facility using historical incidents, observations and operating context.' },
+  { icon: Sparkles, title: 'AI safety copilot', text: 'Ask plain-language questions about your safety data and get summaries, charts and recommendations.' },
+  { icon: ShieldCheck, title: 'Enterprise governance', text: 'Multi-tenant organisations, granular roles, full activity logging and exportable audit trails.' },
 ]
 
-const benefitItems = [
-  { icon: '♧', title: 'Frontline adoption', text: 'Glove-friendly mobile reporting with offline sync means events get captured when they happen.' },
-  { icon: '⌁', title: 'Executive visibility', text: 'A single safety score, trend and forecast per site, department and contractor.' },
-  { icon: '▥', title: 'Assurance on demand', text: 'Generate inspection, audit and corrective action reports as PDF or Excel in seconds.' },
+const benefitItems: { icon: LucideIcon; title: string; text: string }[] = [
+  { icon: Smartphone, title: 'Frontline adoption', text: 'Glove-friendly mobile reporting with offline sync means events get captured when they happen.' },
+  { icon: TrendingUp, title: 'Executive visibility', text: 'A single safety score, trend and forecast per site, department and contractor.' },
+  { icon: FileDown, title: 'Assurance on demand', text: 'Generate inspection, audit and corrective action reports as PDF or Excel in seconds.' },
 ]
 
 function BrandMark() {
@@ -43,12 +45,8 @@ function BrandMark() {
   )
 }
 
-function ThemeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none">
-      <path d="M20.2 15.2A8.5 8.5 0 0 1 8.8 3.8 8.5 8.5 0 1 0 20.2 15.2Z" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  )
+function ThemeToggleIcon({ dark }: { dark: boolean }) {
+  return dark ? <Sun size={17} /> : <Moon size={17} />
 }
 
 type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'demo'
@@ -240,12 +238,12 @@ const rolePermissions: Record<Role, Permission[]> = {
   'Executive / Management': ['view_dashboard', 'use_ai_assistant', 'view_executive_analytics', 'view_reports', 'view_profile'],
 }
 
-const primaryNavigation: { route: AppRoute; label: string; icon: string; permission: Permission }[] = [
-  { route: 'dashboard', label: 'Dashboard', icon: '▣', permission: 'view_dashboard' },
-  { route: 'report-incident', label: 'Report Incident', icon: '+', permission: 'report_incident' },
-  { route: 'ai-assistant', label: 'AI Safety Assistant', icon: '✦', permission: 'use_ai_assistant' },
-  { route: 'executive-analytics', label: 'Executive Analytics', icon: '◈', permission: 'view_executive_analytics' },
-  { route: 'marketplace', label: 'HSE Marketplace', icon: '▱', permission: 'view_marketplace' },
+const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; permission: Permission }[] = [
+  { route: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'view_dashboard' },
+  { route: 'report-incident', label: 'Report Incident', icon: Siren, permission: 'report_incident' },
+  { route: 'ai-assistant', label: 'AI Safety Assistant', icon: Sparkles, permission: 'use_ai_assistant' },
+  { route: 'executive-analytics', label: 'Executive Analytics', icon: BarChart3, permission: 'view_executive_analytics' },
+  { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
 ]
 
 const secondaryNavigation: { route: AppRoute; label: string; permission: Permission }[] = [
@@ -375,7 +373,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
               key={item.route}
               onClick={() => handleNavClick(item.route)}
             >
-              <span className="workspace-nav-icon" aria-hidden="true">{item.icon}</span>
+              <span className="workspace-nav-icon" aria-hidden="true"><item.icon size={16} /></span>
               {item.label}
             </a>
           ))}
@@ -388,7 +386,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
             aria-expanded={accountExpanded}
           >
             <span>ACCOUNT</span>
-            <span className={`workspace-account-chevron${accountExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
+            <span className={`workspace-account-chevron${accountExpanded ? ' open' : ''}`} aria-hidden="true"><ChevronRight size={14} /></span>
           </button>
           <div className={`workspace-account-items${accountExpanded ? ' expanded' : ''}`}>
             <div className="workspace-account-items-inner">
@@ -409,14 +407,13 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       </aside>
       <main className="workspace-main">
         <header className="workspace-topbar">
-          <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
+          <div><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
           <div className="workspace-actions">
             <label className="global-search"><span className="sr-only">Global search</span><input placeholder="Search workspace" aria-label="Global search" /></label>
-            <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications">♧</a>
-            <a className="workspace-header-action" href="#ai-assistant" title="AI Safety Assistant" aria-label="AI Safety Assistant">✦</a>
-            <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon">▱</button>
-            <select className="language-select" aria-label="Language"><option>EN</option><option>FR</option></select>
-            <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><ThemeIcon /></button>
+            <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications"><Bell size={17} /></a>
+            <a className="workspace-header-action" href="#ai-assistant" title="AI Safety Assistant" aria-label="AI Safety Assistant"><Sparkles size={17} /></a>
+            <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon"><MessageSquare size={17} /></button>
+            <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><ThemeToggleIcon dark={isDarkMode} /></button>
             <a className="workspace-user" href="#profile">{profileName}</a>
           </div>
         </header>
@@ -1022,7 +1019,7 @@ export default function App() {
               aria-pressed={isDarkMode}
               onClick={toggleTheme}
             >
-              <ThemeIcon />
+              <ThemeToggleIcon dark={isDarkMode} />
             </button>
             <a className="signup-link" href="#register">
               Sign Up
@@ -1036,7 +1033,7 @@ export default function App() {
           </div>
 
           <details className="mobile-menu">
-            <summary aria-label="Open navigation">☰</summary>
+            <summary aria-label="Open navigation"><Menu size={22} /></summary>
             <div className="mobile-menu-panel">
               {navItems.map((item) => (
                 <a key={item} href={`#${item.toLowerCase()}`}>
@@ -1102,7 +1099,7 @@ export default function App() {
               <div className="dashboard-window">
                 <div className="dash-sidebar">
                   <div className="dash-brand">
-                    <span className="mini-mark">✓</span>
+                    <span className="mini-mark"><ShieldCheck size={11} /></span>
                     <span>
                       Sentinel<span>QHSE</span>
                     </span>
@@ -1257,7 +1254,7 @@ export default function App() {
             <div className="feature-grid">
               {featureCards.map((card) => (
                 <article key={card.title} className="feature-card">
-                  <div className="icon-tile">{card.icon}</div>
+                  <div className="icon-tile"><card.icon size={24} /></div>
                   <h3>{card.title}</h3>
                   <p>{card.text}</p>
                 </article>
@@ -1273,15 +1270,15 @@ export default function App() {
             </div>
             <div className="industry-grid">
               <div className="industry-card">
-                <span>◫</span>
+                <span><Factory size={24} /></span>
                 <strong>Upstream E&amp;P</strong>
               </div>
               <div className="industry-card">
-                <span>⚓</span>
+                <span><Ship size={24} /></span>
                 <strong>Offshore &amp; Marine</strong>
               </div>
               <div className="industry-card">
-                <span>▥</span>
+                <span><FlaskConical size={24} /></span>
                 <strong>
                   Refining &amp;
                   <br />
@@ -1289,15 +1286,15 @@ export default function App() {
                 </strong>
               </div>
               <div className="industry-card">
-                <span>≋</span>
+                <span><Waypoints size={24} /></span>
                 <strong>Pipelines &amp; Terminals</strong>
               </div>
               <div className="industry-card">
-                <span>♙</span>
+                <span><Drill size={24} /></span>
                 <strong>Drilling Contractors</strong>
               </div>
               <div className="industry-card">
-                <span>◉</span>
+                <span><Zap size={24} /></span>
                 <strong>Energy Services</strong>
               </div>
             </div>
@@ -1312,7 +1309,7 @@ export default function App() {
 
               {benefitItems.map((item) => (
                 <div className="benefit" key={item.title}>
-                  <span className="benefit-icon">{item.icon}</span>
+                  <span className="benefit-icon"><item.icon size={19} /></span>
                   <div>
                     <strong>{item.title}</strong>
                     <p>{item.text}</p>

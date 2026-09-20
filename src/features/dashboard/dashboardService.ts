@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { AlarmClock, CalendarCheck, CheckCircle2, CircleAlert, ClipboardCheck, ClipboardList, Eye, FileWarning, Flame, Gauge } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 import type { DashboardActivity, DashboardFilters, DashboardIncident, DashboardMetric, DashboardSnapshot } from './dashboardTypes'
 
@@ -23,18 +25,19 @@ function configuredNames(value: unknown): string[] {
 }
 
 function unavailableMetrics(): DashboardMetric[] {
-  return [
-    ['total-incidents', 'Total incidents', '▣', '#incidents', 'Incident Management'],
-    ['open-incidents', 'Open incidents', '!', '#incidents', 'Incident Management'],
-    ['resolved-incidents', 'Resolved incidents', '✓', '#incidents', 'Incident Management'],
-    ['high-risk-incidents', 'High-risk incidents', '▲', '#incidents', 'Incident Management'],
-    ['near-misses', 'Near misses', '◎', '#report-incident', 'Report Incident'],
-    ['open-actions', 'Open corrective actions', '↗', '#corrective-actions', 'Corrective Actions'],
-    ['overdue-actions', 'Overdue actions', '!', '#corrective-actions', 'Corrective Actions'],
-    ['inspections-completed', 'Inspections completed', '✓', '#inspections', 'Safety Inspections'],
-    ['pending-audits', 'Pending audits', '◌', '#audits', 'Audit Management'],
-    ['safety-score', 'Safety score', '◈', '#executive-analytics', 'Executive Analytics'],
-  ].map(([key, label, icon, href, module]) => ({
+  const entries: [string, string, LucideIcon, string, string][] = [
+    ['total-incidents', 'Total incidents', FileWarning, '#incidents', 'Incident Management'],
+    ['open-incidents', 'Open incidents', CircleAlert, '#incidents', 'Incident Management'],
+    ['resolved-incidents', 'Resolved incidents', CheckCircle2, '#incidents', 'Incident Management'],
+    ['high-risk-incidents', 'High-risk incidents', Flame, '#incidents', 'Incident Management'],
+    ['near-misses', 'Near misses', Eye, '#report-incident', 'Report Incident'],
+    ['open-actions', 'Open corrective actions', ClipboardList, '#corrective-actions', 'Corrective Actions'],
+    ['overdue-actions', 'Overdue actions', AlarmClock, '#corrective-actions', 'Corrective Actions'],
+    ['inspections-completed', 'Inspections completed', ClipboardCheck, '#inspections', 'Safety Inspections'],
+    ['pending-audits', 'Pending audits', CalendarCheck, '#audits', 'Audit Management'],
+    ['safety-score', 'Safety score', Gauge, '#executive-analytics', 'Executive Analytics'],
+  ]
+  return entries.map(([key, label, icon, href, module]) => ({
     key,
     label,
     value: 'Unavailable',
