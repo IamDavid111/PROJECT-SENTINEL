@@ -3095,7 +3095,7 @@ blockquote footer span {
 
 .user-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 190px auto;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(150px, 190px)) auto;
   gap: 12px;
   margin: 30px 0 18px;
 }

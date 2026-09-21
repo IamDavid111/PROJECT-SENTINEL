@@ -9,6 +9,7 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { registrationSchema } from './lib/schemas'
 import { countries, worldRegions } from './lib/locations'
 import type { Role } from './types'
+import { USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_DEPARTMENTS, USER_MANAGEMENT_ROLE_TO_BACKEND, USER_MANAGEMENT_ROLES } from './data/userManagementConfig'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
@@ -107,9 +108,8 @@ function SignInPage() {
     const form = new FormData(event.currentTarget)
     const email = String(form.get('email') || '')
     const password = String(form.get('password') || '')
-    const companyCode = String(form.get('companyCode') || '').trim().toUpperCase()
-    if (!email || !password || !companyCode) {
-      setError('Company code, email, and password are required.')
+    if (!email || !password) {
+      setError('Work email and password are required.')
       return
     }
     if (!isSupabaseConfigured) {
@@ -130,7 +130,6 @@ function SignInPage() {
   return (
     <AuthShell title="Sign in" subtitle="Use your organization credentials to access the safety intelligence platform.">
       <form className="auth-form" onSubmit={submit}>
-        <label>Company Code<input name="companyCode" placeholder="SENT-OP" autoComplete="organization" /></label>
         <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
         <label>Password<input name="password" type="password" placeholder="Enter your password" autoComplete="current-password" /></label>
         <div className="auth-options">
@@ -669,19 +668,43 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
   return <div className="workspace-panel settings-panel"><div className="eyebrow">ORGANIZATION CONFIGURATION</div><h2>Company Settings</h2><p>Maintain the organization reference data used by operational workflows. Values are stored as structured JSON.</p><form className="settings-form" onSubmit={saveSettings}>{fields.map(([key, label]) => <label key={key}>{label}<textarea value={settings[key]} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} rows={4} spellCheck={false} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save company settings</button></form></div>
 }
 
+type ManagedUserStatus = 'active' | 'pending' | 'suspended' | 'inactive'
+
 type ManagedUser = {
   id: string
   full_name: string
   employee_id: string | null
   department: string | null
   job_title: string | null
-  account_status: string
+  account_status: ManagedUserStatus
   role: string
 }
 
 type DepartmentOption = {
   name: string
   active: boolean
+}
+
+type ManagedUserFilters = {
+  query: string
+  role: string
+  department: string
+  status: string
+}
+
+function matchesManagedUserFilters(user: ManagedUser, filters: ManagedUserFilters) {
+  const displayRole = USER_MANAGEMENT_BACKEND_TO_ROLE[user.role] || user.role
+  const searchableText = `${user.id} ${user.full_name} ${user.employee_id || ''} ${user.department || ''} ${user.role} ${displayRole}`.toLowerCase()
+  const matchesQuery = searchableText.includes(filters.query.trim().toLowerCase())
+  const matchesRole = filters.role === 'all' || user.role === filters.role
+  const matchesDepartment = filters.department === 'all'
+    || (filters.department === '__unset__' ? !user.department : user.department === filters.department)
+  const matchesStatus = filters.status === 'all' || user.account_status === filters.status
+  return matchesQuery && matchesRole && matchesDepartment && matchesStatus
+}
+
+function getDepartmentLabel(department: string | null) {
+  return department?.trim() || 'Department not set'
 }
 
 const allRoles: Role[] = [
@@ -995,6 +1018,8 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
 function UsersWorkspace({ organizationId, currentUserId }: { organizationId: string; currentUserId: string }) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [query, setQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState('all')
+  const [departmentFilter, setDepartmentFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteDepartment, setInviteDepartment] = useState('')
@@ -1084,8 +1109,8 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
   }, [organizationId])
 
   const roleComboOptions = [
-    ...allRoles.filter((role) => role !== 'Super Administrator'),
-    ...customRoles.map((role) => role.name),
+    ...USER_MANAGEMENT_ROLES.map((role) => ({ label: role, value: USER_MANAGEMENT_ROLE_TO_BACKEND[role] })),
+    ...customRoles.map((role) => ({ label: role.name, value: role.name })),
   ]
 
   const openRoleCreator = () => {
@@ -1230,10 +1255,12 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     URL.revokeObjectURL(url)
   }
 
-  const filteredUsers = users.filter((user) => {
-    const matchesQuery = `${user.full_name} ${user.employee_id || ''} ${user.department || ''} ${user.role}`.toLowerCase().includes(query.toLowerCase())
-    return matchesQuery && (statusFilter === 'all' || user.account_status === statusFilter)
-  })
+  const filteredUsers = users.filter((user) => matchesManagedUserFilters(user, {
+    query,
+    role: roleFilter,
+    department: departmentFilter,
+    status: statusFilter,
+  }))
 
   return (
     <div className="workspace-panel users-panel">
@@ -1278,14 +1305,14 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
             setInviteRole(selectedValue)
           }}
         >
-          {roleComboOptions.map((role) => <option value={role} key={role}>{role}</option>)}
+          {roleComboOptions.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}
           <option value="__create_new_role__">Create New Role...</option>
         </select>
         <button className="button button-green button-small" disabled={inviteLoading}>{inviteLoading ? 'Sending...' : 'Send invite'}</button>
       </form>
-      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
+      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">All roles</option>{roleComboOptions.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}</select><select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="all">All departments</option>{USER_MANAGEMENT_DEPARTMENTS.map((department) => <option value={department} key={department}>{department}</option>)}<option value="__unset__">Department not set</option></select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
       <AuthMessage error={error} success={message} />
-      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{user.department || 'Not set'}</td><td><select value={user.role} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role} key={role}>{role}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select></td><td><button className="table-action" type="button" disabled={user.id === currentUserId} onClick={() => void updateUser(user, 'account_status', user.account_status === 'suspended' ? 'active' : 'suspended')}>{user.account_status === 'suspended' ? 'Activate' : 'Suspend'}</button></td></tr>)}</tbody></table></div>}
+      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{getDepartmentLabel(user.department)}</td><td><select value={user.role} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}>{!['active', 'inactive'].includes(user.account_status) && <option value={user.account_status} disabled>{user.account_status.charAt(0).toUpperCase() + user.account_status.slice(1)}</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></td><td><select aria-label={`Actions for ${user.full_name}`} defaultValue="" disabled={user.id === currentUserId} onChange={(event) => { const action = event.target.value; if (action === 'Suspend') void updateUser(user, 'account_status', 'suspended'); if (action === 'Deactivate') void updateUser(user, 'account_status', 'inactive'); event.currentTarget.value = '' }}><option value="">Select action</option>{USER_ACTION_OPTIONS.map((action) => <option value={action} key={action}>{action}</option>)}</select></td></tr>)}</tbody></table></div>}
       {showRoleManagement && <RoleManagementSection organizationId={organizationId} />}
       {roleModalOpen && (
         <div className="role-creator-backdrop" onClick={() => setRoleModalOpen(false)}>
