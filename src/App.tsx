@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import ExcelJS from 'exceljs'
+import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from 'docx'
 
 import customerBenefitsDashboard from './assets/srcassetscustomer-benefits-dashboard.png'
 import authIllustration from './assets/auth-illustration.jpg'
@@ -692,6 +696,150 @@ type ManagedUserFilters = {
   status: string
 }
 
+type ExportFormat = 'csv' | 'pdf' | 'xlsx' | 'docx'
+
+type ExportAdmin = {
+  fullName: string
+  role: string
+  department: string | null
+}
+
+type ExportUserRow = {
+  userId: string
+  name: string
+  employeeId: string
+  department: string
+  jobTitle: string
+  role: string
+  status: string
+  action: string
+}
+
+const exportIntroduction = 'This User Management Register provides an administrative overview of user accounts configured within the SentinelQHSE platform. It presents the user identification details, assigned departments, roles, account statuses, and relevant administrative actions included in the export.\n\nThe register is intended to support user-account administration, access oversight, recordkeeping, and internal review. It reflects the information available in the platform at the time of export and should be interpreted in accordance with the organization\'s applicable access-control procedures and information-management requirements.\n\nThis document is intended for authorized administrative use. Its contents should be handled in accordance with applicable organizational confidentiality and data-protection requirements.'
+
+function exportFileName(format: ExportFormat, date: Date) {
+  const datePart = date.toISOString().slice(0, 10)
+  return `SentinelQHSE_User_Management_Register_${datePart}.${format}`
+}
+
+function downloadExport(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportCsv(rows: ExportUserRow[], generatedAt: Date) {
+  const headers = ['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action']
+  const values = rows.map((row) => [row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action])
+  const csvValue = (value: string) => `"${value.replaceAll('"', '""')}"`
+  const csv = [headers, ...values].map((row) => row.map((value) => csvValue(String(value ?? ''))).join(',')).join('\n')
+  downloadExport(new Blob([csv], { type: 'text/csv;charset=utf-8' }), exportFileName('csv', generatedAt))
+}
+
+function exportPdf(rows: ExportUserRow[], admin: ExportAdmin, generatedAt: Date) {
+  const pdf = new jsPDF({ orientation: 'landscape' })
+  pdf.setTextColor('#0f172a')
+  pdf.setFontSize(18)
+  pdf.text('SentinelQHSE', 14, 16)
+  pdf.setFontSize(14)
+  pdf.text('User Management Register', 14, 25)
+  pdf.setFontSize(10)
+  pdf.setTextColor('#475569')
+  pdf.text('User Access, Roles and Status Report', 14, 32)
+  pdf.text(`Exported: ${generatedAt.toLocaleString()} | Records: ${rows.length} | Scope: Current filtered users`, 14, 39)
+  pdf.setFontSize(8)
+  const introLines = pdf.splitTextToSize(exportIntroduction, 265)
+  pdf.text(introLines, 14, 47)
+  const tableStart = 47 + introLines.length * 4 + 5
+  autoTable(pdf, {
+    startY: tableStart,
+    head: [['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action']],
+    body: rows.map((row) => [row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action]),
+    styles: { fontSize: 7, cellPadding: 2 },
+    headStyles: { fillColor: [15, 74, 62] },
+    didDrawPage: (data) => {
+      pdf.setFontSize(8)
+      pdf.setTextColor('#64748b')
+      pdf.text(`SentinelQHSE User Management Register | Page ${data.pageNumber}`, 14, pdf.internal.pageSize.height - 8)
+    },
+  })
+  const finalY = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? tableStart
+  const signoffY = finalY + 14
+  if (signoffY > pdf.internal.pageSize.height - 42) {
+    pdf.addPage()
+  }
+  const visibleSignoffY = signoffY > pdf.internal.pageSize.height - 42 ? 18 : signoffY
+  pdf.setTextColor('#0f172a')
+  pdf.setFontSize(10)
+  pdf.text('AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF', 14, visibleSignoffY)
+  pdf.setFontSize(8)
+  pdf.text(`Authorized / Exported By: ${admin.fullName}`, 14, visibleSignoffY + 7)
+  pdf.text(`Role: ${admin.role}`, 14, visibleSignoffY + 13)
+  pdf.text(`Department: ${getDepartmentLabel(admin.department)}`, 14, visibleSignoffY + 19)
+  pdf.text(`Date and Time of Export: ${generatedAt.toLocaleString()}`, 14, visibleSignoffY + 25)
+  pdf.save(exportFileName('pdf', generatedAt))
+}
+
+async function exportExcel(rows: ExportUserRow[], admin: ExportAdmin, generatedAt: Date) {
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('User Register')
+  sheet.mergeCells('A1:H1')
+  sheet.getCell('A1').value = 'SentinelQHSE — User Management Register'
+  sheet.getCell('A1').font = { bold: true, size: 16, color: { argb: '0F172A' } }
+  sheet.mergeCells('A2:H2')
+  sheet.getCell('A2').value = 'User Access, Roles and Status Report'
+  sheet.getCell('A3').value = 'Exported'
+  sheet.getCell('B3').value = generatedAt.toLocaleString()
+  sheet.getCell('D3').value = 'Records'
+  sheet.getCell('E3').value = rows.length
+  sheet.mergeCells('A5:H7')
+  sheet.getCell('A5').value = exportIntroduction
+  sheet.getCell('A5').alignment = { wrapText: true, vertical: 'top' }
+  const headerRow = sheet.addRow(['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action'])
+  headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F4A3E' } }
+  rows.forEach((row) => sheet.addRow([row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action]))
+  sheet.addRow([])
+  sheet.addRow(['AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF'])
+  sheet.addRow(['Authorized / Exported By', admin.fullName])
+  sheet.addRow(['Role', admin.role])
+  sheet.addRow(['Department', getDepartmentLabel(admin.department)])
+  sheet.addRow(['Date and Time of Export', generatedAt.toLocaleString()])
+  sheet.columns = [{ width: 24 }, { width: 24 }, { width: 18 }, { width: 22 }, { width: 24 }, { width: 28 }, { width: 14 }, { width: 16 }]
+  sheet.eachRow((row) => row.eachCell((cell) => { cell.alignment = { ...cell.alignment, vertical: 'top', wrapText: true } }))
+  const buffer = await workbook.xlsx.writeBuffer()
+  downloadExport(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), exportFileName('xlsx', generatedAt))
+}
+
+async function exportWord(rows: ExportUserRow[], admin: ExportAdmin, generatedAt: Date) {
+  const header = ['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action']
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({ children: header.map((value) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: value, bold: true })] })] })) }),
+      ...rows.map((row) => new TableRow({ children: [row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action].map((value) => new TableCell({ children: [new Paragraph(value)] })) })),
+    ],
+  })
+  const document = new Document({ sections: [{ children: [
+    new Paragraph({ text: 'SentinelQHSE', heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ text: 'User Management Register', heading: HeadingLevel.HEADING_2 }),
+    new Paragraph({ text: 'User Access, Roles and Status Report' }),
+    new Paragraph({ text: `Exported: ${generatedAt.toLocaleString()} | Records: ${rows.length} | Scope: Current filtered users` }),
+    new Paragraph({ text: exportIntroduction, spacing: { after: 240 } }),
+    table,
+    new Paragraph({ text: 'AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF', heading: HeadingLevel.HEADING_2, spacing: { before: 360 } }),
+    new Paragraph({ text: `Authorized / Exported By: ${admin.fullName}` }),
+    new Paragraph({ text: `Role: ${admin.role}` }),
+    new Paragraph({ text: `Department: ${getDepartmentLabel(admin.department)}` }),
+    new Paragraph({ text: `Date and Time of Export: ${generatedAt.toLocaleString()}` }),
+  ] }] })
+  const buffer = await Packer.toBlob(document)
+  downloadExport(buffer, exportFileName('docx', generatedAt))
+}
+
 function matchesManagedUserFilters(user: ManagedUser, filters: ManagedUserFilters) {
   const displayRole = USER_MANAGEMENT_BACKEND_TO_ROLE[user.role] || user.role
   const searchableText = `${user.id} ${user.full_name} ${user.employee_id || ''} ${user.department || ''} ${user.role} ${displayRole}`.toLowerCase()
@@ -1037,6 +1185,9 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
   const [departmentModalOpen, setDepartmentModalOpen] = useState(false)
   const [departmentDraft, setDepartmentDraft] = useState('')
   const [departmentLoading, setDepartmentLoading] = useState(false)
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
+  const [exportAdmin, setExportAdmin] = useState<ExportAdmin | null>(null)
+  const [exportLoading, setExportLoading] = useState(false)
 
   const loadDepartments = async () => {
     const { data, error: settingsError } = await supabase
@@ -1106,7 +1257,19 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     void loadCustomRoles()
     void loadDepartments()
     void loadUsers()
-  }, [organizationId])
+    void (async () => {
+      const [{ data: profile, error: profileError }, { data: membership, error: membershipError }] = await Promise.all([
+        supabase.from('profiles').select('full_name, department').eq('id', currentUserId).eq('organization_id', organizationId).maybeSingle(),
+        supabase.from('memberships').select('role').eq('user_id', currentUserId).eq('organization_id', organizationId).maybeSingle(),
+      ])
+      if (profileError || membershipError || !profile?.full_name || !membership?.role) {
+        setExportAdmin(null)
+        setError('Unable to verify the authenticated administrator identity for export.')
+        return
+      }
+      setExportAdmin({ fullName: profile.full_name, role: String(membership.role), department: profile.department })
+    })()
+  }, [currentUserId, organizationId])
 
   const roleComboOptions = [
     ...USER_MANAGEMENT_ROLES.map((role) => ({ label: role, value: USER_MANAGEMENT_ROLE_TO_BACKEND[role] })),
@@ -1243,16 +1406,36 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     setMessage(`${user.full_name} updated successfully.`)
   }
 
-  const exportUsers = () => {
-    const header = 'Name,Employee ID,Department,Job Title,Role,Account Status'
-    const rows = filteredUsers.map((user) => [user.full_name, user.employee_id || '', user.department || '', user.job_title || '', user.role, user.account_status].map((value) => `"${value.replaceAll('"', '""')}"`).join(','))
-    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'sentinelqhse-users.csv'
-    link.click()
-    URL.revokeObjectURL(url)
+  const exportUsers = async () => {
+    if (!exportAdmin) {
+      setError('Unable to identify the authenticated administrator for this export.')
+      return
+    }
+    setExportLoading(true)
+    setError('')
+    const generatedAt = new Date()
+    const rows: ExportUserRow[] = filteredUsers.map((user) => ({
+      userId: user.id,
+      name: user.full_name,
+      employeeId: user.employee_id || '',
+      department: getDepartmentLabel(user.department),
+      jobTitle: user.job_title || '',
+      role: USER_MANAGEMENT_BACKEND_TO_ROLE[user.role] || user.role,
+      status: user.account_status,
+      action: user.account_status === 'suspended' ? 'Suspended' : user.account_status === 'inactive' ? 'Deactivated' : '—',
+    }))
+    try {
+      if (exportFormat === 'csv') exportCsv(rows, generatedAt)
+      if (exportFormat === 'pdf') exportPdf(rows, exportAdmin, generatedAt)
+      if (exportFormat === 'xlsx') await exportExcel(rows, exportAdmin, generatedAt)
+      if (exportFormat === 'docx') await exportWord(rows, exportAdmin, generatedAt)
+      await recordActivity(organizationId, currentUserId, 'User register exported', { format: exportFormat, record_count: rows.length })
+      setMessage(`${exportFormat.toUpperCase()} user register downloaded.`)
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'Unable to generate the user register.')
+    } finally {
+      setExportLoading(false)
+    }
   }
 
   const filteredUsers = users.filter((user) => matchesManagedUserFilters(user, {
@@ -1274,7 +1457,13 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
           <button className="button button-outline button-small" type="button" onClick={() => setShowRoleManagement((current) => !current)}>
             {showRoleManagement ? 'Hide roles' : 'Manage roles'}
           </button>
-          <button className="button button-green button-small" type="button" onClick={exportUsers}>Export users</button>
+          <select className="export-format-select" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)} aria-label="Export format">
+            <option value="pdf">PDF</option>
+            <option value="xlsx">Excel</option>
+            <option value="docx">Word</option>
+            <option value="csv">CSV</option>
+          </select>
+          <button className="button button-green button-small" type="button" onClick={() => void exportUsers()} disabled={exportLoading}>{exportLoading ? 'Generating...' : 'Export users'}</button>
         </div>
       </div>
       <form className="invite-form" onSubmit={inviteUser}>
