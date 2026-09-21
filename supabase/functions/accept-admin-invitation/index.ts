@@ -5,6 +5,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+async function recordActivity(client: ReturnType<typeof createClient>, organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
+  await client.from('activity_logs').insert({ organization_id: organizationId, user_id: userId, activity, metadata })
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -41,6 +45,7 @@ Deno.serve(async (request: Request) => {
 
     if (new Date(pendingInvitation.expires_at).getTime() <= Date.now()) {
       await adminClient.from('admin_invitations').update({ status: 'expired' }).eq('id', pendingInvitation.id).eq('status', 'pending')
+      await recordActivity(adminClient, pendingInvitation.organization_id, user.id, 'Invitation expired')
       throw new Error('This invitation has expired')
     }
 
@@ -80,6 +85,8 @@ Deno.serve(async (request: Request) => {
       p_employee_id: employeeId,
     })
     if (acceptError || !acceptance?.accepted) throw new Error(acceptError?.message || 'This invitation could not be accepted')
+
+    await recordActivity(adminClient, acceptance.organization_id, user.id, 'Invitation accepted', { department_name: acceptance.department, role: acceptance.role })
 
     return new Response(JSON.stringify({ accepted: true, organizationId: acceptance.organization_id }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -1153,6 +1153,7 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     setInviteLoading(false)
     if (inviteError) setError(inviteError.message)
     else {
+      await recordActivity(organizationId, currentUserId, 'Invitation sent', { has_department: Boolean(inviteDepartment), role: inviteRole })
       setMessage(`Invitation sent to ${inviteEmail}.`)
       setInviteEmail('')
       setInviteDepartment('')
@@ -1198,6 +1199,7 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     setInviteDepartment(name)
     setDepartmentDraft('')
     setDepartmentModalOpen(false)
+    await recordActivity(organizationId, currentUserId, 'Department created', { department_name: name })
     setMessage(`Department "${name}" created and selected.`)
   }
 

@@ -9,8 +9,7 @@ create table if not exists public.custom_roles (
   is_active boolean not null default true,
   created_by uuid not null references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (organization_id, lower(name))
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.role_audit_events (
@@ -27,6 +26,8 @@ create table if not exists public.role_audit_events (
 
 create index if not exists custom_roles_organization_id_idx on public.custom_roles (organization_id, is_active);
 create index if not exists custom_roles_name_idx on public.custom_roles (organization_id, lower(name));
+create unique index if not exists custom_roles_organization_lower_name_uidx
+  on public.custom_roles (organization_id, lower(name));
 create index if not exists role_audit_events_org_created_idx on public.role_audit_events (organization_id, created_at desc);
 
 create or replace function public.is_builtin_role_name(candidate_name text)
@@ -113,10 +114,7 @@ as $$
     from public.memberships
     where user_id = auth.uid()
       and organization_id = p_organization_id
-      and role = any(array[
-        'Super Administrator'::public.membership_role,
-        'Organization Administrator'::public.membership_role
-      ])
+      and role = any(array['Super Administrator', 'Organization Administrator']::text[])
   );
 $$;
 
@@ -278,7 +276,7 @@ security definer
 set search_path = public
 as $$
 declare
-  current_role public.custom_roles;
+  role_record public.custom_roles;
   new_name text;
   new_description text;
   new_permissions jsonb;
@@ -289,27 +287,27 @@ begin
     raise exception 'Authentication is required';
   end if;
 
-  select * into current_role
+  select * into role_record
   from public.custom_roles
   where id = p_role_id;
 
-  if current_role.id is null then
+  if role_record.id is null then
     raise exception 'Custom role not found';
   end if;
 
-  if current_role.is_system then
+  if role_record.is_system then
     raise exception 'Built-in roles cannot be changed through the custom role API';
   end if;
 
-  if not public.is_org_admin_for_role_management(current_role.organization_id) then
+  if not public.is_org_admin_for_role_management(role_record.organization_id) then
     raise exception 'Only organization administrators can update custom roles';
   end if;
 
-  new_name := coalesce(trim(p_name), current_role.name);
-  new_description := case when p_description is null then current_role.description else nullif(trim(p_description), '') end;
-  new_permissions := coalesce(p_permissions, current_role.permissions);
-  new_scope := coalesce(p_scope, current_role.scope);
-  new_active := coalesce(p_is_active, current_role.is_active);
+  new_name := coalesce(trim(p_name), role_record.name);
+  new_description := case when p_description is null then role_record.description else nullif(trim(p_description), '') end;
+  new_permissions := coalesce(p_permissions, role_record.permissions);
+  new_scope := coalesce(p_scope, role_record.scope);
+  new_active := coalesce(p_is_active, role_record.is_active);
 
   if new_name = '' then
     raise exception 'Role name is required';
@@ -330,7 +328,7 @@ begin
   if exists (
     select 1
     from public.custom_roles
-    where organization_id = current_role.organization_id
+    where organization_id = role_record.organization_id
       and lower(name) = lower(new_name)
       and id <> p_role_id
       and is_active = true
@@ -348,7 +346,7 @@ begin
     updated_at = now()
   where id = p_role_id;
 
-  select * into current_role
+  select * into role_record
   from public.custom_roles
   where id = p_role_id;
 
@@ -362,26 +360,26 @@ begin
     reason
   )
   values (
-    current_role.organization_id,
+    role_record.organization_id,
     auth.uid(),
-    current_role.id,
+    role_record.id,
     'updated',
     jsonb_build_object(
-      'name', current_role.name,
-      'permissions', current_role.permissions,
-      'scope', current_role.scope,
-      'is_active', current_role.is_active
+      'name', role_record.name,
+      'permissions', role_record.permissions,
+      'scope', role_record.scope,
+      'is_active', role_record.is_active
     ),
     jsonb_build_object(
-      'name', current_role.name,
-      'permissions', current_role.permissions,
-      'scope', current_role.scope,
-      'is_active', current_role.is_active
+      'name', role_record.name,
+      'permissions', role_record.permissions,
+      'scope', role_record.scope,
+      'is_active', role_record.is_active
     ),
     'Custom role updated by organization administrator'
   );
 
-  return current_role;
+  return role_record;
 end;
 $$;
 
@@ -392,25 +390,25 @@ security definer
 set search_path = public
 as $$
 declare
-  current_role public.custom_roles;
+  role_record public.custom_roles;
 begin
   if auth.uid() is null then
     raise exception 'Authentication is required';
   end if;
 
-  select * into current_role
+  select * into role_record
   from public.custom_roles
   where id = p_role_id;
 
-  if current_role.id is null then
+  if role_record.id is null then
     raise exception 'Custom role not found';
   end if;
 
-  if current_role.is_system then
+  if role_record.is_system then
     raise exception 'Built-in roles cannot be deleted';
   end if;
 
-  if not public.is_org_admin_for_role_management(current_role.organization_id) then
+  if not public.is_org_admin_for_role_management(role_record.organization_id) then
     raise exception 'Only organization administrators can delete custom roles';
   end if;
 
@@ -419,7 +417,7 @@ begin
       updated_at = now()
   where id = p_role_id;
 
-  select * into current_role
+  select * into role_record
   from public.custom_roles
   where id = p_role_id;
 
@@ -433,26 +431,26 @@ begin
     reason
   )
   values (
-    current_role.organization_id,
+    role_record.organization_id,
     auth.uid(),
-    current_role.id,
+    role_record.id,
     'deleted',
     jsonb_build_object(
-      'name', current_role.name,
-      'permissions', current_role.permissions,
-      'scope', current_role.scope,
+      'name', role_record.name,
+      'permissions', role_record.permissions,
+      'scope', role_record.scope,
       'is_active', true
     ),
     jsonb_build_object(
-      'name', current_role.name,
-      'permissions', current_role.permissions,
-      'scope', current_role.scope,
+      'name', role_record.name,
+      'permissions', role_record.permissions,
+      'scope', role_record.scope,
       'is_active', false
     ),
     'Custom role archived by organization administrator'
   );
 
-  return current_role;
+  return role_record;
 end;
 $$;
 

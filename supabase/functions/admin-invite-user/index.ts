@@ -24,6 +24,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+async function recordActivity(client: ReturnType<typeof createClient>, organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
+  await client.from('activity_logs').insert({ organization_id: organizationId, user_id: userId, activity, metadata })
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -52,7 +56,11 @@ Deno.serve(async (request: Request) => {
       .eq('organization_id', organizationId)
       .in('role', ['Super Administrator', 'Organization Administrator'])
       .maybeSingle()
-    if (!membership) throw new Error('Only organization administrators can invite users')
+    if (!membership) {
+      const auditClient = createClient(supabaseUrl, serviceRoleKey)
+      await recordActivity(auditClient, organizationId, requester.id, 'Unauthorized invitation attempt', { reason: 'requester_not_organization_admin' })
+      throw new Error('Only organization administrators can invite users')
+    }
 
     if (!builtInInviteRoles.has(normalizedRole)) {
       const { data: customRole, error: roleError } = await userClient
@@ -138,10 +146,13 @@ Deno.serve(async (request: Request) => {
     })
     if (membershipError) {
       await adminClient.from('admin_invitations').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', invitation.id)
+      await recordActivity(adminClient, organizationId, requester.id, 'Invitation revoked', { reason: 'membership_creation_failed' })
       await adminClient.from('profiles').delete().eq('id', invited.user.id).eq('organization_id', organizationId)
       await adminClient.auth.admin.deleteUser(invited.user.id)
       throw new Error(membershipError.message)
     }
+
+    await recordActivity(adminClient, organizationId, requester.id, 'Invitation sent', { department_name: normalizedDepartment || null, role: normalizedRole })
 
     return new Response(JSON.stringify({ success: true, invitationId: invitation.id }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
