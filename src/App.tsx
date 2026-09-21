@@ -50,14 +50,14 @@ function ThemeIcon() {
   )
 }
 
-type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'demo'
+type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'invite-signup' | 'demo'
 
 function getAuthRoute(): AuthRoute | null {
   const route = window.location.hash.replace('#/', '').replace('#', '').split('?')[0]
   if (route === 'contact' || route === 'contact-sales' || route === 'request-demo') {
     return 'demo'
   }
-  return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'change-password' || route === 'demo'
+  return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'change-password' || route === 'invite-signup' || route === 'demo'
     ? route
     : null
 }
@@ -196,6 +196,80 @@ function PasswordPage({ reset = false }: { reset?: boolean }) {
   )
 }
 
+type InvitationDetails = {
+  inviteeEmail: string
+  organizationName: string
+  department: string | null
+  role: string
+  expiresAt: string
+}
+
+function InviteSignupPage() {
+  const [details, setDetails] = useState<InvitationDetails | null>(null)
+  const [fullName, setFullName] = useState('')
+  const [employeeId, setEmployeeId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    const loadInvitation = async () => {
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) {
+        setError('This invitation link must be opened from the invitation email.')
+        setLoading(false)
+        return
+      }
+
+      const { data, error: invitationError } = await supabase.functions.invoke('accept-admin-invitation')
+      if (invitationError) setError(invitationError.message || 'This invitation link is invalid or unavailable.')
+      else if (!data?.invitation) setError('This invitation is expired, revoked, already accepted, or does not match this email account.')
+      else setDetails(data.invitation as InvitationDetails)
+      setLoading(false)
+    }
+    void loadInvitation()
+  }, [])
+
+  const completeSignup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    if (!fullName.trim() || !employeeId.trim()) {
+      setError('Full name and employee ID are required.')
+      return
+    }
+    setSubmitting(true)
+    const { data, error: acceptanceError } = await supabase.functions.invoke('accept-admin-invitation', {
+      body: { fullName: fullName.trim(), employeeId: employeeId.trim() },
+    })
+    setSubmitting(false)
+    if (acceptanceError || !data?.accepted) {
+      setError(acceptanceError?.message || 'This invitation could not be accepted.')
+      return
+    }
+    setMessage('Your account is ready. Redirecting to your workspace...')
+    window.setTimeout(() => { window.location.hash = '#dashboard' }, 800)
+  }
+
+  return (
+    <AuthShell title="Complete your invitation" subtitle="Confirm your organization details and finish setting up your account.">
+      {loading ? <div className="workspace-empty">Validating invitation...</div> : details ? (
+        <form className="auth-form" onSubmit={completeSignup}>
+          <label>Work email<input value={details.inviteeEmail} readOnly /></label>
+          <label>Organization<input value={details.organizationName} readOnly /></label>
+          <label>Department<input value={details.department || 'Not assigned'} readOnly /></label>
+          <label>Role<input value={details.role} readOnly /></label>
+          <label>Full name<input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required /></label>
+          <label>Employee ID<input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} autoComplete="off" required /></label>
+          <AuthMessage error={error} success={message} />
+          <button className="button button-green auth-submit" disabled={submitting}>{submitting ? 'Completing setup...' : 'Complete setup'}</button>
+        </form>
+      ) : <div className="auth-form"><AuthMessage error={error} /><a className="button button-outline auth-submit" href="#sign-in">Return to sign in</a></div>}
+    </AuthShell>
+  )
+}
+
 function DemoRequestPage() {
   const [submitted, setSubmitted] = useState(false)
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -293,7 +367,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     const handleHashChange = () => setRoute(getAppRoute())
     window.addEventListener('hashchange', handleHashChange)
     const loadMembership = async () => {
-      const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id').eq('id', session.user.id).maybeSingle()
+      const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id, account_status').eq('id', session.user.id).maybeSingle()
       if (profileError) setError(profileError.message)
       if (profile?.full_name) setProfileName(profile.full_name)
       if (profile?.organization_id) {
@@ -602,7 +676,12 @@ type ManagedUser = {
   department: string | null
   job_title: string | null
   account_status: string
-  role: Role
+  role: string
+}
+
+type DepartmentOption = {
+  name: string
+  active: boolean
 }
 
 const allRoles: Role[] = [
@@ -617,6 +696,36 @@ const allRoles: Role[] = [
   'Contractor',
   'Executive / Management',
 ]
+
+const permissionCatalog: Permission[] = [
+  'view_dashboard',
+  'report_incident',
+  'use_ai_assistant',
+  'view_executive_analytics',
+  'view_marketplace',
+  'create_inspection',
+  'create_corrective_action',
+  'start_audit',
+  'view_reports',
+  'manage_users',
+  'view_profile',
+  'view_activity',
+  'manage_settings',
+]
+
+type CustomRoleRecord = {
+  id?: string
+  organization_id?: string
+  name: string
+  description?: string | null
+  permissions: string[]
+  scope?: Record<string, unknown> | null
+  is_system?: boolean
+  is_active?: boolean
+  created_by?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
 
 function ProfileWorkspace({ userId, organizationId, email }: { userId: string; organizationId: string; email: string }) {
   const [profile, setProfile] = useState<Record<string, string>>({ full_name: '', employee_id: '', department: '', job_title: '', phone: '', emergency_contact: '', site_location: '', supervisor: '', certification_status: '' })
@@ -671,17 +780,288 @@ function ProfileWorkspace({ userId, organizationId, email }: { userId: string; o
   )
 }
 
+function RoleManagementSection({ organizationId }: { organizationId: string }) {
+  const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
+  const [roleForm, setRoleForm] = useState({ name: '', description: '', permissions: [] as Permission[] })
+  const [saving, setSaving] = useState(false)
+
+  const loadCustomRoles = async () => {
+    setLoading(true)
+    setError('')
+
+    const { data, error: roleError } = await supabase
+      .from('custom_roles')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('name', { ascending: true })
+
+    if (roleError) {
+      setError(roleError.message)
+      setCustomRoles([])
+      setLoading(false)
+      return
+    }
+
+    const normalizedRoles = (data ?? []).map((role) => ({
+      ...role,
+      name: String(role.name ?? ''),
+      permissions: Array.isArray(role.permissions) ? (role.permissions as string[]) : [],
+      description: typeof role.description === 'string' ? role.description : null,
+      scope: role.scope && typeof role.scope === 'object' ? (role.scope as Record<string, unknown>) : {},
+      is_system: Boolean(role.is_system),
+      is_active: role.is_active !== false,
+    })) as CustomRoleRecord[]
+
+    setCustomRoles(normalizedRoles)
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    void loadCustomRoles()
+  }, [organizationId])
+
+  const resetForm = () => {
+    setSelectedRoleId(null)
+    setRoleForm({ name: '', description: '', permissions: [] })
+  }
+
+  const togglePermission = (permission: Permission) => {
+    setRoleForm((current) => ({
+      ...current,
+      permissions: current.permissions.includes(permission)
+        ? current.permissions.filter((item) => item !== permission)
+        : [...current.permissions, permission],
+    }))
+  }
+
+  const handleEditRole = (role: CustomRoleRecord) => {
+    setSelectedRoleId(role.id ?? null)
+    setRoleForm({
+      name: role.name,
+      description: role.description ?? '',
+      permissions: Array.isArray(role.permissions) ? role.permissions as Permission[] : [],
+    })
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setMessage('')
+    setError('')
+    setSaving(true)
+
+    try {
+      if (!roleForm.name.trim()) {
+        setError('Role name is required.')
+        return
+      }
+
+      if (!roleForm.permissions.length) {
+        setError('Choose at least one permission before saving.')
+        return
+      }
+
+      const payload = {
+        p_name: roleForm.name.trim(),
+        p_description: roleForm.description.trim() || null,
+        p_permissions: roleForm.permissions,
+        p_scope: { organizationId },
+      }
+
+      if (selectedRoleId) {
+        const { error: updateError } = await supabase.rpc('update_custom_role', {
+          p_role_id: selectedRoleId,
+          p_name: payload.p_name,
+          p_description: payload.p_description,
+          p_permissions: payload.p_permissions,
+          p_scope: payload.p_scope,
+          p_is_active: true,
+        })
+
+        if (updateError) throw updateError
+        setMessage('Custom role updated successfully.')
+      } else {
+        const { error: createError } = await supabase.rpc('create_custom_role', {
+          p_organization_id: organizationId,
+          p_name: payload.p_name,
+          p_description: payload.p_description,
+          p_permissions: payload.p_permissions,
+          p_scope: payload.p_scope,
+        })
+
+        if (createError) throw createError
+        setMessage('Custom role created successfully.')
+      }
+
+      resetForm()
+      await loadCustomRoles()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save role.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const builtInRoleCards = allRoles.map((role) => ({
+    name: role,
+    description: 'System-defined role protected by the platform configuration.',
+    permissions: rolePermissions[role],
+    is_system: true,
+    is_active: true,
+    scope: { restricted: true },
+  }))
+
+  return (
+    <div className="workspace-panel role-management-panel">
+      <div className="workspace-panel-heading">
+        <div>
+          <div className="eyebrow">ROLE MANAGEMENT</div>
+          <h2>Custom Roles & Permissions</h2>
+          <p>Review system roles, create organization-specific roles, and maintain permission scopes.</p>
+        </div>
+      </div>
+
+      <form className="role-manager-form" onSubmit={handleSubmit}>
+        <div className="role-form-grid">
+          <label>
+            Role name
+            <input value={roleForm.name} onChange={(event) => setRoleForm((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Permit Coordinator" required />
+          </label>
+          <label>
+            Description
+            <input value={roleForm.description} onChange={(event) => setRoleForm((current) => ({ ...current, description: event.target.value }))} placeholder="Optional description" />
+          </label>
+        </div>
+
+        <div className="permission-grid">
+          {permissionCatalog.map((permission) => (
+            <label className="permission-toggle" key={permission}>
+              <input type="checkbox" checked={roleForm.permissions.includes(permission)} onChange={() => togglePermission(permission)} />
+              <span>{permission.replaceAll('_', ' ')}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="role-form-actions">
+          <button className="button button-green button-small" type="submit" disabled={saving}>{saving ? (selectedRoleId ? 'Saving...' : 'Creating...') : (selectedRoleId ? 'Save role' : 'Create role')}</button>
+          {selectedRoleId && <button className="button button-outline workspace-refresh" type="button" onClick={resetForm}>Cancel edit</button>}
+        </div>
+      </form>
+
+      <AuthMessage error={error} success={message} />
+
+      {loading ? (
+        <div className="workspace-empty">Loading roles...</div>
+      ) : (
+        <div className="role-card-list">
+          {[...builtInRoleCards, ...customRoles.map((role) => ({
+            name: role.name,
+            description: role.description ?? 'Custom organization role.',
+            permissions: role.permissions as Permission[],
+            is_system: false,
+            is_active: role.is_active !== false,
+            scope: role.scope ?? {},
+            id: role.id,
+          }))].map((role) => (
+            <div className="role-card" key={`${role.is_system ? 'system' : 'custom'}-${role.name}`}>
+              <div className="role-card-header">
+                <div>
+                  <strong>{role.name}</strong>
+                  <small>{role.is_system ? 'System role' : 'Custom role'}</small>
+                </div>
+                {!role.is_system && (
+                  <button className="button button-outline button-small" type="button" onClick={() => handleEditRole(customRoles.find((item) => item.name === role.name) ?? { name: role.name, permissions: role.permissions, description: role.description, is_system: false, is_active: true })}>Edit</button>
+                )}
+              </div>
+              <p>{role.description}</p>
+              <div className="role-permission-list">
+                {role.permissions.map((permission) => <span key={`${role.name}-${permission}`}>{permission.replaceAll('_', ' ')}</span>)}
+              </div>
+              <div className="role-scope">
+                <span>Scope</span>
+                <strong>{Object.keys(role.scope ?? {}).length ? JSON.stringify(role.scope) : 'Organization-wide access'}</strong>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function UsersWorkspace({ organizationId, currentUserId }: { organizationId: string; currentUserId: string }) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteName, setInviteName] = useState('')
-  const [inviteRole, setInviteRole] = useState<Role>('Field Worker')
+  const [inviteDepartment, setInviteDepartment] = useState('')
+  const [inviteRole, setInviteRole] = useState<string>('Field Worker')
   const [inviteLoading, setInviteLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [showRoleManagement, setShowRoleManagement] = useState(false)
+  const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
+  const [roleModalOpen, setRoleModalOpen] = useState(false)
+  const [roleDraft, setRoleDraft] = useState({ name: '', description: '', permissions: [] as Permission[] })
+  const [roleDraftLoading, setRoleDraftLoading] = useState(false)
+  const [departments, setDepartments] = useState<DepartmentOption[]>([])
+  const [departmentModalOpen, setDepartmentModalOpen] = useState(false)
+  const [departmentDraft, setDepartmentDraft] = useState('')
+  const [departmentLoading, setDepartmentLoading] = useState(false)
+
+  const loadDepartments = async () => {
+    const { data, error: settingsError } = await supabase
+      .from('company_settings')
+      .select('departments')
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+
+    if (settingsError) {
+      setError(settingsError.message)
+      return
+    }
+
+    const configuredDepartments = Array.isArray(data?.departments) ? data.departments : []
+    setDepartments(configuredDepartments.flatMap((department): DepartmentOption[] => {
+      if (typeof department === 'string') {
+        const name = department.trim()
+        return name ? [{ name, active: true }] : []
+      }
+      if (department && typeof department === 'object' && 'name' in department && typeof department.name === 'string') {
+        const name = department.name.trim()
+        return name && department.active !== false ? [{ name, active: true }] : []
+      }
+      return []
+    }))
+  }
+
+  const loadCustomRoles = async () => {
+    const { data, error: customRoleError } = await supabase
+      .from('custom_roles')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('name', { ascending: true })
+
+    if (customRoleError) {
+      setError(customRoleError.message)
+      setCustomRoles([])
+      return
+    }
+
+    setCustomRoles((data ?? []).filter((role) => role.is_active !== false).map((role) => ({
+      ...role,
+      name: String(role.name ?? ''),
+      permissions: Array.isArray(role.permissions) ? role.permissions as string[] : [],
+      description: typeof role.description === 'string' ? role.description : null,
+      scope: role.scope && typeof role.scope === 'object' ? role.scope as Record<string, unknown> : {},
+      is_system: Boolean(role.is_system),
+      is_active: role.is_active !== false,
+    })))
+  }
 
   const loadUsers = async () => {
     setLoading(true)
@@ -691,13 +1071,76 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     ])
     if (profileError || membershipError) setError(profileError?.message || membershipError?.message || 'Unable to load users.')
     else {
-      const roleByUser = new Map((memberships || []).map((membership) => [membership.user_id, membership.role as Role]))
+      const roleByUser = new Map((memberships || []).map((membership) => [membership.user_id, String(membership.role)]))
       setUsers((profiles || []).map((profile) => ({ ...profile, role: roleByUser.get(profile.id) || 'Field Worker' })))
     }
     setLoading(false)
   }
 
-  useEffect(() => { void loadUsers() }, [organizationId])
+  useEffect(() => {
+    void loadCustomRoles()
+    void loadDepartments()
+    void loadUsers()
+  }, [organizationId])
+
+  const roleComboOptions = [
+    ...allRoles.filter((role) => role !== 'Super Administrator'),
+    ...customRoles.map((role) => role.name),
+  ]
+
+  const openRoleCreator = () => {
+    setRoleDraft({ name: '', description: '', permissions: [] })
+    setError('')
+    setMessage('')
+    setRoleModalOpen(true)
+  }
+
+  const toggleRolePermission = (permission: Permission) => {
+    setRoleDraft((current) => ({
+      ...current,
+      permissions: current.permissions.includes(permission)
+        ? current.permissions.filter((item) => item !== permission)
+        : [...current.permissions, permission],
+    }))
+  }
+
+  const saveCustomRole = async () => {
+    if (!roleDraft.name.trim()) {
+      setError('Role name is required.')
+      return
+    }
+
+    if (!roleDraft.permissions.length) {
+      setError('Select at least one permission before saving.')
+      return
+    }
+
+    setRoleDraftLoading(true)
+    setError('')
+    setMessage('')
+
+    const { data, error: createError } = await supabase.rpc('create_custom_role', {
+      p_organization_id: organizationId,
+      p_name: roleDraft.name.trim(),
+      p_description: roleDraft.description.trim() || null,
+      p_permissions: roleDraft.permissions,
+      p_scope: { organizationId },
+    })
+
+    setRoleDraftLoading(false)
+
+    if (createError) {
+      setError(createError.message)
+      return
+    }
+
+    const createdName = typeof data?.name === 'string' ? data.name : roleDraft.name.trim()
+    setInviteRole(createdName)
+    setRoleModalOpen(false)
+    setRoleDraft({ name: '', description: '', permissions: [] })
+    await loadCustomRoles()
+    setMessage(`Custom role "${createdName}" created and selected.`)
+  }
 
   const inviteUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -705,23 +1148,64 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     setMessage('')
     setInviteLoading(true)
     const { error: inviteError } = await supabase.functions.invoke('admin-invite-user', {
-      body: { organizationId, email: inviteEmail, fullName: inviteName, role: inviteRole },
+      body: { organizationId, email: inviteEmail, department: inviteDepartment || null, role: inviteRole },
     })
     setInviteLoading(false)
     if (inviteError) setError(inviteError.message)
     else {
       setMessage(`Invitation sent to ${inviteEmail}.`)
       setInviteEmail('')
-      setInviteName('')
+      setInviteDepartment('')
       void loadUsers()
     }
+  }
+
+  const saveDepartment = async () => {
+    const name = departmentDraft.trim()
+    if (!name) {
+      setError('Department name is required.')
+      return
+    }
+    if (departments.some((department) => department.name.toLowerCase() === name.toLowerCase())) {
+      setError('That department already exists.')
+      return
+    }
+
+    setDepartmentLoading(true)
+    setError('')
+    const { data: settings, error: settingsError } = await supabase
+      .from('company_settings')
+      .select('departments')
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+    if (settingsError) {
+      setDepartmentLoading(false)
+      setError(settingsError.message)
+      return
+    }
+
+    const currentDepartments = Array.isArray(settings?.departments) ? settings.departments : []
+    const { error: saveError } = await supabase
+      .from('company_settings')
+      .upsert({ organization_id: organizationId, departments: [...currentDepartments, { name, active: true }] })
+    setDepartmentLoading(false)
+    if (saveError) {
+      setError(saveError.message)
+      return
+    }
+
+    await loadDepartments()
+    setInviteDepartment(name)
+    setDepartmentDraft('')
+    setDepartmentModalOpen(false)
+    setMessage(`Department "${name}" created and selected.`)
   }
 
   const updateUser = async (user: ManagedUser, field: 'role' | 'account_status', value: string) => {
     setError('')
     setMessage('')
     if (field === 'role') {
-      const { error: updateError } = await supabase.from('memberships').update({ role: value }).eq('user_id', user.id).eq('organization_id', organizationId)
+      const { error: updateError } = await supabase.rpc('update_user_role', { p_organization_id: organizationId, p_target_user_id: user.id, p_role: value })
       if (updateError) return setError(updateError.message)
     } else {
       const { error: updateError } = await supabase.from('profiles').update({ account_status: value }).eq('id', user.id).eq('organization_id', organizationId)
@@ -751,17 +1235,114 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
 
   return (
     <div className="workspace-panel users-panel">
-      <div className="workspace-panel-heading"><div><div className="eyebrow">ADMINISTRATION</div><h2>User Management</h2><p>Manage organization members, roles, and account status.</p></div><button className="button button-green button-small" type="button" onClick={exportUsers}>Export users</button></div>
+      <div className="workspace-panel-heading">
+        <div>
+          <div className="eyebrow">ADMINISTRATION</div>
+          <h2>User Management</h2>
+          <p>Manage organization members, roles, and account status.</p>
+        </div>
+        <div className="workspace-panel-actions">
+          <button className="button button-outline button-small" type="button" onClick={() => setShowRoleManagement((current) => !current)}>
+            {showRoleManagement ? 'Hide roles' : 'Manage roles'}
+          </button>
+          <button className="button button-green button-small" type="button" onClick={exportUsers}>Export users</button>
+        </div>
+      </div>
       <form className="invite-form" onSubmit={inviteUser}>
         <div><strong>Invite a user</strong><span>Invitation emails are sent through Supabase Auth.</span></div>
-        <input value={inviteName} onChange={(event) => setInviteName(event.target.value)} placeholder="Full name" required />
         <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} type="email" placeholder="Work email" required />
-        <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as Role)}>{allRoles.filter((role) => role !== 'Super Administrator').map((role) => <option value={role} key={role}>{role}</option>)}</select>
+        <select value={inviteDepartment} onChange={(event) => {
+          if (event.target.value === '__create_new_department__') {
+            setDepartmentDraft('')
+            setError('')
+            setMessage('')
+            setDepartmentModalOpen(true)
+            return
+          }
+          setInviteDepartment(event.target.value)
+        }}>
+          <option value="">Select department</option>
+          {departments.map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}
+          <option value="__create_new_department__">Create New Department...</option>
+        </select>
+        <select
+          value={inviteRole}
+          onChange={(event) => {
+            const selectedValue = event.target.value
+            if (selectedValue === '__create_new_role__') {
+              openRoleCreator()
+              return
+            }
+            setInviteRole(selectedValue)
+          }}
+        >
+          {roleComboOptions.map((role) => <option value={role} key={role}>{role}</option>)}
+          <option value="__create_new_role__">Create New Role...</option>
+        </select>
         <button className="button button-green button-small" disabled={inviteLoading}>{inviteLoading ? 'Sending...' : 'Send invite'}</button>
       </form>
       <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
       <AuthMessage error={error} success={message} />
-      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{user.department || 'Not set'}</td><td><select value={user.role} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{allRoles.map((role) => <option value={role} key={role}>{role}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select></td><td><button className="table-action" type="button" disabled={user.id === currentUserId} onClick={() => void updateUser(user, 'account_status', user.account_status === 'suspended' ? 'active' : 'suspended')}>{user.account_status === 'suspended' ? 'Activate' : 'Suspend'}</button></td></tr>)}</tbody></table></div>}
+      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{user.department || 'Not set'}</td><td><select value={user.role} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role} key={role}>{role}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select></td><td><button className="table-action" type="button" disabled={user.id === currentUserId} onClick={() => void updateUser(user, 'account_status', user.account_status === 'suspended' ? 'active' : 'suspended')}>{user.account_status === 'suspended' ? 'Activate' : 'Suspend'}</button></td></tr>)}</tbody></table></div>}
+      {showRoleManagement && <RoleManagementSection organizationId={organizationId} />}
+      {roleModalOpen && (
+        <div className="role-creator-backdrop" onClick={() => setRoleModalOpen(false)}>
+          <div className="role-creator-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="role-creator-header">
+              <div>
+                <div className="eyebrow">CREATE ROLE</div>
+                <h3>New custom role</h3>
+              </div>
+              <button className="button button-outline button-small" type="button" onClick={() => setRoleModalOpen(false)}>Close</button>
+            </div>
+            <div className="role-creator-body">
+              <label>
+                Role name
+                <input value={roleDraft.name} onChange={(event) => setRoleDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Permit Coordinator" required />
+              </label>
+              <label>
+                Description
+                <input value={roleDraft.description} onChange={(event) => setRoleDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional description" />
+              </label>
+              <div className="permission-grid">
+                {permissionCatalog.map((permission) => (
+                  <label className="permission-toggle" key={permission}>
+                    <input type="checkbox" checked={roleDraft.permissions.includes(permission)} onChange={() => toggleRolePermission(permission)} />
+                    <span>{permission.replaceAll('_', ' ')}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="role-creator-actions">
+              <button className="button button-outline button-small" type="button" onClick={() => setRoleModalOpen(false)}>Cancel</button>
+              <button className="button button-green button-small" type="button" onClick={() => void saveCustomRole()} disabled={roleDraftLoading}>{roleDraftLoading ? 'Saving...' : 'Save role'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {departmentModalOpen && (
+        <div className="role-creator-backdrop" onClick={() => setDepartmentModalOpen(false)}>
+          <div className="role-creator-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="role-creator-header">
+              <div>
+                <div className="eyebrow">ORGANIZATION SETTINGS</div>
+                <h3>New department</h3>
+              </div>
+              <button className="button button-outline button-small" type="button" onClick={() => setDepartmentModalOpen(false)}>Close</button>
+            </div>
+            <div className="role-creator-body">
+              <label>
+                Department name
+                <input value={departmentDraft} onChange={(event) => setDepartmentDraft(event.target.value)} placeholder="e.g. Process Safety" autoFocus required />
+              </label>
+            </div>
+            <div className="role-creator-actions">
+              <button className="button button-outline button-small" type="button" onClick={() => setDepartmentModalOpen(false)}>Cancel</button>
+              <button className="button button-green button-small" type="button" onClick={() => void saveDepartment()} disabled={departmentLoading}>{departmentLoading ? 'Saving...' : 'Save department'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <p className="workspace-note">Password resets remain server-side through Supabase Auth. The browser never receives the service-role credential.</p>
     </div>
   )
@@ -958,6 +1539,7 @@ export default function App() {
   if (authRoute === 'forgot-password') return <ForgotPasswordPage />
   if (authRoute === 'reset-password') return <PasswordPage reset />
   if (authRoute === 'change-password') return <PasswordPage />
+  if (authRoute === 'invite-signup') return <InviteSignupPage />
   if (authRoute === 'demo') return <DemoRequestPage />
 
   const requestedRoute = window.location.hash.replace('#/', '').replace('#', '')
