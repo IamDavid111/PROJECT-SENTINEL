@@ -2899,6 +2899,23 @@ blockquote footer span {
   gap: 10px;
 }
 
+.permission-group-list {
+  display: grid;
+  gap: 16px;
+}
+
+.permission-group {
+  display: grid;
+  gap: 9px;
+}
+
+.permission-group > strong {
+  color: #41526a;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .permission-toggle {
   display: flex;
   align-items: center;
@@ -2914,6 +2931,31 @@ blockquote footer span {
 .permission-toggle input {
   width: 16px;
   height: 16px;
+}
+
+.permission-toggle > span {
+  display: grid;
+  gap: 3px;
+}
+
+.permission-toggle b {
+  font-size: 12px;
+}
+
+.permission-toggle small {
+  color: #71819a;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.permission-required {
+  background: #eef8f2;
+  border-color: #b9dfc8;
+}
+
+.permission-required input {
+  accent-color: var(--green);
 }
 
 .role-form-actions {
@@ -3060,6 +3102,82 @@ blockquote footer span {
   font-size: 12px;
 }
 
+.role-summary-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  margin-top: 28px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+}
+
+.role-summary-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.role-summary-table th,
+.role-summary-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e8edf2;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.role-summary-table th {
+  color: #71819a;
+  background: #f7f9fb;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.role-summary-table td:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  white-space: normal;
+}
+
+.role-summary-table td:first-child small {
+  color: #71819a;
+  font-size: 11px;
+}
+
+.role-summary-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.role-detail-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+  background: #f7f9fb;
+}
+
+.role-detail-panel h3,
+.role-detail-panel p {
+  margin: 0;
+}
+
+.role-state-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.role-state-message .auth-message {
+  flex: 1 1 280px;
+}
+
 .invite-form {
   display: grid;
   grid-template-columns: 1.2fr 1fr 1fr 1.2fr auto;
@@ -3139,7 +3257,9 @@ blockquote footer span {
 }
 
 .user-table-wrap {
+  max-width: 100%;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   border: 1px solid #dfe5ec;
   border-radius: 12px;
 }
@@ -3372,6 +3492,32 @@ blockquote footer span {
 
 .workspace-module strong {
   font-size: 16px;
+}
+
+.administration-entry-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.administration-entry-card {
+  min-height: 220px;
+  align-content: start;
+}
+
+.administration-entry-card p {
+  margin: 0;
+  color: #61718b;
+  line-height: 1.6;
+}
+
+.administration-entry-card .button {
+  justify-self: start;
+  margin-top: auto;
+}
+
+.administration-panel,
+.role-management-panel,
+.users-panel {
+  min-width: 0;
 }
 
 .dark-theme.workspace-shell {
@@ -4096,6 +4242,10 @@ blockquote footer span {
   .user-toolbar,
   .workspace-form,
   .settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .administration-entry-grid {
     grid-template-columns: 1fr;
   }
 

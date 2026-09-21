@@ -13,7 +13,8 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { registrationSchema } from './lib/schemas'
 import { countries, worldRegions } from './lib/locations'
 import type { Role } from './types'
-import { USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_DEPARTMENTS, USER_MANAGEMENT_ROLE_TO_BACKEND, USER_MANAGEMENT_ROLES } from './data/userManagementConfig'
+import { BASELINE_PERMISSION_KEYS, BUILT_IN_BACKEND_ROLES, SUPER_ADMINISTRATOR_PERMISSION_KEYS, USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_DEPARTMENTS, USER_MANAGEMENT_PERMISSION_CATALOG, USER_MANAGEMENT_ROLE_DEFINITIONS, USER_MANAGEMENT_ROLE_PERMISSION_MATRIX, hasPermission, permissionsForRole } from './data/userManagementConfig'
+import type { PermissionKey } from './data/userManagementConfig'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
@@ -300,23 +301,10 @@ function DemoRequestPage() {
   )
 }
 
-type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'users' | 'profile' | 'preferences' | 'activity-log' | 'settings'
-type Permission = 'view_dashboard' | 'report_incident' | 'use_ai_assistant' | 'view_executive_analytics' | 'view_marketplace' | 'create_inspection' | 'create_corrective_action' | 'start_audit' | 'view_reports' | 'manage_users' | 'view_profile' | 'view_activity' | 'manage_settings'
+type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
+type Permission = PermissionKey
 
-const rolePermissions: Record<Role, Permission[]> = {
-  'Super Administrator': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'manage_users', 'view_profile', 'view_activity', 'manage_settings'],
-  'Organization Administrator': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'manage_users', 'view_profile', 'view_activity', 'manage_settings'],
-  'QHSE Manager': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
-  'Site Supervisor': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'create_corrective_action', 'view_profile'],
-  'Safety Officer / HSE Officer': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_profile'],
-  Auditor: ['view_dashboard', 'use_ai_assistant', 'view_executive_analytics', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
-  'Maintenance Engineer': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_corrective_action', 'view_marketplace', 'view_profile'],
-  'Field Worker': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_profile'],
-  Contractor: ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'view_marketplace', 'view_profile'],
-  'Executive / Management': ['view_dashboard', 'use_ai_assistant', 'view_executive_analytics', 'view_reports', 'view_profile'],
-}
-
-const primaryNavigation: { route: AppRoute; label: string; icon: string; permission: Permission }[] = [
+const primaryNavigation: { route: AppRoute; label: string; icon: string; permission: PermissionKey }[] = [
   { route: 'dashboard', label: 'Dashboard', icon: '▣', permission: 'view_dashboard' },
   { route: 'report-incident', label: 'Report Incident', icon: '+', permission: 'report_incident' },
   { route: 'ai-assistant', label: 'AI Safety Assistant', icon: '✦', permission: 'use_ai_assistant' },
@@ -324,31 +312,60 @@ const primaryNavigation: { route: AppRoute; label: string; icon: string; permiss
   { route: 'marketplace', label: 'HSE Marketplace', icon: '▱', permission: 'view_marketplace' },
 ]
 
-const secondaryNavigation: { route: AppRoute; label: string; permission: Permission }[] = [
+const secondaryNavigation: { route: AppRoute; label: string; permission: PermissionKey }[] = [
   { route: 'profile', label: 'User Profile', permission: 'view_profile' },
   { route: 'preferences', label: 'Notification Preferences', permission: 'view_profile' },
   { route: 'activity-log', label: 'Activity Log', permission: 'view_activity' },
-  { route: 'users', label: 'Administration', permission: 'manage_users' },
+  { route: 'administration', label: 'Administration', permission: 'access_administration' },
   { route: 'settings', label: 'Settings', permission: 'manage_settings' },
-  { route: 'my-reports', label: 'My Reports', permission: 'view_profile' },
+  { route: 'my-reports', label: 'My Reports', permission: 'view_own_reports' },
 ]
 
-const futureModuleRoutes: { route: AppRoute; label: string; permission: Permission }[] = [
-  { route: 'incidents', label: 'Incident Management', permission: 'view_dashboard' },
+const futureModuleRoutes: { route: AppRoute; label: string; permission: PermissionKey }[] = [
+  { route: 'incidents', label: 'Incident Management', permission: 'view_all_incidents' },
   { route: 'corrective-actions', label: 'Corrective Actions', permission: 'view_dashboard' },
   { route: 'inspections', label: 'Safety Inspections', permission: 'view_dashboard' },
   { route: 'audits', label: 'Audit Management', permission: 'view_dashboard' },
   { route: 'reports', label: 'Reports', permission: 'view_reports' },
+  { route: 'users', label: 'User Management', permission: 'view_users' },
+  { route: 'roles-permissions', label: 'Roles & Permissions', permission: 'view_roles_permissions' },
 ]
 
 function getAppRoute(): AppRoute {
   const route = window.location.hash.replace('#/', '').replace('#', '').split('?')[0]
-  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'users' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+}
+
+const administrationEntries: { title: string; description: string; href: string; action: string }[] = [
+  { title: 'User Management', description: 'Manage users, invitations, departments, roles, account status and user access.', href: '#users', action: 'Open User Management' },
+  { title: 'Roles & Permissions', description: 'Review platform roles and the permissions assigned to each role.', href: '#roles-permissions', action: 'Open Roles & Permissions' },
+]
+
+function AdministrationLandingPage({ canViewUsers, canViewRoles }: { canViewUsers: boolean; canViewRoles: boolean }) {
+  const visibleEntries = administrationEntries.filter((entry) => entry.href === '#users' ? canViewUsers : canViewRoles)
+  return (
+    <div className="workspace-panel administration-panel">
+      <div className="eyebrow">ADMINISTRATION</div>
+      <h2>Administration</h2>
+      <p>Manage platform users, roles and access controls.</p>
+      <div className="workspace-module-grid administration-entry-grid">
+        {visibleEntries.map((entry) => (
+          <article className="workspace-module administration-entry-card" key={entry.href}>
+            <div className="eyebrow">ACCESS CONTROL</div>
+            <strong>{entry.title}</strong>
+            <p>{entry.description}</p>
+            <a className="button button-outline button-small" href={entry.href}>{entry.action} →</a>
+          </article>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
-  const [role, setRole] = useState<Role | null>(null)
+  const [role, setRole] = useState<string | null>(null)
+  const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([])
   const [organizationId, setOrganizationId] = useState('')
   const [profileName, setProfileName] = useState(session.user.email || 'User')
   const [organizationName, setOrganizationName] = useState('Organization workspace')
@@ -379,7 +396,16 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           supabase.from('memberships').select('role').eq('user_id', session.user.id).eq('organization_id', profile.organization_id).maybeSingle(),
           supabase.from('organizations').select('company_name').eq('id', profile.organization_id).maybeSingle(),
         ])
-        if (membership?.role) setRole(membership.role as Role)
+        if (membership?.role) {
+          const membershipRole = String(membership.role)
+          setRole(membershipRole)
+          if (!USER_MANAGEMENT_BACKEND_TO_ROLE[membershipRole] && membershipRole !== 'Super Administrator') {
+            const { data: customRole } = await supabase.from('custom_roles').select('permissions').eq('organization_id', profile.organization_id).eq('name', membershipRole).eq('is_active', true).maybeSingle()
+            setCustomRolePermissions(Array.isArray(customRole?.permissions) ? customRole.permissions as string[] : [])
+          } else {
+            setCustomRolePermissions([])
+          }
+        }
         if (organization?.company_name) setOrganizationName(organization.company_name)
       }
       setLoading(false)
@@ -409,8 +435,8 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     }
   }, [loadingGateComplete, proceedToWorkspace])
 
-  const permissions = role ? rolePermissions[role] : []
-  const canAccess = (permission: Permission) => permissions.includes(permission)
+  const canAccess = (permission: PermissionKey) => role ? hasPermission(role, permission, customRolePermissions) : false
+  const legacyFeatureRole = role && BUILT_IN_BACKEND_ROLES.includes(role as typeof BUILT_IN_BACKEND_ROLES[number]) ? role as Role : 'Field Worker'
   const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
   const visibleSecondaryNavigation = secondaryNavigation.filter((item) => canAccess(item.permission))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
@@ -494,11 +520,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           </div>
         </header>
         <section className="workspace-content">
-          {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={role} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
-          {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={role} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
-          {route === 'my-reports' && <MyReportsPage supabase={supabase} />}
+          {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
+          {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={legacyFeatureRole} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
+          {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
-          {route === 'incidents' && <MyReportsPage supabase={supabase} />}
+          {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} />}
           {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
           {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
@@ -506,7 +532,9 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'ai-assistant' && canAccess('use_ai_assistant') && <WorkspacePlaceholder title="AI Safety Assistant" description="AI analysis will appear here once sufficient QHSE data and the AI service are connected." action="Review available data" />}
           {route === 'executive-analytics' && canAccess('view_executive_analytics') && <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open analytics foundation" />}
           {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
-          {route === 'users' && canAccess('manage_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} />}
+          {route === 'administration' && canAccess('access_administration') && <AdministrationLandingPage canViewUsers={canAccess('view_users')} canViewRoles={canAccess('view_roles_permissions')} />}
+          {route === 'users' && canAccess('view_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} canInviteUsers={canAccess('invite_users')} canEditUsers={canAccess('edit_users')} canSuspendUsers={canAccess('suspend_users')} canDeactivateUsers={canAccess('deactivate_users')} canManageUserRoles={canAccess('manage_user_roles')} canManageRolesPermissions={canAccess('manage_roles_permissions')} />}
+          {route === 'roles-permissions' && canAccess('view_roles_permissions') && <RolesPermissionsWorkspace organizationId={organizationId} canManage={canAccess('manage_roles_permissions')} />}
           {route === 'profile' && <ProfileWorkspace userId={session.user.id} organizationId={organizationId} email={session.user.email || ''} />}
           {route === 'preferences' && <NotificationPreferencesWorkspace userId={session.user.id} organizationId={organizationId} />}
           {route === 'activity-log' && canAccess('view_activity') && <ActivityLogWorkspace organizationId={organizationId} />}
@@ -855,34 +883,7 @@ function getDepartmentLabel(department: string | null) {
   return department?.trim() || 'Department not set'
 }
 
-const allRoles: Role[] = [
-  'Super Administrator',
-  'Organization Administrator',
-  'QHSE Manager',
-  'Site Supervisor',
-  'Safety Officer / HSE Officer',
-  'Auditor',
-  'Maintenance Engineer',
-  'Field Worker',
-  'Contractor',
-  'Executive / Management',
-]
-
-const permissionCatalog: Permission[] = [
-  'view_dashboard',
-  'report_incident',
-  'use_ai_assistant',
-  'view_executive_analytics',
-  'view_marketplace',
-  'create_inspection',
-  'create_corrective_action',
-  'start_audit',
-  'view_reports',
-  'manage_users',
-  'view_profile',
-  'view_activity',
-  'manage_settings',
-]
+const permissionCatalog: Permission[] = USER_MANAGEMENT_PERMISSION_CATALOG.map((permission) => permission.key)
 
 type CustomRoleRecord = {
   id?: string
@@ -951,14 +952,142 @@ function ProfileWorkspace({ userId, organizationId, email }: { userId: string; o
   )
 }
 
-function RoleManagementSection({ organizationId }: { organizationId: string }) {
+type RoleSummary = {
+  name: string
+  description: string
+  permissions: readonly string[]
+  isSystem: boolean
+  customRole?: CustomRoleRecord
+}
+
+const permissionGroupOrder = [
+  { label: 'Platform Access', sourceGroups: ['Dashboard', 'Platform', 'Administration'] },
+  { label: 'Incident Management', sourceGroups: ['Incident Management'] },
+  { label: 'User Management', sourceGroups: ['User Management'] },
+  { label: 'Roles & Permissions', sourceGroups: ['Roles & Permissions'] },
+  { label: 'Reports', sourceGroups: ['Reports'] },
+  { label: 'QHSE', sourceGroups: ['QHSE'] },
+] as const
+
+function groupedPermissions(permissions: readonly string[]) {
+  return permissionGroupOrder.map((group) => ({
+    group: group.label,
+    permissions: USER_MANAGEMENT_PERMISSION_CATALOG.filter((permission) => (group.sourceGroups as readonly string[]).includes(permission.group) && permissions.includes(permission.key)),
+  })).filter((section) => section.permissions.length > 0)
+}
+
+const roleDescriptions: Record<string, string> = {
+  'Organization Admin': 'Manage organization users, access controls, roles and settings.',
+  'QHSE Manager': 'Review and manage QHSE incidents, reports and corrective actions.',
+  'Site Supervisor': 'Oversee site operations, incidents and corrective actions.',
+  'Safety Officer / HSE Officer': 'Manage safety operations, incidents and facility risks.',
+  Worker: 'Access core dashboard, analytics and personal reporting workflows.',
+  'Executive/Management': 'Review organization-level operational visibility and reports.',
+  Contractor: 'Access core operational reporting and personal work information.',
+  'Maintenance Engineer': 'Review operational records and maintenance-related actions.',
+}
+
+function RolesPermissionsWorkspace({ organizationId, canManage }: { organizationId: string; canManage: boolean }) {
+  const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
+  const [selectedRole, setSelectedRole] = useState<RoleSummary | null>(null)
+  const [editingRoleName, setEditingRoleName] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const loadRoles = async () => {
+    setLoading(true)
+    setError('')
+    const { data, error: roleError } = await supabase.from('custom_roles').select('*').eq('organization_id', organizationId).eq('is_active', true).order('name')
+    if (roleError) {
+      setCustomRoles([])
+      setError('Unable to load roles and permissions. Please try again.')
+      setLoading(false)
+      return
+    }
+    setCustomRoles((data ?? []).map((role) => ({
+      ...role,
+      name: String(role.name ?? ''),
+      permissions: Array.isArray(role.permissions) ? role.permissions as string[] : [],
+      description: typeof role.description === 'string' ? role.description : null,
+      is_active: role.is_active !== false,
+    })) as CustomRoleRecord[])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    void loadRoles()
+  }, [organizationId])
+
+  const summaries: RoleSummary[] = [
+    ...USER_MANAGEMENT_ROLE_DEFINITIONS.map((role) => ({
+      name: role.name,
+      description: roleDescriptions[role.name] || 'Platform role with centrally configured permissions.',
+      permissions: USER_MANAGEMENT_ROLE_PERMISSION_MATRIX[role.name],
+      isSystem: true,
+    })),
+    {
+      name: 'Super Administrator',
+      description: 'Unrestricted platform administrator with authority to make supported changes and additions.',
+      permissions: SUPER_ADMINISTRATOR_PERMISSION_KEYS,
+      isSystem: true,
+    },
+    ...customRoles.map((role) => ({
+      name: role.name,
+      description: role.description || 'Custom organization role.',
+      permissions: role.permissions,
+      isSystem: false,
+      customRole: role,
+    })),
+  ]
+
+  return (
+    <div className="workspace-panel role-management-panel">
+      <div className="workspace-panel-heading">
+        <div>
+          <div className="eyebrow">ADMINISTRATION / ROLES &amp; PERMISSIONS</div>
+          <h2>Roles &amp; Permissions</h2>
+          <p>Review platform roles and the permissions assigned to each role.</p>
+        </div>
+        <a className="button button-outline button-small" href="#administration">Back to Administration</a>
+      </div>
+      {error && <div className="role-state-message"><AuthMessage error={error} /><button className="button button-outline button-small" type="button" onClick={() => void loadRoles()}>Try again</button></div>}
+      {loading ? <div className="workspace-empty">Loading roles and permissions...</div> : summaries.length === 0 ? <div className="workspace-empty">No roles configured.</div> : (
+        <div className="role-summary-table-wrap">
+          <table className="role-summary-table">
+            <thead><tr><th>Role</th><th>Description</th><th>Permissions</th><th>Actions</th></tr></thead>
+            <tbody>{summaries.map((role) => <tr key={`${role.isSystem ? 'system' : 'custom'}-${role.name}`}>
+              <td><strong>{role.name}</strong><small>{role.isSystem ? 'System role' : 'Custom role'}</small></td>
+              <td>{role.description}</td>
+              <td>{role.permissions.length}</td>
+              <td className="role-summary-actions">
+                <button className="button button-outline button-small" type="button" onClick={() => setSelectedRole(role)}>View</button>
+                {!role.isSystem && canManage && <button className="button button-green button-small" type="button" onClick={() => { setSelectedRole(role); setEditingRoleName(role.name) }}>Edit</button>}
+              </td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      )}
+      {selectedRole && <div className="role-detail-panel">
+        <div className="eyebrow">ROLE DETAILS</div>
+        <h3>{selectedRole.name}</h3>
+        <p>{selectedRole.description}</p>
+        {selectedRole.isSystem && <p className="workspace-note">Protected platform default. Changes shown here are not presented as organization-persisted edits.</p>}
+        <div className="permission-group-list">{groupedPermissions(selectedRole.permissions).map((section) => <section className="permission-group" key={`${selectedRole.name}-${section.group}`}><strong>{section.group}</strong><div className="role-permission-list">{section.permissions.map((permission) => <span title={permission.description} key={`${selectedRole.name}-${permission.key}`}>{permission.label}</span>)}</div></section>)}</div>
+      </div>}
+      {editingRoleName && canManage && <RoleManagementSection organizationId={organizationId} focusRoleName={editingRoleName} canManage />}
+    </div>
+  )
+}
+
+function RoleManagementSection({ organizationId, focusRoleName, canManage = true }: { organizationId: string; focusRoleName?: string; canManage?: boolean }) {
   const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
-  const [roleForm, setRoleForm] = useState({ name: '', description: '', permissions: [] as Permission[] })
+  const [roleForm, setRoleForm] = useState({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
   const [saving, setSaving] = useState(false)
+  const allEditablePermissions = permissionCatalog
 
   const loadCustomRoles = async () => {
     setLoading(true)
@@ -971,7 +1100,7 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
       .order('name', { ascending: true })
 
     if (roleError) {
-      setError(roleError.message)
+      setError('Unable to load roles and permissions. Please try again.')
       setCustomRoles([])
       setLoading(false)
       return
@@ -997,10 +1126,11 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
 
   const resetForm = () => {
     setSelectedRoleId(null)
-    setRoleForm({ name: '', description: '', permissions: [] })
+    setRoleForm({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
   }
 
   const togglePermission = (permission: Permission) => {
+    if (BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number])) return
     setRoleForm((current) => ({
       ...current,
       permissions: current.permissions.includes(permission)
@@ -1009,14 +1139,27 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
     }))
   }
 
+  const setAllPermissions = (enabled: boolean) => {
+    setRoleForm((current) => ({
+      ...current,
+      permissions: enabled ? [...allEditablePermissions] : [...BASELINE_PERMISSION_KEYS] as Permission[],
+    }))
+  }
+
   const handleEditRole = (role: CustomRoleRecord) => {
     setSelectedRoleId(role.id ?? null)
     setRoleForm({
       name: role.name,
       description: role.description ?? '',
-      permissions: Array.isArray(role.permissions) ? role.permissions as Permission[] : [],
+      permissions: Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...(Array.isArray(role.permissions) ? role.permissions : [])])) as Permission[],
     })
   }
+
+  useEffect(() => {
+    if (!focusRoleName) return
+    const role = customRoles.find((item) => item.name === focusRoleName)
+    if (role) handleEditRole(role)
+  }, [customRoles, focusRoleName])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1038,7 +1181,7 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
       const payload = {
         p_name: roleForm.name.trim(),
         p_description: roleForm.description.trim() || null,
-        p_permissions: roleForm.permissions,
+        p_permissions: Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...roleForm.permissions])),
         p_scope: { organizationId },
       }
 
@@ -1070,20 +1213,25 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
       resetForm()
       await loadCustomRoles()
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to save role.')
+      const operation = selectedRoleId ? 'update' : 'create'
+      const detail = saveError instanceof Error ? ` ${saveError.message}` : ''
+      setError(`Unable to ${operation} the custom role.${detail}`)
     } finally {
       setSaving(false)
     }
   }
 
-  const builtInRoleCards = allRoles.map((role) => ({
-    name: role,
-    description: 'System-defined role protected by the platform configuration.',
-    permissions: rolePermissions[role],
-    is_system: true,
-    is_active: true,
-    scope: { restricted: true },
-  }))
+  const builtInRoleCards = BUILT_IN_BACKEND_ROLES.map((role) => {
+    const configuredPermissions = permissionsForRole(role)
+    return {
+      name: role,
+      description: 'System-defined role protected by the platform configuration.',
+      permissions: configuredPermissions,
+      is_system: true,
+      is_active: true,
+      scope: { restricted: true },
+    }
+  })
 
   return (
     <div className="workspace-panel role-management-panel">
@@ -1095,7 +1243,9 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
         </div>
       </div>
 
-      <form className="role-manager-form" onSubmit={handleSubmit}>
+      <p className="workspace-note">Built-in platform roles are protected defaults. Custom organization roles are persisted through the existing secure role backend.</p>
+
+      {canManage && <form className="role-manager-form" onSubmit={handleSubmit}>
         <div className="role-form-grid">
           <label>
             Role name
@@ -1107,20 +1257,20 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
           </label>
         </div>
 
-        <div className="permission-grid">
-          {permissionCatalog.map((permission) => (
-            <label className="permission-toggle" key={permission}>
-              <input type="checkbox" checked={roleForm.permissions.includes(permission)} onChange={() => togglePermission(permission)} />
-              <span>{permission.replaceAll('_', ' ')}</span>
-            </label>
-          ))}
+        <div className="permission-group-list">
+          {groupedPermissions(permissionCatalog).map((section) => <section className="permission-group" key={section.group}><strong>{section.group}</strong><div className="permission-grid">{section.permissions.map((permission) => { const required = BASELINE_PERMISSION_KEYS.includes(permission.key as typeof BASELINE_PERMISSION_KEYS[number]); return <label className={`permission-toggle${required ? ' permission-required' : ''}`} key={permission.key}><input type="checkbox" checked={roleForm.permissions.includes(permission.key as Permission)} disabled={required} onChange={() => togglePermission(permission.key as Permission)} /><span><b>{permission.label}{required ? ' · Required' : ''}</b><small>{permission.description}</small></span></label> })}</div></section>)}
         </div>
+
+        <label className="permission-toggle permission-select-all">
+          <input type="checkbox" checked={roleForm.permissions.length === allEditablePermissions.length} onChange={(event) => setAllPermissions(event.target.checked)} />
+          <span>Select all permissions</span>
+        </label>
 
         <div className="role-form-actions">
           <button className="button button-green button-small" type="submit" disabled={saving}>{saving ? (selectedRoleId ? 'Saving...' : 'Creating...') : (selectedRoleId ? 'Save role' : 'Create role')}</button>
           {selectedRoleId && <button className="button button-outline workspace-refresh" type="button" onClick={resetForm}>Cancel edit</button>}
         </div>
-      </form>
+      </form>}
 
       <AuthMessage error={error} success={message} />
 
@@ -1144,7 +1294,7 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
                   <small>{role.is_system ? 'System role' : 'Custom role'}</small>
                 </div>
                 {!role.is_system && (
-                  <button className="button button-outline button-small" type="button" onClick={() => handleEditRole(customRoles.find((item) => item.name === role.name) ?? { name: role.name, permissions: role.permissions, description: role.description, is_system: false, is_active: true })}>Edit</button>
+                  <button className="button button-outline button-small" type="button" onClick={() => { const selectedRole = customRoles.find((item) => item.name === role.name); if (selectedRole) handleEditRole(selectedRole) }}>Edit</button>
                 )}
               </div>
               <p>{role.description}</p>
@@ -1163,7 +1313,7 @@ function RoleManagementSection({ organizationId }: { organizationId: string }) {
   )
 }
 
-function UsersWorkspace({ organizationId, currentUserId }: { organizationId: string; currentUserId: string }) {
+function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEditUsers, canSuspendUsers, canDeactivateUsers, canManageUserRoles, canManageRolesPermissions }: { organizationId: string; currentUserId: string; canInviteUsers: boolean; canEditUsers: boolean; canSuspendUsers: boolean; canDeactivateUsers: boolean; canManageUserRoles: boolean; canManageRolesPermissions: boolean }) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
@@ -1179,7 +1329,7 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
   const [showRoleManagement, setShowRoleManagement] = useState(false)
   const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
   const [roleModalOpen, setRoleModalOpen] = useState(false)
-  const [roleDraft, setRoleDraft] = useState({ name: '', description: '', permissions: [] as Permission[] })
+  const [roleDraft, setRoleDraft] = useState({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
   const [roleDraftLoading, setRoleDraftLoading] = useState(false)
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
   const [departmentModalOpen, setDepartmentModalOpen] = useState(false)
@@ -1272,18 +1422,19 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
   }, [currentUserId, organizationId])
 
   const roleComboOptions = [
-    ...USER_MANAGEMENT_ROLES.map((role) => ({ label: role, value: USER_MANAGEMENT_ROLE_TO_BACKEND[role] })),
-    ...customRoles.map((role) => ({ label: role.name, value: role.name })),
+    ...USER_MANAGEMENT_ROLE_DEFINITIONS.map((role) => ({ id: role.id, label: role.name, value: role.backendName })),
+    ...customRoles.map((role) => ({ id: `custom-${role.id || role.name}`, label: role.name, value: role.name })),
   ]
 
   const openRoleCreator = () => {
-    setRoleDraft({ name: '', description: '', permissions: [] })
+    setRoleDraft({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
     setError('')
     setMessage('')
     setRoleModalOpen(true)
   }
 
   const toggleRolePermission = (permission: Permission) => {
+    if (BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number])) return
     setRoleDraft((current) => ({
       ...current,
       permissions: current.permissions.includes(permission)
@@ -1311,7 +1462,7 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
       p_organization_id: organizationId,
       p_name: roleDraft.name.trim(),
       p_description: roleDraft.description.trim() || null,
-      p_permissions: roleDraft.permissions,
+      p_permissions: Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...roleDraft.permissions])),
       p_scope: { organizationId },
     })
 
@@ -1325,13 +1476,17 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     const createdName = typeof data?.name === 'string' ? data.name : roleDraft.name.trim()
     setInviteRole(createdName)
     setRoleModalOpen(false)
-    setRoleDraft({ name: '', description: '', permissions: [] })
+    setRoleDraft({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
     await loadCustomRoles()
     setMessage(`Custom role "${createdName}" created and selected.`)
   }
 
   const inviteUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!canInviteUsers) {
+      setError('You are not authorized to invite users.')
+      return
+    }
     setError('')
     setMessage('')
     setInviteLoading(true)
@@ -1395,9 +1550,13 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     setError('')
     setMessage('')
     if (field === 'role') {
+      if (!canManageUserRoles) return setError('You are not authorized to change user roles.')
       const { error: updateError } = await supabase.rpc('update_user_role', { p_organization_id: organizationId, p_target_user_id: user.id, p_role: value })
       if (updateError) return setError(updateError.message)
     } else {
+      if (value === 'suspended' && !canSuspendUsers) return setError('You are not authorized to suspend users.')
+      if (value === 'inactive' && !canDeactivateUsers && !canEditUsers) return setError('You are not authorized to deactivate users.')
+      if ((value === 'active' || value === 'pending') && !canEditUsers) return setError('You are not authorized to edit user status.')
       const { error: updateError } = await supabase.from('profiles').update({ account_status: value }).eq('id', user.id).eq('organization_id', organizationId)
       if (updateError) return setError(updateError.message)
     }
@@ -1454,9 +1613,10 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
           <p>Manage organization members, roles, and account status.</p>
         </div>
         <div className="workspace-panel-actions">
-          <button className="button button-outline button-small" type="button" onClick={() => setShowRoleManagement((current) => !current)}>
+          <a className="button button-outline button-small" href="#administration">Back to Administration</a>
+          {canManageRolesPermissions && <button className="button button-outline button-small" type="button" onClick={() => setShowRoleManagement((current) => !current)}>
             {showRoleManagement ? 'Hide roles' : 'Manage roles'}
-          </button>
+          </button>}
           <select className="export-format-select" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)} aria-label="Export format">
             <option value="pdf">PDF</option>
             <option value="xlsx">Excel</option>
@@ -1466,7 +1626,7 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
           <button className="button button-green button-small" type="button" onClick={() => void exportUsers()} disabled={exportLoading}>{exportLoading ? 'Generating...' : 'Export users'}</button>
         </div>
       </div>
-      <form className="invite-form" onSubmit={inviteUser}>
+      {canInviteUsers && <form className="invite-form" onSubmit={inviteUser}>
         <div><strong>Invite a user</strong><span>Invitation emails are sent through Supabase Auth.</span></div>
         <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} type="email" placeholder="Work email" required />
         <select value={inviteDepartment} onChange={(event) => {
@@ -1494,16 +1654,16 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
             setInviteRole(selectedValue)
           }}
         >
-          {roleComboOptions.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}
-          <option value="__create_new_role__">Create New Role...</option>
+          {roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}
+          {canManageRolesPermissions && <option value="__create_new_role__">Create New Role...</option>}
         </select>
         <button className="button button-green button-small" disabled={inviteLoading}>{inviteLoading ? 'Sending...' : 'Send invite'}</button>
-      </form>
-      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">All roles</option>{roleComboOptions.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}</select><select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="all">All departments</option>{USER_MANAGEMENT_DEPARTMENTS.map((department) => <option value={department} key={department}>{department}</option>)}<option value="__unset__">Department not set</option></select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
+      </form>}
+      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">All roles</option>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select><select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="all">All departments</option>{USER_MANAGEMENT_DEPARTMENTS.map((department) => <option value={department} key={department}>{department}</option>)}<option value="__unset__">Department not set</option></select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
       <AuthMessage error={error} success={message} />
-      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{getDepartmentLabel(user.department)}</td><td><select value={user.role} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role.value} key={role.value}>{role.label}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}>{!['active', 'inactive'].includes(user.account_status) && <option value={user.account_status} disabled>{user.account_status.charAt(0).toUpperCase() + user.account_status.slice(1)}</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></td><td><select aria-label={`Actions for ${user.full_name}`} defaultValue="" disabled={user.id === currentUserId} onChange={(event) => { const action = event.target.value; if (action === 'Suspend') void updateUser(user, 'account_status', 'suspended'); if (action === 'Deactivate') void updateUser(user, 'account_status', 'inactive'); event.currentTarget.value = '' }}><option value="">Select action</option>{USER_ACTION_OPTIONS.map((action) => <option value={action} key={action}>{action}</option>)}</select></td></tr>)}</tbody></table></div>}
-      {showRoleManagement && <RoleManagementSection organizationId={organizationId} />}
-      {roleModalOpen && (
+      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{getDepartmentLabel(user.department)}</td><td><select value={user.role} disabled={user.id === currentUserId || !canManageUserRoles} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId || !canEditUsers} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}>{!['active', 'inactive'].includes(user.account_status) && <option value={user.account_status} disabled>{user.account_status.charAt(0).toUpperCase() + user.account_status.slice(1)}</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></td><td><select aria-label={`Actions for ${user.full_name}`} defaultValue="" disabled={user.id === currentUserId || (!canSuspendUsers && !canDeactivateUsers)} onChange={(event) => { const action = event.target.value; if (action === 'Suspend' && canSuspendUsers) void updateUser(user, 'account_status', 'suspended'); if (action === 'Deactivate' && canDeactivateUsers) void updateUser(user, 'account_status', 'inactive'); event.currentTarget.value = '' }}><option value="">Select action</option>{USER_ACTION_OPTIONS.filter((action) => action === 'Suspend' ? canSuspendUsers : canDeactivateUsers).map((action) => <option value={action} key={action}>{action}</option>)}</select></td></tr>)}</tbody></table></div>}
+      {showRoleManagement && canManageRolesPermissions && <RoleManagementSection organizationId={organizationId} canManage />}
+      {roleModalOpen && canManageRolesPermissions && (
         <div className="role-creator-backdrop" onClick={() => setRoleModalOpen(false)}>
           <div className="role-creator-modal" onClick={(event) => event.stopPropagation()}>
             <div className="role-creator-header">
@@ -1523,12 +1683,12 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
                 <input value={roleDraft.description} onChange={(event) => setRoleDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional description" />
               </label>
               <div className="permission-grid">
-                {permissionCatalog.map((permission) => (
-                  <label className="permission-toggle" key={permission}>
-                    <input type="checkbox" checked={roleDraft.permissions.includes(permission)} onChange={() => toggleRolePermission(permission)} />
-                    <span>{permission.replaceAll('_', ' ')}</span>
+                {permissionCatalog.map((permission) => { const definition = USER_MANAGEMENT_PERMISSION_CATALOG.find((item) => item.key === permission); const required = BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number]); return (
+                  <label className={`permission-toggle${required ? ' permission-required' : ''}`} key={permission}>
+                    <input type="checkbox" checked={roleDraft.permissions.includes(permission)} disabled={required} onChange={() => toggleRolePermission(permission)} />
+                    <span><b>{definition?.label || permission.replaceAll('_', ' ')}{required ? ' · Required' : ''}</b><small>{definition?.description}</small></span>
                   </label>
-                ))}
+                )})}
               </div>
             </div>
             <div className="role-creator-actions">
@@ -1765,7 +1925,7 @@ export default function App() {
     window.location.hash = '#dashboard'
     return <div className="protected-state">Opening your workspace...</div>
   }
-  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'users' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
+  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>
     if (!session) return <SignInPage />
