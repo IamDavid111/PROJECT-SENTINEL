@@ -9,19 +9,58 @@ import { useCreateIncidentDraft, useIncidentOrganization, useSubmitIncident, use
 import type { IncidentDetail, IncidentDraftInput, IncidentReportType, IncidentSubmissionInput } from './incidentTypes'
 
 const fallbackSeverities = ['low', 'medium', 'high', 'critical']
+const fallbackIncidentCategories = ['Near Miss', 'Unsafe Condition', 'Unsafe Act', 'Environmental Incident', 'Slip/Trip/Fall']
 const stages = ['Event', 'Location & context', 'People', 'Evidence & sign-off'] as const
 
 type SiteOption = { id: string; name: string }
 type FacilityOption = { id: string; name: string; site_id: string }
 
-function configuredOptions(value: unknown, fallback: string[]) {
-  if (!Array.isArray(value)) return fallback
+function configuredOptions(value: unknown, fallback: string[], legacyValue = '') {
+  if (!Array.isArray(value)) return legacyValue ? [legacyValue] : fallback
   const options = value.flatMap((item) => {
-    if (typeof item === 'string') return [item]
-    if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string') return [item.name]
+    if (typeof item === 'string') return [item.trim()].filter(Boolean)
+    if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string' && (!('active' in item) || item.active !== false)) return [item.name.trim()].filter(Boolean)
     return []
   })
-  return options.length ? options : fallback
+  if (legacyValue && !options.some((option) => option.toLowerCase() === legacyValue.toLowerCase())) options.push(legacyValue)
+  return options.length ? options : legacyValue ? [legacyValue] : fallback
+}
+
+function normalizeIncidentCategoryName(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ')
+  const legacyMap: Record<string, string> = {
+    'near miss': 'Near Miss',
+    'near-miss': 'Near Miss',
+    'unsafe condition': 'Unsafe Condition',
+    'unsafe act': 'Unsafe Act',
+    'environmental incident': 'Environmental Incident',
+    'environmental event': 'Environmental Incident',
+    'slip trip fall': 'Slip/Trip/Fall',
+    'slip/trip/fall': 'Slip/Trip/Fall',
+  }
+  return legacyMap[normalized] || value.trim()
+}
+
+function configuredIncidentCategories(value: unknown, legacyValue = '') {
+  if (!Array.isArray(value)) return legacyValue ? [normalizeIncidentCategoryName(legacyValue)] : fallbackIncidentCategories
+  const options = value.flatMap((item) => {
+    const rawName = typeof item === 'string' ? item : item && typeof item === 'object' && typeof (item as Record<string, unknown>).name === 'string' ? (item as Record<string, unknown>).name as string : ''
+    if (!rawName || (typeof item === 'object' && item !== null && 'active' in item && (item as Record<string, unknown>).active === false)) return []
+    const name = normalizeIncidentCategoryName(rawName)
+    return name ? [name] : []
+  })
+  const normalizedLegacy = legacyValue ? normalizeIncidentCategoryName(legacyValue) : ''
+  if (normalizedLegacy && !options.some((option) => option.toLowerCase() === normalizedLegacy.toLowerCase())) options.push(normalizedLegacy)
+  return options.length ? options : normalizedLegacy ? [normalizedLegacy] : []
+}
+
+function configuredSiteNames(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const rawName = typeof item === 'string' ? item : item && typeof item === 'object' && typeof (item as Record<string, unknown>).name === 'string' ? (item as Record<string, unknown>).name as string : ''
+    if (!rawName || (typeof item === 'object' && item !== null && 'active' in item && (item as Record<string, unknown>).active === false)) return []
+    return rawName.trim() ? [rawName.trim()] : []
+  })
 }
 
 function fieldError(message?: string) {
@@ -110,6 +149,8 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     },
   })
   const selectedSite = form.watch('siteId')
+  const selectedSeverity = form.watch('severity')
+  const selectedCategory = form.watch('incidentCategory')
 
   useEffect(() => {
     if (!initialIncident) return
@@ -153,7 +194,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     void Promise.all([
       supabase.from('sites').select('id, name').eq('organization_id', organization.data.organizationId).order('name'),
       supabase.from('facilities').select('id, name, site_id').eq('organization_id', organization.data.organizationId).order('name'),
-      supabase.from('company_settings').select('departments, incident_categories, severity_levels').eq('organization_id', organization.data.organizationId).maybeSingle(),
+      supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels').eq('organization_id', organization.data.organizationId).maybeSingle(),
     ]).then(([siteResult, facilityResult, settingsResult]) => {
       if (!active) return
       setSites(siteResult.data || [])
@@ -164,9 +205,14 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   }, [organization.data?.organizationId, supabase])
 
   const availableFacilities = facilities.filter((facility) => facility.site_id === selectedSite)
+  const configuredSites = settings.operational_sites === undefined ? sites : sites.filter((site) => configuredSiteNames(settings.operational_sites).some((name) => name.toLowerCase() === site.name.toLowerCase()))
   const departments = configuredOptions(settings.departments, [])
-  const categories = configuredOptions(settings.incident_categories, [])
-  const severities = configuredOptions(settings.severity_levels, fallbackSeverities)
+  const categories = settings.incident_categories === undefined
+    ? fallbackIncidentCategories
+    : configuredIncidentCategories(settings.incident_categories, selectedCategory)
+  const severities = settings.severity_levels === undefined
+    ? fallbackSeverities
+    : configuredOptions(settings.severity_levels, [], selectedSeverity)
 
   const isSaving = createDraft.isPending || updateDraft.isPending
   const isSubmitting = submitIncident.isPending
@@ -267,7 +313,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           <div className="incident-form-section-heading"><div><h3>What happened?</h3><p>Required fields are validated before you can continue.</p></div></div>
           <div className="incident-form-grid">
             <label className="incident-form-wide">Incident title *<input {...form.register('title')} placeholder="Short factual description" />{fieldError(form.formState.errors.title?.message)}</label>
-            <label>Category *<select {...form.register('incidentCategory')}><option value="">Select category</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select>{fieldError(form.formState.errors.incidentCategory?.message)}</label>
+            <label>Incident category *<select {...form.register('incidentCategory')}><option value="">Select incident category</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select>{fieldError(form.formState.errors.incidentCategory?.message)}</label>
             <label>Severity *<select {...form.register('severity')}><option value="">Select severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select>{fieldError(form.formState.errors.severity?.message)}</label>
             <label>Priority<select {...form.register('priority')}><option value="">Select priority</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label>
             <label>Date *<input type="date" {...form.register('occurrenceDate')} />{fieldError(form.formState.errors.occurrenceDate?.message)}</label>
@@ -278,7 +324,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
         {activeStage === 1 && <section className="incident-form-section">
           <div className="incident-form-section-heading"><div><h3>Where and under what conditions?</h3></div></div>
           <div className="incident-form-grid">
-            <label>Site *<select {...form.register('siteId')}><option value="">Select site</option>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>{fieldError(form.formState.errors.siteId?.message)}</label>
+            <label>Site *<select {...form.register('siteId')}><option value="">{configuredSites.length ? 'Select site' : 'No sites configured'}</option>{configuredSites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>{fieldError(form.formState.errors.siteId?.message)}</label>
             <label>Facility / area<select {...form.register('facilityId')} disabled={!selectedSite}><option value="">Select facility</option>{availableFacilities.map((facility) => <option value={facility.id} key={facility.id}>{facility.name}</option>)}</select></label>
             <label>Department<select {...form.register('department')}><option value="">Select department</option>{departments.map((department) => <option value={department} key={department}>{department}</option>)}</select></label>
             <label>GPS coordinates<input {...form.register('gpsCoordinates')} placeholder="4.8156, 7.0498" /></label>

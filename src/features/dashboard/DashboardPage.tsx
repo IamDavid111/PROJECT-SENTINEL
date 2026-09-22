@@ -1,20 +1,167 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { defaultDashboardFilters, type DashboardActivity, type DashboardFilters, type DashboardIncident, type DashboardMetric, type DashboardPageProps } from './dashboardTypes'
-import { useDashboardData } from './useDashboardData'
+import { invalidateDashboardData, useDashboardData } from './useDashboardData'
 import { AiSafetySummary } from './AiSafetySummary'
 const DashboardCharts = lazy(() => import('./DashboardCharts'))
 const SafetyMapCard = lazy(() => import('./SafetyMapCard').then((module) => ({ default: module.SafetyMapCard })))
 
-const filterOptions = {
+const fallbackFilterOptions = {
   site: ['all'],
   department: ['all'],
   severity: ['all', 'low', 'medium', 'high', 'critical'],
-  incidentType: ['all'],
-  contractor: ['all'],
-  shift: ['all', 'day', 'night'],
+  incidentType: ['all', 'Near Miss', 'Unsafe Condition', 'Unsafe Act', 'Environmental Incident', 'Slip/Trip/Fall'],
+  shift: ['all', 'Day', 'Night'],
+}
+
+function normalizeIncidentCategoryName(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ')
+  const legacyMap: Record<string, string> = {
+    'near miss': 'Near Miss',
+    'near-miss': 'Near Miss',
+    'unsafe condition': 'Unsafe Condition',
+    'unsafe act': 'Unsafe Act',
+    'environmental incident': 'Environmental Incident',
+    'environmental event': 'Environmental Incident',
+    'slip trip fall': 'Slip/Trip/Fall',
+    'slip/trip/fall': 'Slip/Trip/Fall',
+  }
+  return legacyMap[normalized] || value.trim()
+}
+
+function buildIncidentCategoryOptions(value: unknown): string[] {
+  const candidate = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).categories as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).incident_categories as unknown[] | undefined)
+        ?? []
+      : []
+  const names = candidate.flatMap((entry) => {
+    const rawName = typeof entry === 'string' ? entry : entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).name === 'string' ? (entry as Record<string, unknown>).name as string : ''
+    if (!rawName || (typeof entry === 'object' && entry !== null && 'active' in entry && (entry as Record<string, unknown>).active === false)) return []
+    const name = normalizeIncidentCategoryName(rawName)
+    return name ? [name] : []
+  })
+  return names.length ? ['all', ...names] : fallbackFilterOptions.incidentType
+}
+
+function buildSeverityOptions(value: unknown): string[] {
+  const candidate = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).levels as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).severity_levels as unknown[] | undefined)
+        ?? []
+      : []
+
+  const names = candidate.flatMap((entry) => {
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      return name && name !== 'all' ? [name] : []
+    }
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    return name && name.toLowerCase() !== 'all' && item.active !== false ? [name] : []
+  })
+
+  return ['all', ...names]
+}
+
+function buildDepartmentOptions(value: unknown): string[] {
+  const candidate = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).departments as unknown[] | undefined)
+        ?? []
+      : []
+  const names = candidate.flatMap((entry) => {
+    const rawName = typeof entry === 'string' ? entry : entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).name === 'string' ? (entry as Record<string, unknown>).name as string : ''
+    if (!rawName || (typeof entry === 'object' && entry !== null && 'active' in entry && (entry as Record<string, unknown>).active === false)) return []
+    return rawName.trim() ? [rawName.trim()] : []
+  })
+  return ['all', ...names]
+}
+
+function buildShiftOptions(value: unknown): string[] {
+  const candidate = Array.isArray(value) ? value : value && typeof value === 'object' && Array.isArray((value as Record<string, unknown>).shifts) ? (value as Record<string, unknown>).shifts as unknown[] : []
+  const names = candidate.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    return name && item.active !== false ? [name] : []
+  })
+
+  return ['all', ...names]
+}
+
+function buildSiteOptions(value: unknown): string[] {
+  const candidate = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).sites as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).operational_sites as unknown[] | undefined)
+        ?? []
+      : []
+
+  const names = candidate.flatMap((entry) => {
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      return name ? [name] : []
+    }
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    return name && item.active !== false ? [name] : []
+  })
+
+  return ['all', ...names]
+}
+
+type DashboardEmergencyContact = {
+  id: string
+  name: string
+  role: string
+  phone: string
+  email: string
+  active: boolean
+}
+
+function buildEmergencyContacts(value: unknown): DashboardEmergencyContact[] {
+  const candidate = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).contacts as unknown[] | undefined)
+        ?? []
+      : []
+
+  return candidate.flatMap((entry, index) => {
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      return name ? [{ id: `contact-${index}`, name, role: '', phone: '', email: '', active: true }] : []
+    }
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    const phone = typeof item.phone === 'string' ? item.phone.trim() : ''
+    if (!name || item.active === false) return []
+    return [{
+      id: typeof item.id === 'string' && item.id.trim() ? item.id : `contact-${index}`,
+      name,
+      role: typeof item.role === 'string' ? item.role.trim() : '',
+      phone,
+      email: typeof item.email === 'string' ? item.email.trim() : '',
+      active: true,
+    }]
+  })
 }
 
 function formatFilterLabel(value: string) {
@@ -27,21 +174,20 @@ function DashboardHeader({ userName, organizationName, role }: Pick<DashboardPag
   return <div className="dashboard-header"><div><div className="eyebrow">OPERATIONAL SAFETY OVERVIEW</div><h2>{greeting}, {userName}</h2><p>Monitor what requires attention across your safety operation.</p></div><div className="dashboard-context"><strong>{organizationName}</strong><span>{role}</span><span>{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></div></div>
 }
 
-function DashboardFilters({ filters, onChange, onReset }: { filters: DashboardFilters; onChange: (key: keyof DashboardFilters, value: string) => void; onReset: () => void }) {
+function DashboardFilters({ filters, onChange, onReset, options }: { filters: DashboardFilters; onChange: (key: keyof DashboardFilters, value: string) => void; onReset: () => void; options: typeof fallbackFilterOptions }) {
   const fields: { key: keyof DashboardFilters; label: string; options: string[] }[] = [
-    { key: 'site', label: 'Site', options: filterOptions.site },
-    { key: 'department', label: 'Department', options: filterOptions.department },
+    { key: 'site', label: 'Site', options: options.site },
+    { key: 'department', label: 'Department', options: options.department },
     { key: 'dateRange', label: 'Date range', options: ['7d', '30d', '90d', 'all'] },
-    { key: 'severity', label: 'Severity', options: filterOptions.severity },
-    { key: 'incidentType', label: 'Incident type', options: filterOptions.incidentType },
-    { key: 'contractor', label: 'Contractor', options: filterOptions.contractor },
-    { key: 'shift', label: 'Shift', options: filterOptions.shift },
+    { key: 'severity', label: 'Severity', options: options.severity },
+    { key: 'incidentType', label: 'Incident category', options: options.incidentType },
+    { key: 'shift', label: 'Shift', options: options.shift },
   ]
   return <div className="dashboard-filters"><div className="dashboard-filters-heading"><div><strong>Dashboard filters</strong><span>Filters are applied to available organization data.</span></div><button type="button" onClick={onReset}>Clear filters</button></div><div className="dashboard-filter-grid">{fields.map((field) => <label key={field.key}>{field.label}<select value={filters[field.key]} onChange={(event) => onChange(field.key, event.target.value)}>{field.options.map((option) => <option key={option} value={option}>{field.key === 'dateRange' ? formatFilterLabel(option.replace('d', ' days')) : formatFilterLabel(option)}</option>)}</select></label>)}</div></div>
 }
 
-function EmptyState({ message, action }: { message: string; action?: string }) {
-  return <div className="dashboard-empty"><span aria-hidden="true">○</span><strong>{message}</strong>{action && <a href="#report-incident">{action}</a>}</div>
+function EmptyState({ message, action, actionHref = '#report-incident' }: { message: string; action?: string; actionHref?: string }) {
+  return <div className="dashboard-empty"><span aria-hidden="true">○</span><strong>{message}</strong>{action && <a href={actionHref}>{action}</a>}</div>
 }
 
 function KpiCard({ metric }: { metric: DashboardMetric }) {
@@ -69,9 +215,51 @@ function NotificationPanel({ activities }: { activities: DashboardActivity[] }) 
   return <DashboardCard eyebrow="NOTIFICATIONS" title="Operational alerts"><div className="notification-list">{notificationActivities.length ? notificationActivities.map((activity) => <div key={activity.id}><strong>{activity.activity}</strong><small>{activity.location} · {new Date(activity.createdAt).toLocaleDateString()}</small></div>) : <EmptyState message="No new operational notifications." />}</div><div className="notification-placeholder"><strong>Permit alerts</strong><span>Coming with Permit-to-Work module.</span></div></DashboardCard>
 }
 
+function EmergencyContactsPanel({ contacts }: { contacts: DashboardEmergencyContact[] }) {
+  return <DashboardCard eyebrow="EMERGENCY RESPONSE" title="Emergency contacts">{contacts.length ? <div className="dashboard-activity-list">{contacts.map((contact) => <div key={contact.id}><span>{contact.role || 'Emergency contact'}</span><strong>{contact.name}</strong><small><a href={`tel:${contact.phone}`}>{contact.phone}</a>{contact.email && <> · <a href={`mailto:${contact.email}`}>{contact.email}</a></>}</small></div>)}</div> : <EmptyState message="No emergency contacts configured." action="Open company settings" actionHref="#settings" />}</DashboardCard>
+}
+
 export function DashboardPage({ organizationId, organizationName, userName, role, canReportIncident, canCreateInspection, canCreateCorrectiveAction, canStartAudit, canViewReports, supabase }: DashboardPageProps & { supabase: SupabaseClient }) {
   const [filters, setFilters] = useState(defaultDashboardFilters)
+  const [filterOptions, setFilterOptions] = useState(fallbackFilterOptions)
+  const [emergencyContacts, setEmergencyContacts] = useState<DashboardEmergencyContact[]>([])
+  const queryClient = useQueryClient()
   const snapshot = useDashboardData(supabase, organizationId, filters)
+
+  useEffect(() => {
+    if (!organizationId) return
+
+    let active = true
+    const loadSettings = async () => {
+      const { data } = await supabase
+        .from('company_settings')
+        .select('working_hours, departments, operational_sites, emergency_contacts, severity_levels, incident_categories')
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+      if (!active) return
+      setFilterOptions((current) => ({
+        ...current,
+        shift: data?.working_hours ? buildShiftOptions(data.working_hours) : current.shift,
+        department: data?.departments ? buildDepartmentOptions(data.departments) : current.department,
+        site: data?.operational_sites ? buildSiteOptions(data.operational_sites) : current.site,
+        severity: data?.severity_levels ? buildSeverityOptions(data.severity_levels) : current.severity,
+        incidentType: data?.incident_categories ? buildIncidentCategoryOptions(data.incident_categories) : current.incidentType,
+      }))
+      setEmergencyContacts(buildEmergencyContacts(data?.emergency_contacts))
+    }
+    const handleSettingsUpdated = () => {
+      void loadSettings()
+      void invalidateDashboardData(queryClient, organizationId)
+    }
+    void loadSettings()
+    window.addEventListener('company-settings-updated', handleSettingsUpdated)
+
+    return () => {
+      active = false
+      window.removeEventListener('company-settings-updated', handleSettingsUpdated)
+    }
+  }, [organizationId, queryClient, supabase])
+
   const updateFilter = (key: keyof DashboardFilters, value: string) => setFilters((current) => ({ ...current, [key]: value }))
-  return <div className="dashboard-page"><DashboardHeader userName={userName} organizationName={organizationName} role={role} /><DashboardFilters filters={filters} onChange={updateFilter} onReset={() => setFilters(defaultDashboardFilters)} />{snapshot.isLoading && <div className="dashboard-loading">Loading operational dashboard data...</div>}{snapshot.isError && <div className="auth-message error">Unable to load dashboard data. Please try again.</div>}{snapshot.data && <><DashboardKpiGrid metrics={snapshot.data.metrics} /><Suspense fallback={<div className="dashboard-loading">Loading analytics modules...</div>}><section className="dashboard-charts-section"><div className="dashboard-section-heading"><div><div className="eyebrow">ANALYTICS</div><h3>Operational performance and risk</h3></div></div><DashboardCharts data={snapshot.data} /></section><SafetyMapCard sites={snapshot.data.sites} /></Suspense><DashboardOperationalGrid activities={snapshot.data.activities} recentIncidents={snapshot.data.recentIncidents} hasOperationalData={snapshot.data.hasOperationalData} /><DashboardBottomGrid activities={snapshot.data.activities} canReportIncident={canReportIncident} canCreateInspection={canCreateInspection} canCreateCorrectiveAction={canCreateCorrectiveAction} canStartAudit={canStartAudit} canViewReports={canViewReports} /><AiSafetySummary organizationId={organizationId} role={role} hasAuthorizedQhseData={snapshot.data.hasOperationalData} /></>}</div>
+  return <div className="dashboard-page"><DashboardHeader userName={userName} organizationName={organizationName} role={role} /><DashboardFilters filters={filters} options={filterOptions} onChange={updateFilter} onReset={() => setFilters(defaultDashboardFilters)} />{snapshot.isLoading && <div className="dashboard-loading">Loading operational dashboard data...</div>}{snapshot.isError && <div className="auth-message error">Unable to load dashboard data. Please try again.</div>}{snapshot.data && <><DashboardKpiGrid metrics={snapshot.data.metrics} /><Suspense fallback={<div className="dashboard-loading">Loading analytics modules...</div>}><section className="dashboard-charts-section"><div className="dashboard-section-heading"><div><div className="eyebrow">ANALYTICS</div><h3>Operational performance and risk</h3></div></div><DashboardCharts data={snapshot.data} /></section><SafetyMapCard sites={snapshot.data.sites} /></Suspense><DashboardOperationalGrid activities={snapshot.data.activities} recentIncidents={snapshot.data.recentIncidents} hasOperationalData={snapshot.data.hasOperationalData} /><DashboardBottomGrid activities={snapshot.data.activities} canReportIncident={canReportIncident} canCreateInspection={canCreateInspection} canCreateCorrectiveAction={canCreateCorrectiveAction} canStartAudit={canStartAudit} canViewReports={canViewReports} /><EmergencyContactsPanel contacts={emergencyContacts} /><AiSafetySummary organizationId={organizationId} role={role} hasAuthorizedQhseData={snapshot.data.hasOperationalData} /></>}</div>
 }

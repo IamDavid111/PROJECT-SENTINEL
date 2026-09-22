@@ -16,8 +16,51 @@ function metadataText(metadata: Record<string, unknown>, key: string) {
 function configuredNames(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.flatMap((item) => {
-    if (typeof item === 'string') return [item]
-    if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string') return [item.name]
+    if (typeof item === 'string') return [item.trim()].filter(Boolean)
+    if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string' && (!('active' in item) || item.active !== false)) return [item.name.trim()].filter(Boolean)
+    return []
+  })
+}
+
+function normalizeIncidentCategoryName(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ')
+  const legacyMap: Record<string, string> = {
+    'near miss': 'Near Miss',
+    'near-miss': 'Near Miss',
+    'unsafe condition': 'Unsafe Condition',
+    'unsafe act': 'Unsafe Act',
+    'environmental incident': 'Environmental Incident',
+    'environmental event': 'Environmental Incident',
+    'slip trip fall': 'Slip/Trip/Fall',
+    'slip/trip/fall': 'Slip/Trip/Fall',
+  }
+  return legacyMap[normalized] || value.trim()
+}
+
+function incidentCategoryValues(value: string) {
+  const normalized = normalizeIncidentCategoryName(value)
+  const legacyValues: Record<string, string[]> = {
+    'Near Miss': ['Near Miss', 'near miss', 'near-miss'],
+    'Unsafe Condition': ['Unsafe Condition', 'unsafe condition'],
+    'Unsafe Act': ['Unsafe Act', 'unsafe act'],
+    'Environmental Incident': ['Environmental Incident', 'environmental incident', 'environmental event'],
+    'Slip/Trip/Fall': ['Slip/Trip/Fall', 'slip trip fall', 'slip/trip/fall'],
+  }
+  return legacyValues[normalized] || [value]
+}
+
+function configuredActiveNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (typeof item === 'string') {
+      const name = item.trim()
+      return name ? [name] : []
+    }
+    if (item && typeof item === 'object') {
+      const candidate = item as Record<string, unknown>
+      const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
+      return name && candidate.active !== false ? [name] : []
+    }
     return []
   })
 }
@@ -82,7 +125,7 @@ export async function getDashboardSnapshot(
     if (filters.site !== 'all') query = query.eq('site_id', filters.site)
     if (filters.department !== 'all') query = query.eq('department', filters.department)
     if (filters.severity !== 'all') query = query.eq('severity', filters.severity)
-    if (filters.incidentType !== 'all') query = query.eq('report_type', filters.incidentType)
+    if (filters.incidentType !== 'all') query = query.in('incident_category', incidentCategoryValues(filters.incidentType))
     return query
   }
 
@@ -122,12 +165,11 @@ export async function getDashboardSnapshot(
 
   const filteredData = (data || []).filter((item) => {
     const metadata = (item.metadata || {}) as Record<string, unknown>
-    const matches = (filter: string, key: string) => filter === 'all' || metadataText(metadata, key) === filter
+    const matches = (filter: string, key: string) => filter === 'all' || (key === 'incidentType' ? normalizeIncidentCategoryName(metadataText(metadata, key)) === normalizeIncidentCategoryName(filter) : metadataText(metadata, key) === filter)
     return matches(filters.site, 'site')
       && matches(filters.department, 'department')
       && matches(filters.severity, 'severity')
       && matches(filters.incidentType, 'incidentType')
-      && matches(filters.contractor, 'contractor')
       && matches(filters.shift, 'shift')
   })
   const userIds = [...new Set(filteredData.map((item) => item.user_id).filter((id): id is string => Boolean(id)))]
@@ -157,9 +199,9 @@ export async function getDashboardSnapshot(
     correctiveActions: [],
     inspections: null,
     sites: [],
-    configuredIncidentTypes: configuredNames(settings?.incident_categories),
+    configuredIncidentTypes: configuredNames(settings?.incident_categories).map(normalizeIncidentCategoryName),
     configuredDepartments: configuredNames(settings?.departments),
-    configuredSites: configuredNames(settings?.operational_sites),
+    configuredSites: configuredActiveNames(settings?.operational_sites),
     hasOperationalData: incidentCount > 0,
   }
 }

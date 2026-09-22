@@ -7,7 +7,6 @@ export type DashboardFilters = {
   dateRange: '7d' | '30d' | '90d' | 'all'
   severity: string
   incidentType: string
-  contractor: string
   shift: string
 }
 
@@ -17,7 +16,6 @@ export const defaultDashboardFilters: DashboardFilters = {
   dateRange: '30d',
   severity: 'all',
   incidentType: 'all',
-  contractor: 'all',
   shift: 'all',
 }
 
