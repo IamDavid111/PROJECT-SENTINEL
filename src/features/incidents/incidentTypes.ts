@@ -122,18 +122,23 @@ export type IncidentSubmissionInput = IncidentDraftInput & {
   description: string
   occurredAt: string
   siteId: string
-  location: string
+  location?: string
   severity: string
+  incidentCategory?: string
 }
 
 export type IncidentListFilters = {
   search?: string
   status?: IncidentStatus | 'all'
   reportType?: IncidentReportType | 'all'
+  incidentCategory?: string | 'all'
   severity?: string | 'all'
   siteId?: string | 'all'
+  department?: string | 'all'
   dateFrom?: string
   dateTo?: string
   page?: number
   pageSize?: number
 }
+
+export type IncidentListScope = 'own' | 'organization'

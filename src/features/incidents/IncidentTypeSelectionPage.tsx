@@ -69,6 +69,7 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
   const [selectedCategory, setSelectedCategory] = useState<string>('')
   const [selectedEnvironmentalImpact, setSelectedEnvironmentalImpact] = useState<boolean>(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [startInFieldMode, setStartInFieldMode] = useState(false)
   const draft = useIncident(supabase, draftId || null)
   const [message, setMessage] = useState('')
 
@@ -93,6 +94,13 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
 
   const continueToReport = () => {
     if (!selectedType) return
+    setStartInFieldMode(false)
+    setIsFormOpen(true)
+  }
+
+  const openFieldMode = () => {
+    if (!selectedType) return
+    setStartInFieldMode(true)
     setIsFormOpen(true)
   }
 
@@ -114,6 +122,7 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
         initialTitle={selectedTitle}
         initialCategory={selectedCategory}
         initialEnvironmentalImpact={selectedEnvironmentalImpact}
+        startInFieldMode={startInFieldMode}
         onBack={() => setIsFormOpen(false)}
       />
     )
@@ -180,6 +189,17 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
             })}
           </div>
         </div>
+      </div>
+
+      <div className="incident-workflow-cards">
+        <article className="incident-quick-options-panel incident-workflow-card">
+          <div className="incident-quick-header"><h3>Field Mode</h3><p>Capture a voice incident report when you are working in the field.</p></div>
+          <button className="button button-green button-small" type="button" onClick={openFieldMode}>Open Field Mode</button>
+        </article>
+        <article className="incident-quick-options-panel incident-workflow-card">
+          <div className="incident-quick-header"><h3>My Reports</h3><p>Review the incident reports you have submitted.</p></div>
+          <a className="button button-outline button-small" href="#my-reports">Open My Reports</a>
+        </article>
       </div>
 
       <div className="incident-type-actions">

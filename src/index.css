@@ -2282,6 +2282,21 @@ blockquote footer span {
   background: #fff;
 }
 
+.incident-workflow-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.incident-workflow-card {
+  align-content: start;
+  min-height: 150px;
+}
+
+.incident-workflow-card .button {
+  justify-self: start;
+}
+
 .incident-quick-header h3 {
   margin: 0 0 4px;
   font-size: 17px;
@@ -4418,6 +4433,10 @@ blockquote footer span {
   }
 
   .incident-type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .incident-workflow-cards {
     grid-template-columns: 1fr;
   }
 

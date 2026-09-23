@@ -49,12 +49,14 @@ export const incidentDraftSchema = incidentDraftFields.superRefine(addCommonInci
 
 export const incidentSubmissionSchema = incidentDraftFields.extend({
   title: z.string().trim().min(3, 'Title is required.').max(240),
-  description: z.string().trim().min(10, 'Describe what happened.').max(10000),
+  description: z.string().trim().min(1, 'Describe what happened.').max(10000),
   occurredAt: z.string().datetime({ offset: true, message: 'Occurrence date and time is required.' }),
   siteId: uuid,
-  location: z.string().trim().min(2, 'Location is required.').max(240),
+  location: z.string().trim().max(240).optional(),
   severity: z.string().trim().min(1, 'Severity is required.').max(80),
   incidentCategory: z.string().trim().min(1, 'Incident category is required.').max(120),
+  immediateCorrection: z.string().trim().min(1, 'Immediate actions taken are required.').max(5000),
+  accuracyConfirmed: z.literal(true, { error: 'Confirm that the report is accurate before submitting.' }),
 }).superRefine((data, context) => {
   addCommonIncidentRules(data, context)
   if ((data.reportType === 'incident' || data.reportType === 'environmental_incident') && !data.severity) {
@@ -95,8 +97,10 @@ export const incidentListFiltersSchema = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.enum([...incidentStatuses, 'all'] as const).optional().default('all'),
   reportType: z.enum([...incidentReportTypes, 'all'] as const).optional().default('all'),
+  incidentCategory: z.string().trim().max(120).optional().default('all'),
   severity: z.string().trim().max(80).optional().default('all'),
   siteId: uuid.or(z.literal('all')).optional().default('all'),
+  department: z.string().trim().max(120).optional().default('all'),
   dateFrom: z.string().date().optional(),
   dateTo: z.string().date().optional(),
   page: z.number().int().min(1).optional().default(1),

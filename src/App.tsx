@@ -16,9 +16,10 @@ import type { Role } from './types'
 import { BASELINE_PERMISSION_KEYS, BUILT_IN_BACKEND_ROLES, SUPER_ADMINISTRATOR_PERMISSION_KEYS, USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_PERMISSION_CATALOG, USER_MANAGEMENT_ROLE_DEFINITIONS, USER_MANAGEMENT_ROLE_PERMISSION_MATRIX, hasPermission, permissionsForRole } from './data/userManagementConfig'
 import type { PermissionKey } from './data/userManagementConfig'
 import { DashboardPage } from './features/dashboard/DashboardPage'
-import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
+import { IncidentReportForm } from './features/incidents/IncidentReportForm'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
 import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
+import { useIncidentOfflineSync } from './features/incidents/useIncidentData'
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
 
@@ -380,6 +381,7 @@ function AdministrationLandingPage({ canViewUsers, canViewRoles }: { canViewUser
 }
 
 function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
+  useIncidentOfflineSync(supabase)
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
   const [role, setRole] = useState<string | null>(null)
   const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([])
@@ -590,10 +592,10 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
         </header>
         <section className="workspace-content">
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
-          {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={legacyFeatureRole} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
-          {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} />}
+          {route === 'report-incident' && canAccess('report_incident') && <IncidentReportForm key={`report-incident-${navResetKey}`} supabase={supabase} reportType="incident" draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} onBack={() => { window.location.hash = '#dashboard' }} />}
+          {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} scope="own" canExport={canAccess('export_reports')} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
-          {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} />}
+          {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} scope="organization" canExport={canAccess('export_reports')} />}
           {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
           {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
@@ -944,6 +946,11 @@ function isValidEmail(value: string) {
   return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+function siteCodeSeed(name: string) {
+  const slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return slug || 'site'
+}
+
 function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: string; userId: string }) {
   const [settings, setSettings] = useState<CompanySettingsState>({ working_hours: '{}', departments: '[]', operational_sites: '[]', emergency_contacts: '[]', incident_categories: '[]', risk_categories: '[]', severity_levels: '[]', inspection_templates: '[]' })
   const [shiftSettings, setShiftSettings] = useState<CompanyShiftSetting[]>(defaultShiftTemplates)
@@ -1204,6 +1211,29 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
     } catch {
       setError('Each settings field must contain valid JSON.')
       return
+    }
+
+    const { data: existingSites, error: existingSitesError } = await supabase
+      .from('sites')
+      .select('id, name')
+      .eq('organization_id', organizationId)
+    if (existingSitesError) {
+      setError(`Unable to synchronize organization sites: ${existingSitesError.message}`)
+      return
+    }
+
+    const existingSiteNames = new Set((existingSites || []).map((site) => site.name.trim().toLowerCase()))
+    const sitesToCreate = nextSites.filter((site) => !existingSiteNames.has(site.name.trim().toLowerCase()))
+    if (sitesToCreate.length) {
+      const { error: siteSyncError } = await supabase.from('sites').insert(sitesToCreate.map((site) => ({
+        organization_id: organizationId,
+        name: site.name.trim(),
+        code: `${siteCodeSeed(site.name)}-${crypto.randomUUID().slice(0, 8)}`,
+      })))
+      if (siteSyncError) {
+        setError(`Unable to synchronize organization sites: ${siteSyncError.message}`)
+        return
+      }
     }
 
     const { error: saveError } = await supabase.from('company_settings').upsert({ organization_id: organizationId, ...parsed })
