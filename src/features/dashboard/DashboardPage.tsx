@@ -130,45 +130,6 @@ function buildSiteOptions(value: unknown): string[] {
   return ['all', ...names]
 }
 
-type DashboardEmergencyContact = {
-  id: string
-  name: string
-  role: string
-  phone: string
-  email: string
-  active: boolean
-}
-
-function buildEmergencyContacts(value: unknown): DashboardEmergencyContact[] {
-  const candidate = Array.isArray(value)
-    ? value
-    : value && typeof value === 'object'
-      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
-        ?? ((value as Record<string, unknown>).contacts as unknown[] | undefined)
-        ?? []
-      : []
-
-  return candidate.flatMap((entry, index) => {
-    if (typeof entry === 'string') {
-      const name = entry.trim()
-      return name ? [{ id: `contact-${index}`, name, role: '', phone: '', email: '', active: true }] : []
-    }
-    if (!entry || typeof entry !== 'object') return []
-    const item = entry as Record<string, unknown>
-    const name = typeof item.name === 'string' ? item.name.trim() : ''
-    const phone = typeof item.phone === 'string' ? item.phone.trim() : ''
-    if (!name || item.active === false) return []
-    return [{
-      id: typeof item.id === 'string' && item.id.trim() ? item.id : `contact-${index}`,
-      name,
-      role: typeof item.role === 'string' ? item.role.trim() : '',
-      phone,
-      email: typeof item.email === 'string' ? item.email.trim() : '',
-      active: true,
-    }]
-  })
-}
-
 function formatFilterLabel(value: string) {
   if (value === 'all') return 'All'
   return value.charAt(0).toUpperCase() + value.slice(1)
@@ -220,17 +181,12 @@ function NotificationPanel({ activities }: { activities: DashboardActivity[] }) 
   return <DashboardCard eyebrow="NOTIFICATIONS" title="Operational alerts"><div className="notification-list">{notificationActivities.length ? notificationActivities.map((activity) => <div key={activity.id}><strong>{activity.activity}</strong><small>{activity.location} · {new Date(activity.createdAt).toLocaleDateString()}</small></div>) : <EmptyState message="No new operational notifications." />}</div><div className="notification-placeholder"><strong>Permit alerts</strong><span>Coming with Permit-to-Work module.</span></div></DashboardCard>
 }
 
-function EmergencyContactsPanel({ contacts }: { contacts: DashboardEmergencyContact[] }) {
-  return <DashboardCard eyebrow="EMERGENCY RESPONSE" title="Emergency contacts">{contacts.length ? <div className="dashboard-activity-list">{contacts.map((contact) => <div key={contact.id}><span>{contact.role || 'Emergency contact'}</span><strong>{contact.name}</strong><small><a href={`tel:${contact.phone}`}>{contact.phone}</a>{contact.email && <> · <a href={`mailto:${contact.email}`}>{contact.email}</a></>}</small></div>)}</div> : <EmptyState message="No emergency contacts configured." action="Open company settings" actionHref="#settings" />}</DashboardCard>
-}
-
 export function DashboardPage({ organizationId, organizationName, userName, role, canReportIncident, canCreateInspection, canCreateCorrectiveAction, canStartAudit, canViewReports, supabase }: DashboardPageProps & { supabase: SupabaseClient }) {
   const [filters, setFilters] = useState(defaultDashboardFilters)
   const [filterOptions, setFilterOptions] = useState(fallbackFilterOptions)
   const [shiftSettings, setShiftSettings] = useState<DashboardShift[]>([])
   const [shiftStart, setShiftStart] = useState('07:00')
   const [shiftEnd, setShiftEnd] = useState('19:00')
-  const [emergencyContacts, setEmergencyContacts] = useState<DashboardEmergencyContact[]>([])
   const queryClient = useQueryClient()
   const snapshot = useDashboardData(supabase, organizationId, filters)
 
@@ -255,7 +211,6 @@ export function DashboardPage({ organizationId, organizationName, userName, role
         severity: data?.severity_levels ? buildSeverityOptions(data.severity_levels) : current.severity,
         incidentType: data?.incident_categories ? buildIncidentCategoryOptions(data.incident_categories) : current.incidentType,
       }))
-      setEmergencyContacts(buildEmergencyContacts(data?.emergency_contacts))
     }
     const handleSettingsUpdated = () => {
       void loadSettings()
@@ -285,5 +240,5 @@ export function DashboardPage({ organizationId, organizationName, userName, role
     setShiftStart('07:00')
     setShiftEnd('19:00')
   }
-  return <div className="dashboard-page"><DashboardHeader userName={userName} organizationName={organizationName} role={role} /><DashboardFilters filters={filters} options={filterOptions} onChange={updateFilter} onReset={resetFilters} />{filters.shift !== 'all' && <div className="dashboard-shift-times"><strong>{filters.shift} shift timing</strong><label>Start time<input type="time" value={shiftStart} onChange={(event) => setShiftStart(event.target.value)} /></label><label>End time<input type="time" value={shiftEnd} onChange={(event) => setShiftEnd(event.target.value)} /></label></div>}{snapshot.isLoading && <div className="dashboard-loading">Loading operational dashboard data...</div>}{snapshot.isError && <div className="auth-message error">Unable to load dashboard data. Please try again.</div>}{snapshot.data && <><DashboardKpiGrid metrics={snapshot.data.metrics} /><Suspense fallback={<div className="dashboard-loading">Loading analytics modules...</div>}><section className="dashboard-charts-section"><div className="dashboard-section-heading"><div><div className="eyebrow">ANALYTICS</div><h3>Operational performance and risk</h3></div></div><DashboardCharts data={snapshot.data} /></section><SafetyMapCard sites={snapshot.data.sites} /></Suspense><DashboardOperationalGrid activities={snapshot.data.activities} recentIncidents={snapshot.data.recentIncidents} hasOperationalData={snapshot.data.hasOperationalData} /><DashboardBottomGrid activities={snapshot.data.activities} canReportIncident={canReportIncident} canCreateInspection={canCreateInspection} canCreateCorrectiveAction={canCreateCorrectiveAction} canStartAudit={canStartAudit} canViewReports={canViewReports} /><EmergencyContactsPanel contacts={emergencyContacts} /><AiSafetySummary organizationId={organizationId} role={role} hasAuthorizedQhseData={snapshot.data.hasOperationalData} /></>}</div>
+  return <div className="dashboard-page"><DashboardHeader userName={userName} organizationName={organizationName} role={role} /><DashboardFilters filters={filters} options={filterOptions} onChange={updateFilter} onReset={resetFilters} />{filters.shift !== 'all' && <div className="dashboard-shift-times"><strong>{filters.shift} shift timing</strong><label>Start time<input type="time" value={shiftStart} onChange={(event) => setShiftStart(event.target.value)} /></label><label>End time<input type="time" value={shiftEnd} onChange={(event) => setShiftEnd(event.target.value)} /></label></div>}{snapshot.isLoading && <div className="dashboard-loading">Loading operational dashboard data...</div>}{snapshot.isError && <div className="auth-message error">Unable to load dashboard data. Please try again.</div>}{snapshot.data && <><DashboardKpiGrid metrics={snapshot.data.metrics} /><Suspense fallback={<div className="dashboard-loading">Loading analytics modules...</div>}><section className="dashboard-charts-section"><div className="dashboard-section-heading"><div><div className="eyebrow">ANALYTICS</div><h3>Operational performance and risk</h3></div></div><DashboardCharts data={snapshot.data} /></section><SafetyMapCard sites={snapshot.data.sites} /></Suspense><DashboardOperationalGrid activities={snapshot.data.activities} recentIncidents={snapshot.data.recentIncidents} hasOperationalData={snapshot.data.hasOperationalData} /><DashboardBottomGrid activities={snapshot.data.activities} canReportIncident={canReportIncident} canCreateInspection={canCreateInspection} canCreateCorrectiveAction={canCreateCorrectiveAction} canStartAudit={canStartAudit} canViewReports={canViewReports} /><AiSafetySummary organizationId={organizationId} role={role} hasAuthorizedQhseData={snapshot.data.hasOperationalData} /></>}</div>
 }

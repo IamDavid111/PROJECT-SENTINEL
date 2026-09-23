@@ -393,6 +393,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const [error, setError] = useState('')
   const [navResetKey, setNavResetKey] = useState(0)
   const [accountExpanded, setAccountExpanded] = useState<boolean>(false)
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([])
+
+  const canManageCompanySettings = role === 'Super Administrator'
+  const visibleEmergencyContacts = emergencyContacts.filter((contact) => contact.active && contact.name.trim() && contact.phone.trim())
+  const primaryEmergencyContact = visibleEmergencyContacts[0] ?? null
 
   const handleNavClick = (targetRoute: AppRoute) => {
     if (targetRoute === route) {
@@ -455,15 +460,50 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const canAccess = (permission: PermissionKey) => role ? hasPermission(role, permission, customRolePermissions) : false
   const legacyFeatureRole = role && BUILT_IN_BACKEND_ROLES.includes(role as typeof BUILT_IN_BACKEND_ROLES[number]) ? role as Role : 'Field Worker'
   const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
-  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => canAccess(item.permission))
+  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? role === 'Super Administrator' : canAccess(item.permission))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
 
   useEffect(() => {
+    if (!loading && route === 'settings' && !canManageCompanySettings) {
+      const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
+      if (route !== fallback) window.location.hash = `#${fallback}`
+      return
+    }
+
     if (!loading && (!currentNavigation || !canAccess(currentNavigation.permission))) {
       const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
       if (route !== fallback) window.location.hash = `#${fallback}`
     }
-  }, [currentNavigation, loading, route, visiblePrimaryNavigation])
+  }, [canManageCompanySettings, currentNavigation, loading, route, visiblePrimaryNavigation])
+
+  useEffect(() => {
+    if (!organizationId || !role) return
+
+    let active = true
+
+    const loadEmergencyContacts = async () => {
+      const { data } = await supabase
+        .from('company_settings')
+        .select('emergency_contacts')
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+
+      if (!active) return
+      setEmergencyContacts(normalizeEmergencyContacts(data?.emergency_contacts ?? []))
+    }
+
+    const handleSettingsUpdated = () => {
+      void loadEmergencyContacts()
+    }
+
+    void loadEmergencyContacts()
+    window.addEventListener('company-settings-updated', handleSettingsUpdated)
+
+    return () => {
+      active = false
+      window.removeEventListener('company-settings-updated', handleSettingsUpdated)
+    }
+  }, [organizationId, role])
 
   const signOut = async () => {
     await recordActivity(organizationId, session.user.id, 'User logged out')
@@ -525,7 +565,19 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       </aside>
       <main className="workspace-main">
         <header className="workspace-topbar">
-          <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
+          <div className="workspace-topbar-left">
+            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
+            {primaryEmergencyContact && (
+              <div className="workspace-emergency-panel">
+                <div className="workspace-emergency-label">FOR EMERGENCY RESPONSE CALL:</div>
+                <div className="workspace-emergency-contact">
+                  <span>{primaryEmergencyContact.role?.trim() || 'Admin'}</span>
+                  <strong>{primaryEmergencyContact.name}</strong>
+                  <small><a href={`tel:${primaryEmergencyContact.phone}`}>{primaryEmergencyContact.phone}</a></small>
+                </div>
+              </div>
+            )}
+          </div>
           <div className="workspace-actions">
             <label className="global-search"><span className="sr-only">Global search</span><input placeholder="Search workspace" aria-label="Global search" /></label>
             <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications">♧</a>
@@ -555,7 +607,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'profile' && <ProfileWorkspace userId={session.user.id} organizationId={organizationId} email={session.user.email || ''} />}
           {route === 'preferences' && <NotificationPreferencesWorkspace userId={session.user.id} organizationId={organizationId} />}
           {route === 'activity-log' && canAccess('view_activity') && <ActivityLogWorkspace organizationId={organizationId} />}
-          {route === 'settings' && canAccess('manage_settings') && <CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} />}
+          {route === 'settings' && canManageCompanySettings && <CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} />}
         </section>
       </main>
     </div>
