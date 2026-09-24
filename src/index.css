@@ -601,6 +601,10 @@ button {
   font-size: 5px;
 }
 
+.dark-theme .legend {
+  color: #c9d1dd;
+}
+
 .legend i {
   display: inline-block;
   width: 5px;
@@ -1039,6 +1043,49 @@ blockquote footer span {
 .auth-form {
   display: grid;
   gap: 18px;
+}
+
+.auth-sign-in-type {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.auth-sign-in-type legend {
+  padding: 0;
+  margin-bottom: 8px;
+  color: #26364d;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.auth-sign-in-type label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #cdd7e3;
+  border-radius: 10px;
+  color: #61718b;
+  background: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 750;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.auth-sign-in-type label.selected {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(18, 169, 79, 0.14);
+  color: var(--green-dark);
+}
+
+.auth-sign-in-type input {
+  accent-color: var(--green);
 }
 
 .auth-form > label {
@@ -1568,12 +1615,12 @@ blockquote footer span {
   font-size: clamp(38px, 4vw, 60px);
   line-height: 1;
   letter-spacing: -0.05em;
-  color: #eef7ff;
+  color: var(--text);
 }
 
 .dashboard-header p {
   margin: 0;
-  color: #c8d8ed;
+  color: var(--muted);
   font-size: 22px;
   line-height: 1.3;
 }
@@ -1602,11 +1649,11 @@ blockquote footer span {
   max-width: 500px;
   margin-top: 16px;
   padding: 0;
-  color: #eef7ff;
+  color: var(--text);
 }
 
 .dashboard-emergency-label {
-  color: #9fece0;
+  color: var(--green-dark);
   font-size: 12px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1614,7 +1661,7 @@ blockquote footer span {
 }
 
 .dashboard-emergency-call {
-  color: #eef7ff;
+  color: var(--text);
   font-size: 18px;
   font-weight: 600;
 }
@@ -1625,20 +1672,20 @@ blockquote footer span {
 }
 
 .dashboard-emergency-contact span {
-  color: #cfe7ff;
+  color: var(--muted);
   font-size: 14px;
   letter-spacing: 0.02em;
 }
 
 .dashboard-emergency-contact strong {
-  color: #ffffff;
+  color: var(--text);
   font-size: 18px;
   line-height: 1.2;
 }
 
 .dashboard-emergency-contact small,
 .dashboard-emergency-contact small a {
-  color: #dfeeff;
+  color: var(--muted);
   font-size: 15px;
   line-height: 1.5;
 }
@@ -3037,6 +3084,9 @@ blockquote footer span {
 .permission-group-list {
   display: grid;
   gap: 16px;
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .permission-group {
@@ -3656,6 +3706,11 @@ blockquote footer span {
 }
 
 .dark-theme.workspace-shell {
+  --text: #edf3fb;
+  --muted: #aab8cb;
+  --line: #26364d;
+  --surface: #101e33;
+  --surface-soft: #0b172b;
   background: #081326;
   color: #edf3fb;
 }
@@ -3699,7 +3754,21 @@ blockquote footer span {
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 }
 
+.dark-theme .dashboard-header h2,
 .dark-theme .dashboard-header p,
+.dark-theme .dashboard-emergency-contacts,
+.dark-theme .dashboard-emergency-call,
+.dark-theme .dashboard-emergency-contact strong {
+  color: #edf3fb;
+}
+
+.dark-theme .dashboard-emergency-label {
+  color: #9af0b9;
+}
+
+.dark-theme .dashboard-emergency-contact span,
+.dark-theme .dashboard-emergency-contact small,
+.dark-theme .dashboard-emergency-contact small a,
 .dark-theme .dashboard-context span,
 .dark-theme .dashboard-filters-heading span,
 .dark-theme .dashboard-filter-grid label,
@@ -3739,6 +3808,16 @@ blockquote footer span {
 
 .dark-theme .notification-list > div {
   border-bottom-color: #26364d;
+}
+
+.dark-theme .notification-list strong,
+.dark-theme .notification-placeholder strong {
+  color: #edf3fb;
+}
+
+.dark-theme .notification-list small,
+.dark-theme .notification-placeholder span {
+  color: #aab8cb;
 }
 
 .dark-theme .notification-placeholder {
@@ -4025,6 +4104,74 @@ blockquote footer span {
 
 .dark-theme .workspace-form input:disabled {
   background: #16253b;
+}
+
+.dark-theme .role-manager-form {
+  border-color: #26364d;
+  background: #0b172b;
+}
+
+.dark-theme .role-manager-form label,
+.dark-theme .permission-group > strong,
+.dark-theme .role-creator-body label {
+  color: #aab8cb;
+}
+
+.dark-theme .role-manager-form input,
+.dark-theme .role-creator-body input {
+  color: #edf3fb;
+  border-color: #2b3c54;
+  background: #101e33;
+}
+
+.dark-theme .role-manager-form input::placeholder,
+.dark-theme .role-creator-body input::placeholder {
+  color: #8494aa;
+}
+
+.dark-theme .permission-toggle {
+  border-color: #26364d;
+  background: #101e33;
+  color: #edf3fb;
+}
+
+.dark-theme .permission-toggle small,
+.dark-theme .role-card-header small {
+  color: #aab8cb;
+}
+
+.dark-theme .permission-required {
+  border-color: #286345;
+  background: #123323;
+}
+
+.dark-theme .role-creator-backdrop {
+  background: rgba(2, 8, 20, 0.72);
+}
+
+.dark-theme .role-creator-modal {
+  border-color: #26364d;
+  background: #101e33;
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.32);
+}
+
+.dark-theme .role-creator-header h3,
+.dark-theme .role-card-header strong {
+  color: #edf3fb;
+}
+
+.dark-theme .role-card {
+  border-color: #26364d;
+  background: #0b172b;
+}
+
+.dark-theme .role-card p {
+  color: #aab8cb;
+}
+
+.dark-theme .role-permission-list span {
+  color: #9af0b9;
+  background: #123323;
 }
 
 .footer-bottom {

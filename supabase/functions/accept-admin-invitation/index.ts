@@ -63,8 +63,8 @@ Deno.serve(async (request: Request) => {
       .single()
     if (detailsError || !invitationDetails) throw new Error('Unable to load invitation details')
 
-    const requestBody = await request.json().catch(() => ({})) as { fullName?: string; employeeId?: string }
-    if (!requestBody.fullName && !requestBody.employeeId) {
+    const requestBody = await request.json().catch(() => ({})) as { fullName?: string }
+    if (!requestBody.fullName) {
       return new Response(JSON.stringify({ invitation: {
         inviteeEmail: invitationDetails.invitee_email,
         organizationName: organization.company_name,
@@ -77,12 +77,11 @@ Deno.serve(async (request: Request) => {
     }
 
     const fullName = requestBody.fullName?.trim() || ''
-    const employeeId = requestBody.employeeId?.trim() || ''
-    if (!fullName || !employeeId) throw new Error('Full name and employee ID are required')
+    if (!fullName) throw new Error('Full name is required')
 
     const { data: acceptance, error: acceptError } = await userClient.rpc('complete_admin_invitation', {
       p_full_name: fullName,
-      p_employee_id: employeeId,
+      p_employee_id: null,
     })
     if (acceptError || !acceptance?.accepted) throw new Error(acceptError?.message || 'This invitation could not be accepted')
 

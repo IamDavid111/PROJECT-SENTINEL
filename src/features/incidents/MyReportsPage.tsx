@@ -18,6 +18,10 @@ function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleDateString() : 'Not submitted'
 }
 
+function formatDateTime(value: string | null) {
+  return value ? new Date(value).toLocaleString() : 'Not submitted'
+}
+
 function incidentHref(id: string, status: IncidentStatus) {
   return status === 'draft' ? `#report-incident?draft=${id}` : `#incident-detail?id=${id}`
 }
@@ -47,6 +51,7 @@ type IncidentExportRow = {
   site: string
   department: string
   occurredAt: string
+  submittedAt: string
   reporter: string
   location: string
 }
@@ -70,6 +75,7 @@ function exportRows(items: IncidentSummary[], sites: Array<{ id: string; name: s
     site: sites.find((site) => site.id === incident.siteId)?.name || 'Not set',
     department: incident.department || 'Not set',
     occurredAt: formatDate(incident.occurredAt),
+    submittedAt: formatDateTime(incident.reportedAt),
     reporter: incident.createdBy,
     location: incident.location || 'Not set',
   }))
@@ -80,7 +86,7 @@ function exportFileName(format: ExportFormat, date: Date) {
 }
 
 function exportCsvLikeRows(rows: IncidentExportRow[]) {
-  return rows.map((row) => [row.reference, row.title, row.category, row.severity, row.status, row.site, row.department, row.occurredAt, row.reporter, row.location])
+  return rows.map((row) => [row.reference, row.title, row.category, row.severity, row.status, row.site, row.department, row.occurredAt, row.submittedAt, row.reporter, row.location])
 }
 
 function exportPdf(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
@@ -96,7 +102,7 @@ function exportPdf(rows: IncidentExportRow[], generatedAt: Date, administrator: 
   pdf.text(`Exported: ${generatedAt.toLocaleString()} | Records: ${rows.length}`, 14, 40)
   autoTable(pdf, {
     startY: 48,
-    head: [['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Reporter', 'Location']],
+    head: [['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location']],
     body: exportCsvLikeRows(rows),
     styles: { fontSize: 7, cellPadding: 2 },
     headStyles: { fillColor: [15, 74, 62] },
@@ -114,16 +120,16 @@ function exportPdf(rows: IncidentExportRow[], generatedAt: Date, administrator: 
 async function exportExcel(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet('Incident Register')
-  sheet.mergeCells('A1:J1')
+  sheet.mergeCells('A1:K1')
   sheet.getCell('A1').value = 'SentinelQHSE — Incident Management Register'
   sheet.getCell('A1').font = { bold: true, size: 16, color: { argb: '0F172A' } }
-  sheet.mergeCells('A2:J2')
+  sheet.mergeCells('A2:K2')
   sheet.getCell('A2').value = 'Filtered incident records currently visible to the authenticated user.'
   sheet.getCell('A3').value = 'Exported'
   sheet.getCell('B3').value = generatedAt.toLocaleString()
   sheet.getCell('D3').value = 'Records'
   sheet.getCell('E3').value = rows.length
-  const header = sheet.addRow(['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Reporter', 'Location'])
+  const header = sheet.addRow(['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location'])
   header.font = { bold: true, color: { argb: 'FFFFFF' } }
   header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F4A3E' } }
   rows.forEach((row) => sheet.addRow(exportCsvLikeRows([row])[0]))
@@ -131,14 +137,14 @@ async function exportExcel(rows: IncidentExportRow[], generatedAt: Date, adminis
   sheet.addRow(['AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF'])
   sheet.addRow(['Authorized / Exported By', administrator])
   sheet.addRow(['Date and Time of Export', generatedAt.toLocaleString()])
-  sheet.columns = [{ width: 18 }, { width: 30 }, { width: 22 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 20 }, { width: 16 }, { width: 28 }, { width: 24 }]
+  sheet.columns = [{ width: 18 }, { width: 30 }, { width: 22 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 20 }, { width: 16 }, { width: 24 }, { width: 28 }, { width: 24 }]
   sheet.eachRow((row) => row.eachCell((cell) => { cell.alignment = { ...cell.alignment, vertical: 'top', wrapText: true } }))
   const buffer = await workbook.xlsx.writeBuffer()
   downloadExport(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), exportFileName('xlsx', generatedAt))
 }
 
 async function exportWord(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
-  const headers = ['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Reporter', 'Location']
+  const headers = ['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location']
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -234,8 +240,8 @@ export function MyReportsPage({ supabase, canExport = false, scope = 'organizati
         <button className="button button-outline reports-clear" type="button" onClick={resetFilters}>Reset</button>
       </div>
       {incidents.isLoading ? <div className="workspace-empty">Loading incidents...</div> : incidents.isError ? <div className="auth-message error" role="alert">Unable to load incidents. Please try again.</div> : incidents.data?.items.length ? <>
-        <div className="reports-table-wrap"><table className="reports-table"><thead><tr><th>Reference</th><th>Incident</th><th>Category</th><th>Severity</th><th>Status</th><th>Site</th><th>Department</th><th>Assignee</th><th>Date</th></tr></thead><tbody>
-          {incidents.data.items.map((incident) => <tr key={incident.id}><td><a href={incidentHref(incident.id, incident.status)} className="report-reference">{incident.referenceNumber}</a></td><td><a href={incidentHref(incident.id, incident.status)}>{incident.title}</a><small className="report-subline">Reported by {incident.createdBy}</small></td><td>{incident.incidentCategory || label(incident.reportType)}</td><td>{incident.severity || incident.potentialSeverity || 'Not set'}</td><td><StatusBadge status={incident.status} /></td><td>{sites.find((site) => site.id === incident.siteId)?.name || 'Not set'}</td><td>{incident.department || 'Not set'}</td><td>Unassigned</td><td>{formatDate(incident.occurredAt)}</td></tr>)}
+        <div className="reports-table-wrap"><table className="reports-table"><thead><tr><th>Reference</th><th>Incident</th><th>Category</th><th>Severity</th><th>Status</th><th>Site</th><th>Department</th><th>Assignee</th><th>Occurred</th><th>Submitted</th></tr></thead><tbody>
+          {incidents.data.items.map((incident) => <tr key={incident.id}><td><a href={incidentHref(incident.id, incident.status)} className="report-reference">{incident.referenceNumber}</a></td><td><a href={incidentHref(incident.id, incident.status)}>{incident.title}</a><small className="report-subline">Reported by {incident.createdBy}</small></td><td>{incident.incidentCategory || label(incident.reportType)}</td><td>{incident.severity || incident.potentialSeverity || 'Not set'}</td><td><StatusBadge status={incident.status} /></td><td>{sites.find((site) => site.id === incident.siteId)?.name || 'Not set'}</td><td>{incident.department || 'Not set'}</td><td>Unassigned</td><td>{formatDate(incident.occurredAt)}</td><td>{formatDateTime(incident.reportedAt)}</td></tr>)}
         </tbody></table></div>
         <div className="reports-pagination"><span>Page {filters.page || 1} of {totalPages} · {incidents.data.total} incidents</span><div><button className="button button-outline button-small" type="button" disabled={(filters.page || 1) <= 1} onClick={() => setFilters((current) => ({ ...current, page: (current.page || 1) - 1 }))}>Previous</button><button className="button button-outline button-small" type="button" disabled={(filters.page || 1) >= totalPages} onClick={() => setFilters((current) => ({ ...current, page: (current.page || 1) + 1 }))}>Next</button></div></div>
       </> : <div className="workspace-empty"><strong>No incident reports found.</strong><span>Start by reporting your first incident.</span><a className="button button-green button-small" href="#report-incident">Report incident</a></div>}

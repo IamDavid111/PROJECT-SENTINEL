@@ -53,6 +53,7 @@ export type IncidentSummary = {
   facilityId: string | null
   location: string | null
   department: string | null
+  shift: string | null
   severity: string | null
   potentialSeverity: string | null
   incidentCategory: string | null
@@ -95,6 +96,7 @@ export type IncidentDraftInput = {
   facilityId?: string
   location?: string
   department?: string
+  shift?: string
   workActivityContext?: string
   severity?: string
   potentialSeverity?: string

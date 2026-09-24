@@ -121,19 +121,29 @@ async function getEdgeFunctionErrorMessage(error: unknown) {
   }
 }
 
-function SignInPage() {
+function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [signInType, setSignInType] = useState<'admin' | 'user'>(userOnly ? 'user' : 'user')
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
     const form = new FormData(event.currentTarget)
+    const selectedSignInType = String(form.get('signInType') || 'user')
     const email = String(form.get('email') || '')
     const password = String(form.get('password') || '')
+    const companyCode = selectedSignInType === 'admin' ? String(form.get('companyCode') || '').trim().toUpperCase() : ''
     if (!email || !password) {
       setError('Work email and password are required.')
       return
+    }
+    if (selectedSignInType === 'admin') {
+      const companyCodeResult = registrationSchema.shape.companyCode.safeParse(companyCode)
+      if (!companyCodeResult.success) {
+        setError(companyCodeResult.error.issues[0]?.message || 'Company code is required.')
+        return
+      }
     }
     if (!isSupabaseConfigured) {
       setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.')
@@ -141,18 +151,43 @@ function SignInPage() {
     }
     setLoading(true)
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-    setLoading(false)
     if (signInError) setError(signInError.message)
     else {
-      const { data: profile } = await supabase.from('profiles').select('id, organization_id').eq('id', (await supabase.auth.getUser()).data.user?.id || '').maybeSingle()
+      const { data: userData } = await supabase.auth.getUser()
+      const { data: profile } = await supabase.from('profiles').select('id, organization_id').eq('id', userData.user?.id || '').maybeSingle()
+      if (selectedSignInType === 'admin') {
+        const { data: organization } = profile?.organization_id
+          ? await supabase.from('organizations').select('id').eq('id', profile.organization_id).eq('company_code', companyCode).maybeSingle()
+          : { data: null }
+        if (!organization) {
+          await supabase.auth.signOut()
+          setLoading(false)
+          setError('Company code does not match your organization.')
+          return
+        }
+      }
       if (profile?.organization_id) await recordActivity(profile.organization_id, profile.id, 'User logged in')
+      setLoading(false)
       window.location.hash = '#dashboard'
     }
+    if (signInError) setLoading(false)
   }
 
   return (
     <AuthShell title="Sign in" subtitle="Use your organization credentials to access the safety intelligence platform.">
       <form className="auth-form" onSubmit={submit}>
+        {!userOnly && <fieldset className="auth-sign-in-type">
+          <legend>Sign in as</legend>
+          <label className={signInType === 'admin' ? 'selected' : ''}>
+            <input type="radio" name="signInType" value="admin" checked={signInType === 'admin'} onChange={() => setSignInType('admin')} />
+            <span>Admin</span>
+          </label>
+          <label className={signInType === 'user' ? 'selected' : ''}>
+            <input type="radio" name="signInType" value="user" checked={signInType === 'user'} onChange={() => setSignInType('user')} />
+            <span>User</span>
+          </label>
+        </fieldset>}
+        {signInType === 'admin' && <label>Company Code<input name="companyCode" placeholder="ABC-123" autoComplete="organization" /></label>}
         <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
         <label>Password<input name="password" type="password" placeholder="Enter your password" autoComplete="current-password" /></label>
         <div className="auth-options">
@@ -229,7 +264,7 @@ type InvitationDetails = {
 function InviteSignupPage() {
   const [details, setDetails] = useState<InvitationDetails | null>(null)
   const [fullName, setFullName] = useState('')
-  const [employeeId, setEmployeeId] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -257,25 +292,36 @@ function InviteSignupPage() {
     event.preventDefault()
     setError('')
     setMessage('')
-    if (!fullName.trim() || !employeeId.trim()) {
-      setError('Full name and employee ID are required.')
+    if (!fullName.trim()) {
+      setError('Full name is required.')
+      return
+    }
+    const passwordResult = registrationSchema.shape.password.safeParse(password)
+    if (!passwordResult.success) {
+      setError(passwordResult.error.issues[0]?.message || 'Password must be at least 8 characters.')
       return
     }
     setSubmitting(true)
+    const { error: passwordError } = await supabase.auth.updateUser({ password })
+    if (passwordError) {
+      setSubmitting(false)
+      setError(passwordError.message)
+      return
+    }
     const { data, error: acceptanceError } = await supabase.functions.invoke('accept-admin-invitation', {
-      body: { fullName: fullName.trim(), employeeId: employeeId.trim() },
+      body: { fullName: fullName.trim() },
     })
     setSubmitting(false)
     if (acceptanceError || !data?.accepted) {
       setError(acceptanceError?.message || 'This invitation could not be accepted.')
       return
     }
-    setMessage('Your account is ready. Redirecting to your workspace...')
-    window.setTimeout(() => { window.location.hash = '#dashboard' }, 800)
+    setMessage('Your account is ready. Redirecting to User sign in...')
+    window.setTimeout(() => { window.location.hash = '#sign-in?mode=user' }, 800)
   }
 
   return (
-    <AuthShell title="Complete your invitation" subtitle="Confirm your organization details and finish setting up your account.">
+    <AuthShell title="Set Up Your Account" subtitle="Confirm your invitation details and create your account password.">
       {loading ? <div className="workspace-empty">Validating invitation...</div> : details ? (
         <form className="auth-form" onSubmit={completeSignup}>
           <label>Work email<input value={details.inviteeEmail} readOnly /></label>
@@ -283,9 +329,9 @@ function InviteSignupPage() {
           <label>Department<input value={details.department || 'Not assigned'} readOnly /></label>
           <label>Role<input value={details.role} readOnly /></label>
           <label>Full name<input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required /></label>
-          <label>Employee ID<input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} autoComplete="off" required /></label>
+          <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" required /></label>
           <AuthMessage error={error} success={message} />
-          <button className="button button-green auth-submit" disabled={submitting}>{submitting ? 'Completing setup...' : 'Complete setup'}</button>
+          <button className="button button-green auth-submit" disabled={submitting}>{submitting ? 'Setting up account...' : 'Set up account'}</button>
         </form>
       ) : <div className="auth-form"><AuthMessage error={error} /><a className="button button-outline auth-submit" href="#sign-in">Return to sign in</a></div>}
     </AuthShell>
@@ -2381,7 +2427,13 @@ function RegistrationPage() {
 
   return (
     <AuthShell title="Register your organization" subtitle="Create your company workspace and become its first Super Administrator.">
-      <form className="auth-form registration-form" onSubmit={submit}>
+      {message ? (
+        <div className="auth-form">
+          <AuthMessage success="Registration successful. Check your email and verify your account before signing in." />
+          <p className="auth-footer-copy">Your organization setup is complete. Use the verification link in your email, then return to sign in.</p>
+          <a className="button button-green auth-submit" href="#sign-in">Return to sign in</a>
+        </div>
+      ) : <form className="auth-form registration-form" onSubmit={submit}>
         <div className="form-section-title">Company details</div>
         <div className="form-grid">
           <label>Company name<input name="companyName" placeholder="Acme Energy Ltd" /></label>
@@ -2413,7 +2465,7 @@ function RegistrationPage() {
         <AuthMessage error={error} success={message} />
         <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : 'Create organization →'}</button>
         <p className="auth-footer-copy">Already registered? <a href="#sign-in">Sign in</a></p>
-      </form>
+      </form>}
     </AuthShell>
   )
 }
@@ -2450,7 +2502,7 @@ export default function App() {
     })
   }
 
-  if (authRoute === 'sign-in') return <SignInPage />
+  if (authRoute === 'sign-in') return <SignInPage userOnly={new URLSearchParams(window.location.hash.split('?')[1] || '').get('mode') === 'user'} />
   if (authRoute === 'register') return <RegistrationPage />
   if (authRoute === 'forgot-password') return <ForgotPasswordPage />
   if (authRoute === 'reset-password') return <PasswordPage reset />

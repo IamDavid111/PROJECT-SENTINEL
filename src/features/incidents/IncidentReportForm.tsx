@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -12,9 +12,6 @@ import type { IncidentDetail, IncidentDraftInput, IncidentReportType, IncidentSu
 const stages = ['Event', 'Location & context', 'People', 'Evidence & sign-off'] as const
 
 type SiteOption = { id: string; name: string }
-type FieldModeStatus = 'idle' | 'requesting' | 'recording' | 'paused' | 'saving' | 'signoff' | 'error'
-type RecordedAudio = { file: File; url: string }
-
 function configuredOptions(value: unknown, fallback: string[], legacyValue = '') {
   if (!Array.isArray(value)) return legacyValue ? [legacyValue] : fallback
   const options = value.flatMap((item) => {
@@ -63,6 +60,17 @@ function configuredSiteNames(value: unknown) {
   })
 }
 
+function configuredShiftNames(value: unknown) {
+  if (!value || typeof value !== 'object') return []
+  const shifts = (value as Record<string, unknown>).shifts
+  if (!Array.isArray(shifts)) return []
+  return shifts.flatMap((item: unknown) => {
+    if (!item || typeof item !== 'object') return []
+    const shift = item as Record<string, unknown>
+    return typeof shift.name === 'string' && shift.name.trim() && shift.active !== false ? [shift.name.trim()] : []
+  })
+}
+
 function fieldError(message?: string) {
   return message ? <span className="incident-field-error" role="alert">{message}</span> : null
 }
@@ -83,6 +91,7 @@ function toDraftInput(values: IncidentFormValues): IncidentDraftInput {
     facilityId: values.facilityId,
     location: values.location,
     department: values.department,
+    shift: values.shift,
     workActivityContext: values.workActivityContext,
     severity: values.severity,
     potentialSeverity: values.potentialSeverity,
@@ -106,7 +115,7 @@ function toDraftInput(values: IncidentFormValues): IncidentDraftInput {
   }
 }
 
-export function IncidentReportForm({ supabase, reportType, initialTitle, initialCategory, initialEnvironmentalImpact, draftId: existingDraftId, initialIncident, startInFieldMode = false, onBack }: { supabase: SupabaseClient; reportType: IncidentReportType; initialTitle?: string; initialCategory?: string; initialEnvironmentalImpact?: boolean; draftId?: string; initialIncident?: IncidentDetail; startInFieldMode?: boolean; onBack: () => void }) {
+export function IncidentReportForm({ supabase, reportType, initialTitle, initialCategory, initialEnvironmentalImpact, draftId: existingDraftId, initialIncident, onBack }: { supabase: SupabaseClient; reportType: IncidentReportType; initialTitle?: string; initialCategory?: string; initialEnvironmentalImpact?: boolean; draftId?: string; initialIncident?: IncidentDetail; onBack: () => void }) {
   const organization = useIncidentOrganization(supabase)
   const [sites, setSites] = useState<SiteOption[]>([])
   const [settings, setSettings] = useState<Record<string, unknown>>({})
@@ -116,13 +125,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   const [draftReference, setDraftReference] = useState(existingDraftId ? (initialIncident?.referenceNumber || '') : '')
   const [draftType, setDraftType] = useState<'manual' | 'offline-pending' | null>(existingDraftId ? 'manual' : null)
   const [activeStage, setActiveStage] = useState(0)
-  const [fieldMode, setFieldMode] = useState(startInFieldMode)
-  const [fieldModeStatus, setFieldModeStatus] = useState<FieldModeStatus>('idle')
-  const [fieldModeMuted, setFieldModeMuted] = useState(false)
-  const [recordedAudio, setRecordedAudio] = useState<RecordedAudio | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const mediaStreamRef = useRef<MediaStream | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
+  const [submitConfirmationOpen, setSubmitConfirmationOpen] = useState(false)
   const createDraft = useCreateIncidentDraft(supabase)
   const updateDraft = useUpdateIncidentDraft(supabase)
   const submitIncident = useSubmitIncident(supabase)
@@ -183,14 +186,6 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   }, [organization.data?.userId, supabase])
 
   useEffect(() => {
-    return () => {
-      mediaRecorderRef.current?.stop()
-      mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
-      if (recordedAudio?.url) URL.revokeObjectURL(recordedAudio.url)
-    }
-  }, [recordedAudio?.url])
-
-  useEffect(() => {
     if (!initialIncident) return
     const occurred = initialIncident.occurredAt ? new Date(initialIncident.occurredAt) : null
     form.reset({
@@ -203,6 +198,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       facilityId: initialIncident.facilityId || '',
       location: initialIncident.location || '',
       department: initialIncident.department || '',
+      shift: initialIncident.shift || '',
       workActivityContext: initialIncident.workActivityContext || '',
       severity: initialIncident.severity || '',
       potentialSeverity: initialIncident.potentialSeverity || '',
@@ -231,7 +227,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     let active = true
     void Promise.all([
       supabase.from('sites').select('id, name').eq('organization_id', organization.data.organizationId).order('name'),
-      supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels').eq('organization_id', organization.data.organizationId).maybeSingle(),
+      supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours').eq('organization_id', organization.data.organizationId).maybeSingle(),
     ]).then(([siteResult, settingsResult]) => {
       if (!active) return
       setSites(siteResult.data || [])
@@ -242,6 +238,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
 
   const configuredSites = settings.operational_sites === undefined ? sites : sites.filter((site) => configuredSiteNames(settings.operational_sites).some((name) => name.toLowerCase() === site.name.toLowerCase()))
   const departments = configuredOptions(settings.departments, [])
+  const shifts = configuredShiftNames(settings.working_hours)
   const categories = configuredIncidentCategories(settings.incident_categories, selectedCategory)
   const severities = configuredOptions(settings.severity_levels, [], selectedSeverity)
 
@@ -350,171 +347,9 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     }
   }
 
-  const resetFieldModeRecorder = () => {
-    mediaRecorderRef.current = null
-    mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
-    mediaStreamRef.current = null
-    audioChunksRef.current = []
-    setFieldModeMuted(false)
+  const requestSubmitConfirmation = () => {
+    if (!isBusy) setSubmitConfirmationOpen(true)
   }
-
-  const persistFieldModeRecording = async (file: File) => {
-    setFieldModeStatus('saving')
-    setSubmitError('')
-    setSubmitMessage('')
-    try {
-      const values = form.getValues()
-      const fieldModeValues = {
-        ...values,
-        title: values.title?.trim() || 'Voice incident report',
-        description: values.description?.trim() || 'Voice report attached. Complete the incident details before sending.',
-      }
-      form.setValue('title', fieldModeValues.title)
-      form.setValue('description', fieldModeValues.description)
-      const saved = draftId
-        ? await updateDraft.mutateAsync({ incidentId: draftId, input: toDraftInput(fieldModeValues) })
-        : await createDraft.mutateAsync(toDraftInput(fieldModeValues))
-      setDraftId(saved.id)
-      setDraftReference(saved.referenceNumber)
-      await uploadEvidence.mutateAsync({ incidentId: saved.id, file })
-      setSubmitMessage(`Voice recording saved to draft ${saved.referenceNumber}.`)
-      setFieldModeStatus('signoff')
-    } catch (error) {
-      setFieldModeStatus('error')
-      setSubmitError(error instanceof Error ? error.message : 'Unable to save the voice recording.')
-    }
-  }
-
-  const startFieldModeRecording = async () => {
-    setSubmitError('')
-    setSubmitMessage('')
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setFieldModeStatus('error')
-      setSubmitError('Voice recording is not supported by this browser or device. Use the standard incident form instead.')
-      return
-    }
-
-    setFieldModeStatus('requesting')
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((candidate) => MediaRecorder.isTypeSupported(candidate))
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-      mediaStreamRef.current = stream
-      mediaRecorderRef.current = recorder
-      audioChunksRef.current = []
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data)
-      }
-      recorder.onerror = () => {
-        resetFieldModeRecorder()
-        setFieldModeStatus('error')
-        setSubmitError('The voice recorder encountered an error. Please try again or use the standard form.')
-      }
-      recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-        resetFieldModeRecorder()
-        if (!blob.size) {
-          setFieldModeStatus('error')
-          setSubmitError('No audio was recorded. Please try again.')
-          return
-        }
-        const extension = blob.type.includes('mp4') ? 'm4a' : 'webm'
-        const file = new File([blob], `voice-incident-${Date.now()}.${extension}`, { type: blob.type })
-        const url = URL.createObjectURL(blob)
-        setRecordedAudio((current) => {
-          if (current?.url) URL.revokeObjectURL(current.url)
-          return { file, url }
-        })
-        void persistFieldModeRecording(file)
-      }
-      recorder.start()
-      setFieldModeStatus('recording')
-    } catch (error) {
-      resetFieldModeRecorder()
-      setFieldModeStatus('error')
-      if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
-        setSubmitError('Microphone access was denied. Allow microphone access or use the standard incident form.')
-      } else {
-        setSubmitError('Unable to start voice recording. Check the microphone and try again.')
-      }
-    }
-  }
-
-  const toggleFieldModePause = () => {
-    const recorder = mediaRecorderRef.current
-    if (!recorder) return
-    if (recorder.state === 'recording') {
-      recorder.pause()
-      setFieldModeStatus('paused')
-    } else if (recorder.state === 'paused') {
-      recorder.resume()
-      setFieldModeStatus('recording')
-    }
-  }
-
-  const toggleFieldModeMute = () => {
-    const nextMuted = !fieldModeMuted
-    mediaStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !nextMuted })
-    setFieldModeMuted(nextMuted)
-  }
-
-  const finishFieldModeRecording = () => {
-    const recorder = mediaRecorderRef.current
-    if (!recorder || (recorder.state !== 'recording' && recorder.state !== 'paused')) return
-    recorder.stop()
-  }
-
-  const exitFieldMode = () => {
-    if (mediaRecorderRef.current?.state === 'recording' || mediaRecorderRef.current?.state === 'paused') mediaRecorderRef.current.stop()
-    resetFieldModeRecorder()
-    setFieldMode(false)
-    setFieldModeStatus('idle')
-  }
-
-  const sendFieldModeReport = async () => {
-    setSubmitError('')
-    const valid = await form.trigger(['title', 'incidentCategory', 'severity', 'occurrenceDate', 'occurrenceTime', 'description', 'siteId'])
-    if (!valid) {
-      setSubmitError('Complete the incident details before sending the voice report.')
-      return
-    }
-    const values = form.getValues()
-    if (!values.accuracyConfirmed) {
-      setSubmitError('Confirm that the report is accurate before sending.')
-      return
-    }
-    await submitReport()
-  }
-
-  const fieldModeView = fieldModeStatus === 'signoff' ? (
-    <section className="incident-form-section">
-      <div className="incident-form-section-heading"><div><h3>Review and sign-off</h3><p>Your voice recording has been saved to the draft. Complete the required details before sending.</p></div></div>
-      {recordedAudio && <audio controls src={recordedAudio.url} className="incident-field-mode-audio" />}
-      <div className="incident-form-grid">
-        <label className="incident-form-wide">Incident title *<input {...form.register('title')} />{fieldError(form.formState.errors.title?.message)}</label>
-        <label>Incident category *<select {...form.register('incidentCategory')}><option value="">Select incident category</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select>{fieldError(form.formState.errors.incidentCategory?.message)}</label>
-        <label>Severity *<select {...form.register('severity')}><option value="">Select severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select>{fieldError(form.formState.errors.severity?.message)}</label>
-        <label>Date *<input type="date" {...form.register('occurrenceDate')} />{fieldError(form.formState.errors.occurrenceDate?.message)}</label>
-        <label>Time *<input type="time" {...form.register('occurrenceTime')} />{fieldError(form.formState.errors.occurrenceTime?.message)}</label>
-        <label>Site *<select {...form.register('siteId')}><option value="">{configuredSites.length ? 'Select site' : 'No sites configured'}</option>{configuredSites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>{fieldError(form.formState.errors.siteId?.message)}</label>
-        <label>Location<input {...form.register('location')} placeholder="Area, unit, or precise location" />{fieldError(form.formState.errors.location?.message)}</label>
-        <label className="incident-form-wide">Description *<textarea {...form.register('description')} rows={4} />{fieldError(form.formState.errors.description?.message)}</label>
-      </div>
-      <label className="checkbox-field"><input type="checkbox" {...form.register('accuracyConfirmed')} /> I confirm this report is accurate to the best of my knowledge. *</label>
-      <div className="incident-form-actions"><button className="button button-outline button-large" type="button" disabled={isBusy} onClick={exitFieldMode}>Use standard form</button><button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void sendFieldModeReport()}>{isSubmitting ? 'Sending...' : 'Send'}</button></div>
-    </section>
-  ) : (
-    <section className="incident-form-section">
-      <div className="incident-form-section-heading"><div><h3>Report your incident</h3><p>Record a voice report. Your microphone permission is required.</p></div></div>
-      {fieldModeStatus === 'error' && <div className="auth-message error" role="alert">{submitError}</div>}
-      <div className="incident-field-mode-controls">
-        {fieldModeStatus === 'idle' || fieldModeStatus === 'error' ? <button className="button button-green button-large" type="button" onClick={() => void startFieldModeRecording()}>Start recording</button> : fieldModeStatus === 'requesting' ? <button className="button button-green button-large" type="button" disabled>Requesting microphone...</button> : fieldModeStatus === 'saving' ? <div className="workspace-empty">Saving voice recording...</div> : <><button className="button button-green button-large" type="button" onClick={toggleFieldModeMute}>{fieldModeMuted ? 'Unmute' : 'Mute'}</button><button className="button button-outline button-large" type="button" onClick={toggleFieldModePause}>{fieldModeStatus === 'paused' ? 'Continue' : 'Pause'}</button><button className="button button-green button-large" type="button" onClick={finishFieldModeRecording}>Save / Finish</button></>}
-      </div>
-      {fieldModeStatus === 'recording' && <p role="status">Recording in progress...</p>}
-      {fieldModeStatus === 'paused' && <p role="status">Recording paused.</p>}
-      <button className="button button-outline button-small" type="button" onClick={exitFieldMode}>Use standard form</button>
-    </section>
-  )
 
   return (
     <div className="incident-form-page">
@@ -523,13 +358,13 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           <h2>Report an incident</h2>
           <p>Progressive form — drafts are auto-saved and can be submitted offline; they sync when connectivity returns.</p>
         </div>
-        <div className="incident-form-header-actions"><a className="button button-outline button-small" href="#my-reports">My Reports</a><button className={`field-mode-toggle${fieldMode ? ' active' : ''}`} type="button" onClick={() => { setFieldMode(true); setFieldModeStatus('idle'); setSubmitError(''); setSubmitMessage('') }}>Field mode</button></div>
+        <div className="incident-form-header-actions"><a className="button button-outline button-small" href="#my-reports">My Reports</a></div>
         <button className="button button-outline incident-save-button" type="button" disabled={isBusy} onClick={() => void saveDraft()}>Save draft</button>
       </div>
       <div className="incident-stage-progress"><div className="incident-stage-bar"><span style={{ width: `${((activeStage + 1) / stages.length) * 100}%` }} /></div><div className="incident-stage-labels">{stages.map((stage, index) => <button type="button" className={index === activeStage ? 'active' : index < activeStage ? 'complete' : ''} key={stage} onClick={() => index <= activeStage && setActiveStage(index)}>{index + 1}. {stage}</button>)}</div></div>
       <div className="incident-wizard-layout">
-        <form className="incident-form" onSubmit={submitReport}>
-        {fieldMode ? fieldModeView : <>
+        <form className="incident-form" onSubmit={(event) => { event.preventDefault(); requestSubmitConfirmation() }}>
+        <>
         {activeStage === 0 && <section className="incident-form-section">
           <div className="incident-form-section-heading"><div><h3>What happened?</h3><p>Required fields are validated before you can continue.</p></div></div>
           <div className="incident-form-grid">
@@ -556,12 +391,13 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           <div className="incident-form-grid">
             <label>Reporter name *<input value={reporterName} readOnly aria-readonly="true" /></label>
             <label>Contractor involved<input {...form.register('contractorOrganization')} placeholder="Contractor organization" />{fieldError(form.formState.errors.contractorOrganization?.message)}</label>
+            <label>Shift<select {...form.register('shift')}><option value="">Select shift</option>{shifts.map((shift) => <option value={shift} key={shift}>{shift}</option>)}</select></label>
             <label className="incident-form-wide">People involved<textarea {...form.register('peopleInvolved')} rows={3} placeholder="Names, roles and injuries sustained" /></label>
             <label className="incident-form-wide">Immediate actions taken *<textarea {...form.register('immediateCorrection')} rows={4} placeholder="Describe immediate controls, first aid, isolation, notification, or other response." />{fieldError(form.formState.errors.immediateCorrection?.message)}</label>
             <label className="incident-form-wide">Potential root cause<textarea {...form.register('potentialRootCause')} rows={3} placeholder="Initial indication only; formal root-cause analysis follows later." /></label>
           </div>
         </section>}
-        {activeStage === 3 && <section className="incident-form-section"><div className="incident-form-section-heading"><div><h3>Evidence and sign-off</h3><p>Images, PDF, Word, Excel, video and voice notes are supported.</p></div></div><div className="incident-evidence-upload-grid"><label className="incident-upload-tile">Photos / video<input type="file" hidden accept="image/*,video/*" onChange={handleEvidence} /></label><label className="incident-upload-tile">Documents<input type="file" hidden accept="application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleEvidence} /></label><label className="incident-upload-tile">Voice recording<input type="file" hidden accept="audio/*" onChange={handleEvidence} /></label></div><label className="checkbox-field"><input type="checkbox" {...form.register('accuracyConfirmed')} /> I confirm this report is accurate to the best of my knowledge. *</label></section>}
+        {activeStage === 3 && <section className="incident-form-section"><div className="incident-form-section-heading"><div><h3>Evidence and sign-off</h3><p>Images, PDF, Word, Excel, and video evidence are supported.</p></div></div><div className="incident-evidence-upload-grid"><label className="incident-upload-tile">Photo<input type="file" hidden accept="image/*" capture="environment" onChange={handleEvidence} /></label><label className="incident-upload-tile">Video<input type="file" hidden accept="video/*" capture="environment" onChange={handleEvidence} /></label><label className="incident-upload-tile">Documents<input type="file" hidden accept="application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleEvidence} /></label></div><label className="checkbox-field"><input type="checkbox" {...form.register('accuracyConfirmed')} /> I confirm this report is accurate to the best of my knowledge. *</label></section>}
         {draftReference && <div className="incident-reference" role="status"><span>{draftType === 'manual' ? 'Manual draft' : 'Draft reference'}</span><strong>{draftReference}</strong></div>}
         {submitError && <div className="auth-message error" role="alert">{submitError}</div>}
         {submitMessage && <div className="auth-message success" role="status">{submitMessage}</div>}
@@ -583,13 +419,28 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           {activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : (
             <>
               <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => void saveDraft()}>Save as Draft</button>
-              <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void submitReport()}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>
+              <button className="button button-green button-large" type="submit" disabled={isBusy}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>
             </>
           )}
         </div>
-        </>}
+        </>
         </form>
       </div>
+      {submitConfirmationOpen && <div className="role-creator-backdrop" role="presentation" onClick={() => setSubmitConfirmationOpen(false)}>
+        <div className="role-creator-modal" role="dialog" aria-modal="true" aria-labelledby="incident-submit-confirmation-title" onClick={(event) => event.stopPropagation()}>
+          <div className="role-creator-header">
+            <div>
+              <div className="eyebrow">SUBMIT INCIDENT</div>
+              <h3 id="incident-submit-confirmation-title">Are you sure you want to submit this incident report?</h3>
+            </div>
+            <button className="button button-outline button-small" type="button" onClick={() => setSubmitConfirmationOpen(false)}>Close</button>
+          </div>
+          <div className="role-creator-actions">
+            <button className="button button-outline button-small" type="button" onClick={() => setSubmitConfirmationOpen(false)}>Cancel</button>
+            <button className="button button-green button-small" type="button" disabled={isBusy} onClick={() => { setSubmitConfirmationOpen(false); void submitReport() }}>{isSubmitting ? 'Submitting...' : 'Confirm submit'}</button>
+          </div>
+        </div>
+      </div>}
     </div>
   )
 }

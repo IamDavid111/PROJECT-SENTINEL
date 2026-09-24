@@ -14,6 +14,7 @@ const incidentDraftFields = z.object({
   facilityId: uuid.optional(),
   location: optionalText,
   department: optionalText,
+  shift: z.string().trim().max(120).optional(),
   workActivityContext: z.string().trim().max(2000).optional(),
   severity: z.string().trim().max(80).optional(),
   potentialSeverity: z.string().trim().max(80).optional(),
@@ -81,7 +82,7 @@ export const incidentEvidenceMetadataSchema = z.object({
   incidentId: uuid,
   originalFilename: z.string().trim().min(1).max(255),
   mimeType: z.string().regex(/^(image\/(jpeg|png|webp)|video\/(mp4|webm|quicktime)|audio\/(mpeg|mp4|wav|webm)|application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|text\/plain)$/, 'Unsupported evidence file type.'),
-  fileSize: z.number().int().positive().max(10 * 1024 * 1024, 'Evidence must be 10 MB or smaller.'),
+  fileSize: z.number().int().positive().max(100 * 1024 * 1024, 'Evidence must be 100 MB or smaller.'),
 })
 
 export const incidentPersonSchema = z.object({

@@ -153,12 +153,11 @@ Deno.serve(async (request: Request) => {
     }
 
     stage = 'profile_insert'
-    const { error: profileError } = await adminClient.from('profiles').insert({
-      id: invited.user.id,
-      organization_id: organizationId,
-      full_name: derivedFullName || 'Invited user',
-      department: normalizedDepartment || null,
-      account_status: 'pending',
+    const { error: profileError } = await adminClient.rpc('create_pending_invited_profile', {
+      p_user_id: invited.user.id,
+      p_organization_id: organizationId,
+      p_full_name: derivedFullName || 'Invited user',
+      p_department: normalizedDepartment || null,
     })
     if (profileError) {
       await adminClient.from('admin_invitations').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', invitation.id)
