@@ -601,6 +601,10 @@ button {
   font-size: 5px;
 }
 
+.dark-theme .legend {
+  color: #c9d1dd;
+}
+
 .legend i {
   display: inline-block;
   width: 5px;
@@ -1017,6 +1021,9 @@ blockquote footer span {
 }
 
 .auth-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   align-self: flex-start;
   margin-bottom: 34px;
   color: #61718b;
@@ -1046,6 +1053,63 @@ blockquote footer span {
   gap: 18px;
 }
 
+.auth-sign-in-type {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.auth-sign-in-type legend {
+  padding: 0;
+  margin-bottom: 8px;
+  color: #26364d;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.auth-sign-in-type label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #cdd7e3;
+  border-radius: 10px;
+  color: #61718b;
+  background: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 750;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.auth-sign-in-type label.selected {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(18, 169, 79, 0.14);
+  color: var(--green-dark);
+}
+
+.auth-sign-in-type input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.auth-sign-in-type label:has(input:focus-visible) {
+  outline: 3px solid rgba(18, 169, 79, 0.55);
+  outline-offset: 2px;
+}
+
 .auth-form > label {
   display: grid;
   gap: 8px;
@@ -1054,7 +1118,7 @@ blockquote footer span {
   font-weight: 750;
 }
 
-.auth-form input:not([type='checkbox']) {
+.auth-form input:not([type='checkbox']):not([type='radio']) {
   width: 100%;
   min-height: 50px;
   padding: 0 14px;
@@ -1078,7 +1142,7 @@ blockquote footer span {
   font: inherit;
 }
 
-.auth-form input:not([type='checkbox']):focus {
+.auth-form input:not([type='checkbox']):not([type='radio']):focus {
   border-color: var(--green);
   box-shadow: 0 0 0 3px rgba(18, 169, 79, 0.14);
 }
@@ -1400,6 +1464,14 @@ blockquote footer span {
   z-index: 10;
 }
 
+.workspace-topbar-left {
+  display: flex;
+  align-items: flex-end;
+  gap: 34px;
+  min-width: 0;
+  flex: 1;
+}
+
 .workspace-topbar h1 {
   margin: 5px 0 0;
   font-size: 27px;
@@ -1411,6 +1483,55 @@ blockquote footer span {
   margin-top: 2px;
   color: #71819a;
   font-size: 12px;
+}
+
+.workspace-emergency-panel {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.workspace-emergency-label {
+  color: #14c9a6;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.workspace-emergency-call {
+  color: #1f2b3d;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.workspace-emergency-contact {
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-emergency-contact span {
+  color: #ff8a80;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workspace-emergency-contact strong {
+  color: #ff6b57;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+
+.workspace-emergency-contact small,
+.workspace-emergency-contact small a {
+  color: #ff9b8f;
+  font-size: 13px;
+  line-height: 1.3;
+  font-weight: 700;
 }
 
 .workspace-actions {
@@ -1495,21 +1616,37 @@ blockquote footer span {
 
 .dashboard-header {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
+  padding: 12px 0 0;
+}
+
+.dashboard-header-main {
+  flex: 1;
+}
+
+.dashboard-header-side {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .dashboard-header h2 {
-  margin: 9px 0 5px;
-  font-size: clamp(30px, 3.4vw, 47px);
-  line-height: 1.05;
-  letter-spacing: -0.045em;
+  margin: 12px 0 8px;
+  font-size: clamp(38px, 4vw, 60px);
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: var(--text);
 }
 
 .dashboard-header p {
   margin: 0;
-  color: #61718b;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1.3;
 }
 
 .dashboard-context {
@@ -1528,6 +1665,53 @@ blockquote footer span {
 .dashboard-context span {
   color: #71819a;
   font-size: 12px;
+}
+
+.dashboard-emergency-contacts {
+  display: grid;
+  gap: 5px;
+  max-width: 500px;
+  margin-top: 16px;
+  padding: 0;
+  color: var(--text);
+}
+
+.dashboard-emergency-label {
+  color: var(--green-dark);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.dashboard-emergency-call {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.dashboard-emergency-contact {
+  display: grid;
+  gap: 4px;
+}
+
+.dashboard-emergency-contact span {
+  color: var(--muted);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-emergency-contact strong {
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.dashboard-emergency-contact small,
+.dashboard-emergency-contact small a {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
 }
 
 .dashboard-filters {
@@ -1642,6 +1826,9 @@ blockquote footer span {
 }
 
 .dashboard-kpi a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-top: auto;
   color: var(--green-dark);
   font-size: 11px;
@@ -1782,7 +1969,9 @@ blockquote footer span {
 }
 
 .dashboard-card-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-top: 18px;
   font-size: 13px;
 }
@@ -1793,6 +1982,9 @@ blockquote footer span {
 }
 
 .dashboard-quick-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 12px 13px;
   border: 1px solid #dfe5ec;
   border-radius: 8px;
@@ -2167,6 +2359,21 @@ blockquote footer span {
   border: 1px solid #dfe5ec;
   border-radius: 13px;
   background: #fff;
+}
+
+.incident-workflow-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.incident-workflow-card {
+  align-content: start;
+  min-height: 150px;
+}
+
+.incident-workflow-card .button {
+  justify-self: start;
 }
 
 .incident-quick-header h3 {
@@ -2849,15 +3056,339 @@ blockquote footer span {
   background: #fff;
 }
 
-.workspace-placeholder-action span {
-  font-size: 20px;
-}
-
 .workspace-panel-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
+}
+
+.workspace-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.role-manager-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+  padding: 18px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+  background: #f7f9fb;
+}
+
+.role-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.role-manager-form label {
+  display: grid;
+  gap: 8px;
+  color: #41526a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.role-manager-form input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cdd7e3;
+  border-radius: 8px;
+  color: #0f172a;
+  background: #fff;
+}
+
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.permission-group-list {
+  display: grid;
+  gap: 16px;
+  max-height: min(52vh, 560px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.permission-group {
+  display: grid;
+  gap: 9px;
+}
+
+.permission-group > strong {
+  color: #41526a;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.permission-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #dfe5ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #10213a;
+  font-size: 12px;
+}
+
+.permission-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.permission-toggle > span {
+  display: grid;
+  gap: 3px;
+}
+
+.permission-toggle b {
+  font-size: 12px;
+}
+
+.permission-toggle small {
+  color: #71819a;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.permission-required {
+  background: #eef8f2;
+  border-color: #b9dfc8;
+}
+
+.permission-required input {
+  accent-color: var(--green);
+}
+
+.role-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.role-card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.role-creator-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.role-creator-modal {
+  width: min(760px, 100%);
+  display: grid;
+  gap: 20px;
+  padding: 20px;
+  border: 1px solid #dfe5ec;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 18px 35px rgba(15, 23, 42, 0.18);
+}
+
+.role-creator-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.role-creator-header h3 {
+  margin: 8px 0 0;
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.role-creator-body {
+  display: grid;
+  gap: 16px;
+}
+
+.role-creator-body label {
+  display: grid;
+  gap: 8px;
+  color: #41526a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.role-creator-body input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cdd7e3;
+  border-radius: 8px;
+  color: #0f172a;
+  background: #fff;
+}
+
+.role-creator-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.role-card {
+  display: grid;
+  gap: 12px;
+  min-height: 210px;
+  padding: 18px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.role-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.role-card-header strong {
+  display: block;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.role-card-header small {
+  color: #71819a;
+  font-size: 11px;
+}
+
+.role-card p {
+  color: #4b5d7a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.role-permission-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.role-permission-list span {
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: #edf5f0;
+  color: #0a6b3c;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.role-scope {
+  display: grid;
+  gap: 4px;
+}
+
+.role-scope span {
+  color: #71819a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.role-scope strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.role-summary-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  margin-top: 28px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+}
+
+.role-summary-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.role-summary-table th,
+.role-summary-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #e8edf2;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.role-summary-table th {
+  color: #71819a;
+  background: #f7f9fb;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.role-summary-table td:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  white-space: normal;
+}
+
+.role-summary-table td:first-child small {
+  color: #71819a;
+  font-size: 11px;
+}
+
+.role-summary-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.role-detail-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+  background: #f7f9fb;
+}
+
+.role-detail-panel h3,
+.role-detail-panel p {
+  margin: 0;
+}
+
+.role-state-message {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.role-state-message .auth-message {
+  flex: 1 1 280px;
 }
 
 .invite-form {
@@ -2895,7 +3426,7 @@ blockquote footer span {
 
 .user-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 190px auto;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(150px, 190px)) auto;
   gap: 12px;
   margin: 30px 0 18px;
 }
@@ -2929,8 +3460,19 @@ blockquote footer span {
   cursor: pointer;
 }
 
+.export-format-select {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #cdd7e3;
+  border-radius: 7px;
+  color: #0f172a;
+  background: #fff;
+}
+
 .user-table-wrap {
+  max-width: 100%;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   border: 1px solid #dfe5ec;
   border-radius: 12px;
 }
@@ -3165,7 +3707,38 @@ blockquote footer span {
   font-size: 16px;
 }
 
+.administration-entry-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.administration-entry-card {
+  min-height: 220px;
+  align-content: start;
+}
+
+.administration-entry-card p {
+  margin: 0;
+  color: #61718b;
+  line-height: 1.6;
+}
+
+.administration-entry-card .button {
+  justify-self: start;
+  margin-top: auto;
+}
+
+.administration-panel,
+.role-management-panel,
+.users-panel {
+  min-width: 0;
+}
+
 .dark-theme.workspace-shell {
+  --text: #edf3fb;
+  --muted: #aab8cb;
+  --line: #26364d;
+  --surface: #101e33;
+  --surface-soft: #0b172b;
   background: #081326;
   color: #edf3fb;
 }
@@ -3209,7 +3782,21 @@ blockquote footer span {
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 }
 
+.dark-theme .dashboard-header h2,
 .dark-theme .dashboard-header p,
+.dark-theme .dashboard-emergency-contacts,
+.dark-theme .dashboard-emergency-call,
+.dark-theme .dashboard-emergency-contact strong {
+  color: #edf3fb;
+}
+
+.dark-theme .dashboard-emergency-label {
+  color: #9af0b9;
+}
+
+.dark-theme .dashboard-emergency-contact span,
+.dark-theme .dashboard-emergency-contact small,
+.dark-theme .dashboard-emergency-contact small a,
 .dark-theme .dashboard-context span,
 .dark-theme .dashboard-filters-heading span,
 .dark-theme .dashboard-filter-grid label,
@@ -3249,6 +3836,16 @@ blockquote footer span {
 
 .dark-theme .notification-list > div {
   border-bottom-color: #26364d;
+}
+
+.dark-theme .notification-list strong,
+.dark-theme .notification-placeholder strong {
+  color: #edf3fb;
+}
+
+.dark-theme .notification-list small,
+.dark-theme .notification-placeholder span {
+  color: #aab8cb;
 }
 
 .dark-theme .notification-placeholder {
@@ -3537,6 +4134,74 @@ blockquote footer span {
   background: #16253b;
 }
 
+.dark-theme .role-manager-form {
+  border-color: #26364d;
+  background: #0b172b;
+}
+
+.dark-theme .role-manager-form label,
+.dark-theme .permission-group > strong,
+.dark-theme .role-creator-body label {
+  color: #aab8cb;
+}
+
+.dark-theme .role-manager-form input,
+.dark-theme .role-creator-body input {
+  color: #edf3fb;
+  border-color: #2b3c54;
+  background: #101e33;
+}
+
+.dark-theme .role-manager-form input::placeholder,
+.dark-theme .role-creator-body input::placeholder {
+  color: #8494aa;
+}
+
+.dark-theme .permission-toggle {
+  border-color: #26364d;
+  background: #101e33;
+  color: #edf3fb;
+}
+
+.dark-theme .permission-toggle small,
+.dark-theme .role-card-header small {
+  color: #aab8cb;
+}
+
+.dark-theme .permission-required {
+  border-color: #286345;
+  background: #123323;
+}
+
+.dark-theme .role-creator-backdrop {
+  background: rgba(2, 8, 20, 0.72);
+}
+
+.dark-theme .role-creator-modal {
+  border-color: #26364d;
+  background: #101e33;
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.32);
+}
+
+.dark-theme .role-creator-header h3,
+.dark-theme .role-card-header strong {
+  color: #edf3fb;
+}
+
+.dark-theme .role-card {
+  border-color: #26364d;
+  background: #0b172b;
+}
+
+.dark-theme .role-card p {
+  color: #aab8cb;
+}
+
+.dark-theme .role-permission-list span {
+  color: #9af0b9;
+  background: #123323;
+}
+
 .footer-bottom {
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   padding-top: 25px;
@@ -3752,10 +4417,25 @@ blockquote footer span {
   color: #dce6f2;
 }
 
-.dark-theme .auth-form input:not([type='checkbox']) {
+.dark-theme .auth-form input:not([type='checkbox']):not([type='radio']) {
   color: #edf3fb;
   background: #101e33;
   border-color: #2b3c54;
+}
+
+.dark-theme .auth-sign-in-type legend {
+  color: #dce6f2;
+}
+
+.dark-theme .auth-sign-in-type label {
+  color: #aab8cb;
+  border-color: #2b3c54;
+  background: #101e33;
+}
+
+.dark-theme .auth-sign-in-type label.selected {
+  border-color: var(--green);
+  color: #6ee7a0;
 }
 
 .dark-theme .auth-form textarea {
@@ -3886,6 +4566,10 @@ blockquote footer span {
     grid-template-columns: 1fr;
   }
 
+  .administration-entry-grid {
+    grid-template-columns: 1fr;
+  }
+
   .invite-form {
     grid-template-columns: 1fr;
   }
@@ -3935,6 +4619,10 @@ blockquote footer span {
   }
 
   .incident-type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .incident-workflow-cards {
     grid-template-columns: 1fr;
   }
 

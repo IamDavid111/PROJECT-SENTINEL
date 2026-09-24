@@ -1,9 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { incidentEvidenceMetadataSchema, incidentSubmissionSchema } from './incidentSchemas'
-import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentPerson, IncidentStatus, IncidentSummary, IncidentSubmissionInput } from './incidentTypes'
+import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentPerson, IncidentStatus, IncidentSummary, IncidentSubmissionInput } from './incidentTypes'
 
 const defaultPageSize = 25
+const megabyte = 1024 * 1024
+const totalEvidenceLimit = 250 * megabyte
+const photoLimit = 10 * megabyte
+const videoLimit = 100 * megabyte
+const documentLimit = 15 * megabyte
 
 type OrganizationContext = {
   userId: string
@@ -24,6 +29,7 @@ type IncidentRow = {
   facility_id: string | null
   location: string | null
   department: string | null
+  shift: string | null
   work_activity_context: string | null
   reported_by: string
   created_by: string
@@ -104,6 +110,7 @@ function toIncidentSummary(row: IncidentRow): IncidentSummary {
     facilityId: row.facility_id,
     location: row.location,
     department: row.department,
+    shift: row.shift,
     severity: row.severity,
     potentialSeverity: row.potential_severity,
     incidentCategory: row.incident_category,
@@ -168,7 +175,7 @@ export async function getOrganizationContext(client: SupabaseClient): Promise<Or
   return { userId: user.id, organizationId: profile.organization_id }
 }
 
-export async function getIncidents(client: SupabaseClient, filters: IncidentListFilters = {}): Promise<IncidentListResult> {
+export async function getIncidents(client: SupabaseClient, filters: IncidentListFilters = {}, scope: IncidentListScope = 'organization'): Promise<IncidentListResult> {
   const context = await getOrganizationContext(client)
   const page = filters.page || 1
   const pageSize = filters.pageSize || defaultPageSize
@@ -176,15 +183,19 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   const to = from + pageSize - 1
   let query = client
     .from('incidents')
-    .select('id, organization_id, reference_number, report_type, status, title, description, occurred_at, reported_at, site_id, facility_id, location, department, work_activity_context, reported_by, created_by, contractor_involved, contractor_organization, severity, potential_severity, incident_category, environmental_impact, injury_or_illness, property_damage, work_related, immediate_correction, priority, gps_coordinates, weather_conditions, equipment_involved, people_involved, witnesses, potential_root_cause, digital_signature, accuracy_confirmed, created_at, updated_at', { count: 'exact' })
+    .select('id, organization_id, reference_number, report_type, status, title, description, occurred_at, reported_at, site_id, facility_id, location, department, shift, work_activity_context, reported_by, created_by, contractor_involved, contractor_organization, severity, potential_severity, incident_category, environmental_impact, injury_or_illness, property_damage, work_related, immediate_correction, priority, gps_coordinates, weather_conditions, equipment_involved, people_involved, witnesses, potential_root_cause, digital_signature, accuracy_confirmed, created_at, updated_at', { count: 'exact' })
     .eq('organization_id', context.organizationId)
     .order('created_at', { ascending: false })
     .range(from, to)
 
+  if (scope === 'own') query = query.or(`created_by.eq.${context.userId},reported_by.eq.${context.userId}`)
+
   if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
   if (filters.reportType && filters.reportType !== 'all') query = query.eq('report_type', filters.reportType)
+  if (filters.incidentCategory && filters.incidentCategory !== 'all') query = query.eq('incident_category', filters.incidentCategory)
   if (filters.severity && filters.severity !== 'all') query = query.eq('severity', filters.severity)
   if (filters.siteId && filters.siteId !== 'all') query = query.eq('site_id', filters.siteId)
+  if (filters.department && filters.department !== 'all') query = query.eq('department', filters.department)
   if (filters.search) {
     const search = escapeSearch(filters.search)
     query = query.or(`reference_number.ilike.%${search}%,title.ilike.%${search}%,location.ilike.%${search}%`)
@@ -217,6 +228,7 @@ export async function getIncident(client: SupabaseClient, incidentId: string): P
     ...toIncidentSummary(incident as IncidentRow),
     description: incident.description,
     workActivityContext: incident.work_activity_context,
+    shift: incident.shift,
     reportedBy: incident.reported_by,
     contractorInvolved: incident.contractor_involved,
     contractorOrganization: incident.contractor_organization,
@@ -249,6 +261,7 @@ function toIncidentPayload(input: IncidentDraftInput) {
     facility_id: input.facilityId || null,
     location: input.location || null,
     department: input.department || null,
+    shift: input.shift || null,
     work_activity_context: input.workActivityContext || null,
     contractor_involved: input.contractorInvolved || false,
     contractor_organization: input.contractorOrganization || null,
@@ -272,16 +285,28 @@ function toIncidentPayload(input: IncidentDraftInput) {
   }
 }
 
-export async function createIncidentDraft(client: SupabaseClient, input: IncidentDraftInput): Promise<IncidentSummary> {
+export async function createIncidentDraft(client: SupabaseClient, input: IncidentDraftInput, options: { clientSubmissionId?: string } = {}): Promise<IncidentSummary> {
   const context = await getOrganizationContext(client)
-  const { data, error } = await client.from('incidents').insert({
+  if (options.clientSubmissionId) {
+    const { data: existing, error: existingError } = await client
+      .from('incidents')
+      .select('*')
+      .eq('organization_id', context.organizationId)
+      .eq('client_submission_id', options.clientSubmissionId)
+      .maybeSingle()
+    if (existingError) throw new Error('Unable to check the queued incident submission.')
+    if (existing) return toIncidentSummary(existing as IncidentRow)
+  }
+  const payload = {
     organization_id: context.organizationId,
     reported_by: context.userId,
     created_by: context.userId,
     status: 'draft',
     ...toIncidentPayload(input),
-  }).select('*').single()
-  if (error || !data) throw new Error('Unable to save the incident draft.')
+    ...(options.clientSubmissionId ? { client_submission_id: options.clientSubmissionId } : {}),
+  }
+  const { data, error } = await client.from('incidents').insert(payload).select('*').single()
+  if (error || !data) throw new Error(error?.message || 'Unable to save the incident draft.')
   await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident draft created', metadata: { incident_id: data.id } })
   return toIncidentSummary(data as IncidentRow)
 }
@@ -289,7 +314,7 @@ export async function createIncidentDraft(client: SupabaseClient, input: Inciden
 export async function updateIncidentDraft(client: SupabaseClient, incidentId: string, input: IncidentDraftInput): Promise<IncidentSummary> {
   const context = await getOrganizationContext(client)
   const { data, error } = await client.from('incidents').update(toIncidentPayload(input)).eq('id', incidentId).eq('organization_id', context.organizationId).eq('created_by', context.userId).eq('status', 'draft').select('*').single()
-  if (error || !data) throw new Error('Unable to update the incident draft.')
+  if (error || !data) throw new Error(error?.message || 'Unable to update the incident draft.')
   await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident draft updated', metadata: { incident_id: incidentId } })
   await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident updated', metadata: { incident_id: incidentId, status: 'draft' } })
   return toIncidentSummary(data as IncidentRow)
@@ -300,9 +325,17 @@ export async function submitIncident(client: SupabaseClient, incidentId: string,
   if (!validated.success) throw new Error(validated.error.issues[0]?.message || 'Incident submission is invalid.')
   const context = await getOrganizationContext(client)
   const { data, error } = await client.from('incidents').update({ ...toIncidentPayload(validated.data), status: 'submitted', reported_at: new Date().toISOString() }).eq('id', incidentId).eq('organization_id', context.organizationId).eq('created_by', context.userId).eq('status', 'draft').select('*').single()
-  if (error || !data) throw new Error('Unable to submit the incident report.')
+  if (error || !data) throw new Error(error?.message || 'Unable to submit the incident report.')
   await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident submitted', metadata: { incident_id: incidentId, report_type: validated.data.reportType } })
   await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident status changed', metadata: { incident_id: incidentId, from_status: 'draft', to_status: 'submitted' } })
+  return toIncidentSummary(data as IncidentRow)
+}
+
+export async function submitNewIncident(client: SupabaseClient, input: IncidentSubmissionInput): Promise<IncidentSummary> {
+  const validated = incidentSubmissionSchema.safeParse(input)
+  if (!validated.success) throw new Error(validated.error.issues[0]?.message || 'Incident submission is invalid.')
+  const { data, error } = await client.rpc('submit_new_incident', { p_input: validated.data }).single()
+  if (error || !data) throw new Error(error?.message || 'Unable to submit the incident report.')
   return toIncidentSummary(data as IncidentRow)
 }
 
@@ -310,6 +343,17 @@ export async function uploadIncidentEvidence(client: SupabaseClient, incidentId:
   const context = await getOrganizationContext(client)
   const metadata = incidentEvidenceMetadataSchema.safeParse({ incidentId, originalFilename: file.name, mimeType: file.type, fileSize: file.size })
   if (!metadata.success) throw new Error(metadata.error.issues[0]?.message || 'Evidence file is invalid.')
+  const fileLimit = file.type.startsWith('image/') ? photoLimit : file.type.startsWith('video/') ? videoLimit : documentLimit
+  const fileLimitLabel = file.type.startsWith('image/') ? '10 MB' : file.type.startsWith('video/') ? '100 MB' : '15 MB'
+  if (file.size > fileLimit) throw new Error(`This file is too large. ${file.type.startsWith('image/') ? 'Photos' : file.type.startsWith('video/') ? 'Videos' : 'Documents'} must be ${fileLimitLabel} or smaller.`)
+  const { data: existingEvidence, error: evidenceLookupError } = await client
+    .from('incident_evidence')
+    .select('file_size')
+    .eq('incident_id', incidentId)
+    .eq('organization_id', context.organizationId)
+  if (evidenceLookupError) throw new Error('Unable to verify the incident attachment limit.')
+  const existingTotal = (existingEvidence || []).reduce((total, evidence) => total + Number(evidence.file_size || 0), 0)
+  if (existingTotal + file.size > totalEvidenceLimit) throw new Error('This upload would exceed the 250 MB total attachment limit for this incident.')
   const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const storagePath = `${context.organizationId}/${incidentId}/${context.userId}/${crypto.randomUUID()}-${safeFilename}`
   const { error: uploadError } = await client.storage.from('incident-evidence').upload(storagePath, file, { upsert: false, contentType: file.type })

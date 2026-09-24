@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { BarChart3, Bell, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BarChart3, Bell, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import ExcelJS from 'exceljs'
+import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from 'docx'
 
 import customerBenefitsDashboard from './assets/srcassetscustomer-benefits-dashboard.png'
 import authIllustration from './assets/auth-illustration.jpg'
@@ -11,11 +15,14 @@ import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { registrationSchema } from './lib/schemas'
 import { countries, worldRegions } from './lib/locations'
 import type { Role } from './types'
+import { BASELINE_PERMISSION_KEYS, BUILT_IN_BACKEND_ROLES, SUPER_ADMINISTRATOR_PERMISSION_KEYS, USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_PERMISSION_CATALOG, USER_MANAGEMENT_ROLE_DEFINITIONS, USER_MANAGEMENT_ROLE_PERMISSION_MATRIX, hasPermission, permissionsForRole } from './data/userManagementConfig'
+import type { PermissionKey } from './data/userManagementConfig'
 import { DashboardPage } from './features/dashboard/DashboardPage'
-import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
+import { IncidentReportForm } from './features/incidents/IncidentReportForm'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
 import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
 import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/OrganizationSetupPage'
+import { useIncidentOfflineSync } from './features/incidents/useIncidentData'
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
 
@@ -49,14 +56,14 @@ function ThemeToggleIcon({ dark }: { dark: boolean }) {
   return dark ? <Sun size={17} /> : <Moon size={17} />
 }
 
-type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'demo'
+type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'invite-signup' | 'demo'
 
 function getAuthRoute(): AuthRoute | null {
   const route = window.location.hash.replace('#/', '').replace('#', '').split('?')[0]
   if (route === 'contact' || route === 'contact-sales' || route === 'request-demo') {
     return 'demo'
   }
-  return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'change-password' || route === 'demo'
+  return route === 'sign-in' || route === 'register' || route === 'forgot-password' || route === 'reset-password' || route === 'change-password' || route === 'invite-signup' || route === 'demo'
     ? route
     : null
 }
@@ -79,7 +86,7 @@ function AuthShell({ title, subtitle, children }: { title: string; subtitle: str
         </div>
       </div>
       <section className="auth-panel">
-        <a className="auth-back" href="#top">← Back to home</a>
+        <a className="auth-back" href="#top"><ArrowLeft size={14} /> Back to home</a>
         <div className="auth-card">
           <div className="eyebrow">SENTINELQHSE PORTAL</div>
           <h2>{title}</h2>
@@ -96,20 +103,46 @@ function AuthMessage({ error, success }: { error?: string; success?: string }) {
   return <div className={`auth-message ${error ? 'error' : 'success'}`}>{error || success}</div>
 }
 
-function SignInPage() {
+async function getEdgeFunctionErrorMessage(error: unknown) {
+  const fallback = error instanceof Error ? error.message : 'Unable to complete the request.'
+  const response = (error as { context?: Response } | null)?.context
+  if (!response) return fallback
+
+  try {
+    const payload = await response.clone().json() as { error?: string; message?: string }
+    return payload.error || payload.message || fallback
+  } catch {
+    try {
+      return (await response.clone().text()) || fallback
+    } catch {
+      return fallback
+    }
+  }
+}
+
+function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [signInType, setSignInType] = useState<'admin' | 'user'>('user')
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
     const form = new FormData(event.currentTarget)
+    const selectedSignInType = String(form.get('signInType') || 'user')
     const email = String(form.get('email') || '')
     const password = String(form.get('password') || '')
-    const companyCode = String(form.get('companyCode') || '').trim().toUpperCase()
-    if (!email || !password || !companyCode) {
-      setError('Company code, email, and password are required.')
+    const companyCode = selectedSignInType === 'admin' ? String(form.get('companyCode') || '').trim().toUpperCase() : ''
+    if (!email || !password) {
+      setError('Work email and password are required.')
       return
+    }
+    if (selectedSignInType === 'admin') {
+      const companyCodeResult = registrationSchema.shape.companyCode.safeParse(companyCode)
+      if (!companyCodeResult.success) {
+        setError(companyCodeResult.error.issues[0]?.message || 'Company code is required.')
+        return
+      }
     }
     if (!isSupabaseConfigured) {
       setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.')
@@ -117,19 +150,43 @@ function SignInPage() {
     }
     setLoading(true)
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-    setLoading(false)
     if (signInError) setError(signInError.message)
     else {
-      const { data: profile } = await supabase.from('profiles').select('id, organization_id').eq('id', (await supabase.auth.getUser()).data.user?.id || '').maybeSingle()
+      const { data: userData } = await supabase.auth.getUser()
+      const { data: profile } = await supabase.from('profiles').select('id, organization_id').eq('id', userData.user?.id || '').maybeSingle()
+      if (selectedSignInType === 'admin') {
+        const { data: organization } = profile?.organization_id
+          ? await supabase.from('organizations').select('id').eq('id', profile.organization_id).eq('company_code', companyCode).maybeSingle()
+          : { data: null }
+        if (!organization) {
+          await supabase.auth.signOut()
+          setLoading(false)
+          setError('Company code does not match your organization.')
+          return
+        }
+      }
       if (profile?.organization_id) await recordActivity(profile.organization_id, profile.id, 'User logged in')
+      setLoading(false)
       window.location.hash = '#dashboard'
     }
+    if (signInError) setLoading(false)
   }
 
   return (
     <AuthShell title="Sign in" subtitle="Use your organization credentials to access the safety intelligence platform.">
       <form className="auth-form" onSubmit={submit}>
-        <label>Company Code<input name="companyCode" placeholder="SENT-OP" autoComplete="organization" /></label>
+        {!userOnly && <fieldset className="auth-sign-in-type">
+          <legend>Sign in as</legend>
+          <label className={signInType === 'admin' ? 'selected' : ''}>
+            <input type="radio" name="signInType" value="admin" checked={signInType === 'admin'} onChange={() => setSignInType('admin')} />
+            <span>Admin</span>
+          </label>
+          <label className={signInType === 'user' ? 'selected' : ''}>
+            <input type="radio" name="signInType" value="user" checked={signInType === 'user'} onChange={() => setSignInType('user')} />
+            <span>User</span>
+          </label>
+        </fieldset>}
+        {signInType === 'admin' && <label>Company Code<input name="companyCode" placeholder="ABC-123" autoComplete="organization" /></label>}
         <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
         <label>Password<input name="password" type="password" placeholder="Enter your password" autoComplete="current-password" /></label>
         <div className="auth-options">
@@ -137,7 +194,7 @@ function SignInPage() {
           <a href="#forgot-password">Forgot password?</a>
         </div>
         <AuthMessage error={error} />
-        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Signing in...' : 'Sign In →'}</button>
+          <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Signing in...' : <>Sign In <ArrowRight size={16} /></>}</button>
         <p className="auth-footer-copy">New organization? <a href="#register">Register your company</a></p>
       </form>
     </AuthShell>
@@ -161,7 +218,7 @@ function ForgotPasswordPage() {
       <form className="auth-form" onSubmit={submit}>
         <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
         <AuthMessage error={error} success={message} />
-        <button className="button button-green auth-submit">Send reset link →</button>
+          <button className="button button-green auth-submit">Send reset link <ArrowRight size={16} /></button>
         <p className="auth-footer-copy"><a href="#sign-in">Return to sign in</a></p>
       </form>
     </AuthShell>
@@ -189,8 +246,93 @@ function PasswordPage({ reset = false }: { reset?: boolean }) {
         <label>New password<input name="password" type="password" autoComplete="new-password" /></label>
         <label>Confirm new password<input name="confirmation" type="password" autoComplete="new-password" /></label>
         <AuthMessage error={error} success={message} />
-        <button className="button button-green auth-submit">Update password →</button>
+        <button className="button button-green auth-submit">Update password <ArrowRight size={16} /></button>
       </form>
+    </AuthShell>
+  )
+}
+
+type InvitationDetails = {
+  inviteeEmail: string
+  organizationName: string
+  department: string | null
+  role: string
+  expiresAt: string
+}
+
+function InviteSignupPage() {
+  const [details, setDetails] = useState<InvitationDetails | null>(null)
+  const [fullName, setFullName] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    const loadInvitation = async () => {
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) {
+        setError('This invitation link must be opened from the invitation email.')
+        setLoading(false)
+        return
+      }
+
+      const { data, error: invitationError } = await supabase.functions.invoke('accept-admin-invitation')
+      if (invitationError) setError(invitationError.message || 'This invitation link is invalid or unavailable.')
+      else if (!data?.invitation) setError('This invitation is expired, revoked, already accepted, or does not match this email account.')
+      else setDetails(data.invitation as InvitationDetails)
+      setLoading(false)
+    }
+    void loadInvitation()
+  }, [])
+
+  const completeSignup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    if (!fullName.trim()) {
+      setError('Full name is required.')
+      return
+    }
+    const passwordResult = registrationSchema.shape.password.safeParse(password)
+    if (!passwordResult.success) {
+      setError(passwordResult.error.issues[0]?.message || 'Password must be at least 8 characters.')
+      return
+    }
+    setSubmitting(true)
+    const { error: passwordError } = await supabase.auth.updateUser({ password })
+    if (passwordError) {
+      setSubmitting(false)
+      setError(passwordError.message)
+      return
+    }
+    const { data, error: acceptanceError } = await supabase.functions.invoke('accept-admin-invitation', {
+      body: { fullName: fullName.trim() },
+    })
+    setSubmitting(false)
+    if (acceptanceError || !data?.accepted) {
+      setError(acceptanceError?.message || 'This invitation could not be accepted.')
+      return
+    }
+    setMessage('Your account is ready. Redirecting to User sign in...')
+    window.setTimeout(() => { window.location.hash = '#sign-in?mode=user' }, 800)
+  }
+
+  return (
+    <AuthShell title="Set Up Your Account" subtitle="Confirm your invitation details and create your account password.">
+      {loading ? <div className="workspace-empty">Validating invitation...</div> : details ? (
+        <form className="auth-form" onSubmit={completeSignup}>
+          <label>Work email<input value={details.inviteeEmail} readOnly /></label>
+          <label>Organization<input value={details.organizationName} readOnly /></label>
+          <label>Department<input value={details.department || 'Not assigned'} readOnly /></label>
+          <label>Role<input value={details.role} readOnly /></label>
+          <label>Full name<input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required /></label>
+          <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" required /></label>
+          <AuthMessage error={error} success={message} />
+          <button className="button button-green auth-submit" disabled={submitting}>{submitting ? 'Setting up account...' : 'Set up account'}</button>
+        </form>
+      ) : <div className="auth-form"><AuthMessage error={error} /><a className="button button-outline auth-submit" href="#sign-in">Return to sign in</a></div>}
     </AuthShell>
   )
 }
@@ -214,7 +356,7 @@ function DemoRequestPage() {
           <label>Work email<input name="email" type="email" placeholder="you@company.com" required /></label>
           <label>Company<input name="company" placeholder="Company name" required /></label>
           <label>What would you like to explore?<textarea name="message" rows={4} placeholder="Sites, teams, pricing, or QHSE workflows" /></label>
-          <button className="button button-green auth-submit" type="submit">Submit request →</button>
+          <button className="button button-green auth-submit" type="submit">Submit request <ArrowRight size={16} /></button>
           <p className="auth-footer-copy"><a href="#top">Return to landing page</a></p>
         </form>
       )}
@@ -222,21 +364,8 @@ function DemoRequestPage() {
   )
 }
 
-type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'users' | 'profile' | 'preferences' | 'activity-log' | 'settings'
-type Permission = 'view_dashboard' | 'report_incident' | 'use_ai_assistant' | 'view_executive_analytics' | 'view_marketplace' | 'create_inspection' | 'create_corrective_action' | 'start_audit' | 'view_reports' | 'manage_users' | 'view_profile' | 'view_activity' | 'manage_settings'
-
-const rolePermissions: Record<Role, Permission[]> = {
-  'Super Administrator': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'manage_users', 'view_profile', 'view_activity', 'manage_settings'],
-  'Organization Administrator': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'manage_users', 'view_profile', 'view_activity', 'manage_settings'],
-  'QHSE Manager': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
-  'Site Supervisor': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'create_corrective_action', 'view_profile'],
-  'Safety Officer / HSE Officer': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_profile'],
-  Auditor: ['view_dashboard', 'use_ai_assistant', 'view_executive_analytics', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
-  'Maintenance Engineer': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_corrective_action', 'view_marketplace', 'view_profile'],
-  'Field Worker': ['view_dashboard', 'report_incident', 'use_ai_assistant', 'view_profile'],
-  Contractor: ['view_dashboard', 'report_incident', 'use_ai_assistant', 'create_inspection', 'view_marketplace', 'view_profile'],
-  'Executive / Management': ['view_dashboard', 'use_ai_assistant', 'view_executive_analytics', 'view_reports', 'view_profile'],
-}
+type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
+type Permission = PermissionKey
 
 const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; permission: Permission }[] = [
   { route: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'view_dashboard' },
@@ -246,31 +375,61 @@ const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; per
   { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
 ]
 
-const secondaryNavigation: { route: AppRoute; label: string; permission: Permission }[] = [
+const secondaryNavigation: { route: AppRoute; label: string; permission: PermissionKey }[] = [
   { route: 'profile', label: 'User Profile', permission: 'view_profile' },
   { route: 'preferences', label: 'Notification Preferences', permission: 'view_profile' },
   { route: 'activity-log', label: 'Activity Log', permission: 'view_activity' },
-  { route: 'users', label: 'Administration', permission: 'manage_users' },
+  { route: 'administration', label: 'Administration', permission: 'access_administration' },
   { route: 'settings', label: 'Settings', permission: 'manage_settings' },
-  { route: 'my-reports', label: 'My Reports', permission: 'view_profile' },
+  { route: 'my-reports', label: 'My Reports', permission: 'view_own_reports' },
 ]
 
-const futureModuleRoutes: { route: AppRoute; label: string; permission: Permission }[] = [
-  { route: 'incidents', label: 'Incident Management', permission: 'view_dashboard' },
+const futureModuleRoutes: { route: AppRoute; label: string; permission: PermissionKey }[] = [
+  { route: 'incidents', label: 'Incident Management', permission: 'view_all_incidents' },
   { route: 'corrective-actions', label: 'Corrective Actions', permission: 'view_dashboard' },
   { route: 'inspections', label: 'Safety Inspections', permission: 'view_dashboard' },
   { route: 'audits', label: 'Audit Management', permission: 'view_dashboard' },
   { route: 'reports', label: 'Reports', permission: 'view_reports' },
+  { route: 'users', label: 'User Management', permission: 'view_users' },
+  { route: 'roles-permissions', label: 'Roles & Permissions', permission: 'view_roles_permissions' },
 ]
 
 function getAppRoute(): AppRoute {
   const route = window.location.hash.replace('#/', '').replace('#', '').split('?')[0]
-  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'users' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+}
+
+const administrationEntries: { title: string; description: string; href: string; action: string }[] = [
+  { title: 'User Management', description: 'Manage users, invitations, departments, roles, account status and user access.', href: '#users', action: 'Open User Management' },
+  { title: 'Roles & Permissions', description: 'Review platform roles and the permissions assigned to each role.', href: '#roles-permissions', action: 'Open Roles & Permissions' },
+]
+
+function AdministrationLandingPage({ canViewUsers, canViewRoles }: { canViewUsers: boolean; canViewRoles: boolean }) {
+  const visibleEntries = administrationEntries.filter((entry) => entry.href === '#users' ? canViewUsers : canViewRoles)
+  return (
+    <div className="workspace-panel administration-panel">
+      <div className="eyebrow">ADMINISTRATION</div>
+      <h2>Administration</h2>
+      <p>Manage platform users, roles and access controls.</p>
+      <div className="workspace-module-grid administration-entry-grid">
+        {visibleEntries.map((entry) => (
+          <article className="workspace-module administration-entry-card" key={entry.href}>
+            <div className="eyebrow">ACCESS CONTROL</div>
+            <strong>{entry.title}</strong>
+            <p>{entry.description}</p>
+            <a className="button button-outline button-small" href={entry.href}>{entry.action} <ArrowRight size={15} /></a>
+          </article>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
+  useIncidentOfflineSync(supabase)
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
-  const [role, setRole] = useState<Role | null>(null)
+  const [role, setRole] = useState<string | null>(null)
+  const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([])
   const [organizationId, setOrganizationId] = useState('')
   const [profileName, setProfileName] = useState(session.user.email || 'User')
   const [organizationName, setOrganizationName] = useState('Organization workspace')
@@ -282,6 +441,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const [needsSetup, setNeedsSetup] = useState(false)
   const [navResetKey, setNavResetKey] = useState(0)
   const [accountExpanded, setAccountExpanded] = useState<boolean>(false)
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([])
+
+  const canManageCompanySettings = role === 'Super Administrator'
+  const visibleEmergencyContacts = emergencyContacts.filter((contact) => contact.active && contact.name.trim() && contact.phone.trim())
+  const primaryEmergencyContact = visibleEmergencyContacts[0] ?? null
 
   const handleNavClick = (targetRoute: AppRoute) => {
     if (targetRoute === route) {
@@ -293,7 +457,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     const handleHashChange = () => setRoute(getAppRoute())
     window.addEventListener('hashchange', handleHashChange)
     const loadMembership = async () => {
-      const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id').eq('id', session.user.id).maybeSingle()
+      const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id, account_status').eq('id', session.user.id).maybeSingle()
       if (profileError) setError(profileError.message)
       else if (!profile) setNeedsSetup(true)
       if (profile?.full_name) setProfileName(profile.full_name)
@@ -303,7 +467,16 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           supabase.from('memberships').select('role').eq('user_id', session.user.id).eq('organization_id', profile.organization_id).maybeSingle(),
           supabase.from('organizations').select('company_name').eq('id', profile.organization_id).maybeSingle(),
         ])
-        if (membership?.role) setRole(membership.role as Role)
+        if (membership?.role) {
+          const membershipRole = String(membership.role)
+          setRole(membershipRole)
+          if (!USER_MANAGEMENT_BACKEND_TO_ROLE[membershipRole] && membershipRole !== 'Super Administrator') {
+            const { data: customRole } = await supabase.from('custom_roles').select('permissions').eq('organization_id', profile.organization_id).eq('name', membershipRole).eq('is_active', true).maybeSingle()
+            setCustomRolePermissions(Array.isArray(customRole?.permissions) ? customRole.permissions as string[] : [])
+          } else {
+            setCustomRolePermissions([])
+          }
+        }
         if (organization?.company_name) setOrganizationName(organization.company_name)
       }
       setLoading(false)
@@ -333,18 +506,53 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     }
   }, [loadingGateComplete, proceedToWorkspace])
 
-  const permissions = role ? rolePermissions[role] : []
-  const canAccess = (permission: Permission) => permissions.includes(permission)
+  const canAccess = (permission: PermissionKey) => role ? hasPermission(role, permission, customRolePermissions) : false
+  const legacyFeatureRole = role && BUILT_IN_BACKEND_ROLES.includes(role as typeof BUILT_IN_BACKEND_ROLES[number]) ? role as Role : 'Field Worker'
   const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
-  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => canAccess(item.permission))
+  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? role === 'Super Administrator' : canAccess(item.permission))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
 
   useEffect(() => {
+    if (!loading && route === 'settings' && !canManageCompanySettings) {
+      const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
+      if (route !== fallback) window.location.hash = `#${fallback}`
+      return
+    }
+
     if (!loading && (!currentNavigation || !canAccess(currentNavigation.permission))) {
       const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
       if (route !== fallback) window.location.hash = `#${fallback}`
     }
-  }, [currentNavigation, loading, route, visiblePrimaryNavigation])
+  }, [canManageCompanySettings, currentNavigation, loading, route, visiblePrimaryNavigation])
+
+  useEffect(() => {
+    if (!organizationId || !role) return
+
+    let active = true
+
+    const loadEmergencyContacts = async () => {
+      const { data } = await supabase
+        .from('company_settings')
+        .select('emergency_contacts')
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+
+      if (!active) return
+      setEmergencyContacts(normalizeEmergencyContacts(data?.emergency_contacts ?? []))
+    }
+
+    const handleSettingsUpdated = () => {
+      void loadEmergencyContacts()
+    }
+
+    void loadEmergencyContacts()
+    window.addEventListener('company-settings-updated', handleSettingsUpdated)
+
+    return () => {
+      active = false
+      window.removeEventListener('company-settings-updated', handleSettingsUpdated)
+    }
+  }, [organizationId, role])
 
   const signOut = async () => {
     await recordActivity(organizationId, session.user.id, 'User logged out')
@@ -407,7 +615,19 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       </aside>
       <main className="workspace-main">
         <header className="workspace-topbar">
-          <div><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
+          <div className="workspace-topbar-left">
+            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
+            {primaryEmergencyContact && (
+              <div className="workspace-emergency-panel">
+                <div className="workspace-emergency-label">FOR EMERGENCY RESPONSE CALL:</div>
+                <div className="workspace-emergency-contact">
+                  <span>{primaryEmergencyContact.role?.trim() || 'Admin'}</span>
+                  <strong>{primaryEmergencyContact.name}</strong>
+                  <small><a href={`tel:${primaryEmergencyContact.phone}`}>{primaryEmergencyContact.phone}</a></small>
+                </div>
+              </div>
+            )}
+          </div>
           <div className="workspace-actions">
             <label className="global-search"><span className="sr-only">Global search</span><input placeholder="Search workspace" aria-label="Global search" /></label>
             <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications"><Bell size={17} /></a>
@@ -418,11 +638,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           </div>
         </header>
         <section className="workspace-content">
-          {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={role} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
-          {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={role} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft')} />}
-          {route === 'my-reports' && <MyReportsPage supabase={supabase} />}
+          {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
+          {route === 'report-incident' && canAccess('report_incident') && <IncidentReportForm key={`report-incident-${navResetKey}`} supabase={supabase} reportType="incident" draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} onBack={() => { window.location.hash = '#dashboard' }} />}
+          {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} scope="own" canExport={canAccess('export_reports')} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
-          {route === 'incidents' && <MyReportsPage supabase={supabase} />}
+          {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} scope="organization" canExport={canAccess('export_reports')} />}
           {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
           {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
@@ -430,11 +650,13 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'ai-assistant' && canAccess('use_ai_assistant') && <WorkspacePlaceholder title="AI Safety Assistant" description="AI analysis will appear here once sufficient QHSE data and the AI service are connected." action="Review available data" />}
           {route === 'executive-analytics' && canAccess('view_executive_analytics') && <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open analytics foundation" />}
           {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
-          {route === 'users' && canAccess('manage_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} />}
+          {route === 'administration' && canAccess('access_administration') && <AdministrationLandingPage canViewUsers={canAccess('view_users')} canViewRoles={canAccess('view_roles_permissions')} />}
+          {route === 'users' && canAccess('view_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} canInviteUsers={canAccess('invite_users')} canEditUsers={canAccess('edit_users')} canSuspendUsers={canAccess('suspend_users')} canDeactivateUsers={canAccess('deactivate_users')} canManageUserRoles={canAccess('manage_user_roles')} canManageRolesPermissions={canAccess('manage_roles_permissions')} />}
+          {route === 'roles-permissions' && canAccess('view_roles_permissions') && <RolesPermissionsWorkspace organizationId={organizationId} canManage={canAccess('manage_roles_permissions')} />}
           {route === 'profile' && <ProfileWorkspace userId={session.user.id} organizationId={organizationId} email={session.user.email || ''} />}
           {route === 'preferences' && <NotificationPreferencesWorkspace userId={session.user.id} organizationId={organizationId} />}
           {route === 'activity-log' && canAccess('view_activity') && <ActivityLogWorkspace organizationId={organizationId} />}
-          {route === 'settings' && canAccess('manage_settings') && <CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} />}
+          {route === 'settings' && canManageCompanySettings && <CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} />}
         </section>
       </main>
     </div>
@@ -465,7 +687,7 @@ function WorkspaceLoadingState({ backgroundImage, canProceed, secondsUntilAuto, 
 }
 
 function WorkspacePlaceholder({ title, description, action }: { title: string; description: string; action: string }) {
-  return <div className="workspace-panel workspace-placeholder"><div className="eyebrow">MODULE FOUNDATION</div><h2>{title}</h2><p>{description}</p><div className="workspace-placeholder-action"><span aria-hidden="true">→</span><strong>{action}</strong></div></div>
+  return <div className="workspace-panel workspace-placeholder"><div className="eyebrow">MODULE FOUNDATION</div><h2>{title}</h2><p>{description}</p><div className="workspace-placeholder-action"><ArrowRight size={19} aria-hidden="true" /><strong>{action}</strong></div></div>
 }
 
 async function recordActivity(organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
@@ -548,6 +770,14 @@ function NotificationPreferencesWorkspace({ userId, organizationId }: { userId: 
   return <div className="workspace-panel preferences-panel"><div className="eyebrow">PERSONAL SETTINGS</div><h2>Notification Preferences</h2><p>Choose how SentinelQHSE keeps you informed about operational work.</p><form className="preference-form" onSubmit={savePreferences}>{labels.map(([key, label]) => <label className="preference-row" key={key}><span><strong>{label}</strong><small>Receive relevant updates through this channel</small></span><input type="checkbox" checked={preferences[key]} onChange={(event) => setPreferences((current) => ({ ...current, [key]: event.target.checked }))} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save preferences</button></form></div>
 }
 
+type CompanyShiftSetting = {
+  id: string
+  name: string
+  start: string
+  end: string
+  active: boolean
+}
+
 type CompanySettingsState = {
   working_hours: string
   departments: string
@@ -559,42 +789,517 @@ type CompanySettingsState = {
   inspection_templates: string
 }
 
+type DepartmentOption = {
+  name: string
+  active: boolean
+}
+
+type SiteOption = {
+  name: string
+  active: boolean
+}
+
+type EmergencyContact = {
+  id: string
+  name: string
+  role: string
+  phone: string
+  email: string
+  active: boolean
+}
+
+type SeverityOption = {
+  name: string
+  active: boolean
+}
+
+type IncidentCategoryOption = {
+  name: string
+  active: boolean
+}
+
+const defaultShiftTemplates: CompanyShiftSetting[] = [
+  { id: 'day-shift', name: 'Day', start: '07:00', end: '19:00', active: true },
+  { id: 'night-shift', name: 'Night', start: '19:00', end: '07:00', active: true },
+]
+
+const defaultDepartmentSuggestions = ['Operations', 'Maintenance', 'HSE', 'Security', 'Logistics', 'Procurement', 'Admin'] as const
+const defaultSeveritySuggestions = ['Low', 'Medium', 'High', 'Critical'] as const
+const defaultIncidentCategorySuggestions = ['Near Miss', 'Unsafe Condition', 'Unsafe Act', 'Environmental Incident', 'Slip/Trip/Fall'] as const
+
+function normalizeDepartmentSettings(value: unknown): DepartmentOption[] {
+  const source = Array.isArray(value) ? value : value && typeof value === 'object' ? ((value as Record<string, unknown>).items as unknown[] | undefined) ?? ((value as Record<string, unknown>).departments as unknown[] | undefined) ?? [] : []
+
+  return source.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    if (!name) return []
+    return [{
+      name,
+      active: item.active !== false,
+    }]
+  })
+}
+
+function normalizeSiteSettings(value: unknown): SiteOption[] {
+  const source = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).sites as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).operational_sites as unknown[] | undefined)
+        ?? []
+      : []
+
+  return source.flatMap((entry) => {
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      return name ? [{ name, active: true }] : []
+    }
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    if (!name) return []
+    return [{
+      name,
+      active: item.active !== false,
+    }]
+  })
+}
+
+function normalizeEmergencyContacts(value: unknown): EmergencyContact[] {
+  const source = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).contacts as unknown[] | undefined)
+        ?? []
+      : []
+
+  return source.flatMap((entry, index) => {
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      return name ? [{ id: `contact-${index}-${name.toLowerCase().replace(/\s+/g, '-')}`, name, role: '', phone: '', email: '', active: true }] : []
+    }
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    if (!name) return []
+    return [{
+      id: typeof item.id === 'string' && item.id.trim() ? item.id : `contact-${index}-${name.toLowerCase().replace(/\s+/g, '-')}`,
+      name,
+      role: typeof item.role === 'string' ? item.role.trim() : '',
+      phone: typeof item.phone === 'string' ? item.phone.trim() : '',
+      email: typeof item.email === 'string' ? item.email.trim() : '',
+      active: item.active !== false,
+    }]
+  })
+}
+
+function normalizeSeveritySettings(value: unknown): SeverityOption[] {
+  const source = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).levels as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).severity_levels as unknown[] | undefined)
+        ?? []
+      : []
+
+  return source.flatMap((entry) => {
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      return name ? [{ name, active: true }] : []
+    }
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    return name ? [{ name, active: item.active !== false }] : []
+  })
+}
+
+function normalizeIncidentCategoryName(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ')
+  const legacyMap: Record<string, string> = {
+    'near miss': 'Near Miss',
+    'near-miss': 'Near Miss',
+    'unsafe condition': 'Unsafe Condition',
+    'unsafe act': 'Unsafe Act',
+    'environmental incident': 'Environmental Incident',
+    'environmental event': 'Environmental Incident',
+    'slip trip fall': 'Slip/Trip/Fall',
+    'slip/trip/fall': 'Slip/Trip/Fall',
+  }
+  return legacyMap[normalized] || value.trim()
+}
+
+function normalizeIncidentCategorySettings(value: unknown): IncidentCategoryOption[] {
+  const source = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).categories as unknown[] | undefined)
+        ?? ((value as Record<string, unknown>).incident_categories as unknown[] | undefined)
+        ?? []
+      : []
+
+  return source.flatMap((entry) => {
+    const rawName = typeof entry === 'string' ? entry : entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).name === 'string' ? (entry as Record<string, unknown>).name as string : ''
+    const name = normalizeIncidentCategoryName(rawName)
+    if (!name) return []
+    return [{ name, active: typeof entry === 'object' && entry !== null && 'active' in entry ? (entry as Record<string, unknown>).active !== false : true }]
+  })
+}
+
+function normalizeShiftSettings(value: unknown): CompanyShiftSetting[] {
+  const source = (() => {
+    if (Array.isArray(value)) return value
+    if (value && typeof value === 'object') {
+      const candidate = value as Record<string, unknown>
+      if (Array.isArray(candidate.shifts)) return candidate.shifts
+    }
+    return []
+  })()
+
+  return source.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Record<string, unknown>
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    const start = typeof item.start === 'string' ? item.start : ''
+    const end = typeof item.end === 'string' ? item.end : ''
+    if (!name) return []
+    return [{
+      id: typeof item.id === 'string' && item.id.trim() ? item.id : `${name.toLowerCase().replace(/\s+/g, '-')}-${Math.random().toString(16).slice(2)}`,
+      name,
+      start,
+      end,
+      active: item.active !== false,
+    }]
+  })
+}
+
+function hasDuplicateNames(items: Array<{ name: string }>) {
+  const names = new Set<string>()
+  return items.some((item) => {
+    const name = item.name.trim().toLowerCase()
+    if (!name || names.has(name)) return Boolean(name)
+    names.add(name)
+    return false
+  })
+}
+
+function isValidEmail(value: string) {
+  return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function siteCodeSeed(name: string) {
+  const slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return slug || 'site'
+}
+
 function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: string; userId: string }) {
   const [settings, setSettings] = useState<CompanySettingsState>({ working_hours: '{}', departments: '[]', operational_sites: '[]', emergency_contacts: '[]', incident_categories: '[]', risk_categories: '[]', severity_levels: '[]', inspection_templates: '[]' })
+  const [shiftSettings, setShiftSettings] = useState<CompanyShiftSetting[]>(defaultShiftTemplates)
+  const [departmentSettings, setDepartmentSettings] = useState<DepartmentOption[]>(defaultDepartmentSuggestions.map((name) => ({ name, active: true })))
+  const [siteSettings, setSiteSettings] = useState<SiteOption[]>([])
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([])
+  const [severitySettings, setSeveritySettings] = useState<SeverityOption[]>(defaultSeveritySuggestions.map((name) => ({ name, active: true })))
+  const [incidentCategorySettings, setIncidentCategorySettings] = useState<IncidentCategoryOption[]>(defaultIncidentCategorySuggestions.map((name) => ({ name, active: true })))
+  const [departmentDraft, setDepartmentDraft] = useState('')
+  const [siteDraft, setSiteDraft] = useState('')
+  const [severityDraft, setSeverityDraft] = useState('')
+  const [incidentCategoryDraft, setIncidentCategoryDraft] = useState('')
+  const [contactDraft, setContactDraft] = useState<EmergencyContact>({ id: '', name: '', role: '', phone: '', email: '', active: true })
+  const [shiftDraft, setShiftDraft] = useState<CompanyShiftSetting>({ id: '', name: 'Day', start: '07:00', end: '19:00', active: true })
+  const [shiftModalOpen, setShiftModalOpen] = useState(false)
+  const [siteModalOpen, setSiteModalOpen] = useState(false)
+  const [contactModalOpen, setContactModalOpen] = useState(false)
+  const [contactToRemove, setContactToRemove] = useState<EmergencyContact | null>(null)
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+
   useEffect(() => {
     const loadSettings = async () => {
       const { data, error: settingsError } = await supabase.from('company_settings').select('working_hours, departments, operational_sites, emergency_contacts, incident_categories, risk_categories, severity_levels, inspection_templates').eq('organization_id', organizationId).maybeSingle()
       if (settingsError) setError(settingsError.message)
-      else if (data) setSettings(Object.fromEntries(Object.entries(data).map(([key, value]) => [key, JSON.stringify(value, null, 2)])) as CompanySettingsState)
+      else if (data) {
+        const nextSettings = Object.fromEntries(Object.entries(data).map(([key, value]) => [key, JSON.stringify(value, null, 2)])) as CompanySettingsState
+        setSettings(nextSettings)
+        const loadedShifts = normalizeShiftSettings(data.working_hours)
+        setShiftSettings(loadedShifts.length ? loadedShifts : defaultShiftTemplates)
+        const loadedDepartments = normalizeDepartmentSettings(data.departments)
+        setDepartmentSettings(loadedDepartments.length ? loadedDepartments : defaultDepartmentSuggestions.map((name) => ({ name, active: true })))
+        const loadedSites = normalizeSiteSettings(data.operational_sites)
+        setSiteSettings(loadedSites)
+        setEmergencyContacts(normalizeEmergencyContacts(data.emergency_contacts))
+        const loadedSeverities = normalizeSeveritySettings(data.severity_levels)
+        setSeveritySettings(data.severity_levels == null ? defaultSeveritySuggestions.map((name) => ({ name, active: true })) : loadedSeverities)
+        const loadedCategories = normalizeIncidentCategorySettings(data.incident_categories)
+        setIncidentCategorySettings(data.incident_categories == null ? defaultIncidentCategorySuggestions.map((name) => ({ name, active: true })) : loadedCategories)
+      }
       setLoading(false)
     }
     void loadSettings()
   }, [organizationId])
+
+  const syncDepartmentSettings = (next: DepartmentOption[]) => {
+    setDepartmentSettings(next)
+    setSettings((current) => ({ ...current, departments: JSON.stringify(next, null, 2) }))
+  }
+
+  const addDepartment = () => {
+    const name = departmentDraft.trim()
+    if (!name) {
+      setError('Department name is required.')
+      return
+    }
+    if (departmentSettings.some((department) => department.name.toLowerCase() === name.toLowerCase())) {
+      setError('That department already exists.')
+      return
+    }
+
+    const next = [...departmentSettings, { name, active: true }]
+    syncDepartmentSettings(next)
+    setDepartmentDraft('')
+    setMessage('Department added.')
+  }
+
+  const toggleDepartment = (name: string) => {
+    setDepartmentSettings((current) => {
+      const next = current.map((department) => department.name.toLowerCase() === name.toLowerCase() ? { ...department, active: !department.active } : department)
+      setSettings((currentSettings) => ({ ...currentSettings, departments: JSON.stringify(next, null, 2) }))
+      return next
+    })
+  }
+
+  const syncSiteSettings = (next: SiteOption[]) => {
+    setSiteSettings(next)
+    setSettings((current) => ({ ...current, operational_sites: JSON.stringify(next, null, 2) }))
+  }
+
+  const addSite = () => {
+    const name = siteDraft.trim()
+    if (!name) {
+      setError('Site name is required.')
+      return
+    }
+    if (siteSettings.some((site) => site.name.toLowerCase() === name.toLowerCase())) {
+      setError('That site already exists.')
+      return
+    }
+
+    const next = [...siteSettings, { name, active: true }]
+    syncSiteSettings(next)
+    setSiteDraft('')
+    setSiteModalOpen(false)
+    setMessage('Site added.')
+  }
+
+  const toggleSite = (name: string) => {
+    setSiteSettings((current) => {
+      const next = current.map((site) => site.name.toLowerCase() === name.toLowerCase() ? { ...site, active: !site.active } : site)
+      setSettings((currentSettings) => ({ ...currentSettings, operational_sites: JSON.stringify(next, null, 2) }))
+      return next
+    })
+  }
+
+  const openContactEditor = (contact?: EmergencyContact) => {
+    setContactDraft(contact ? { ...contact } : { id: '', name: '', role: '', phone: '', email: '', active: true })
+    setError('')
+    setMessage('')
+    setContactModalOpen(true)
+  }
+
+  const saveContact = () => {
+    const name = contactDraft.name.trim()
+    const phone = contactDraft.phone.trim()
+    const email = contactDraft.email.trim()
+    if (!name || !phone) {
+      setError('Contact name and phone number are required.')
+      return
+    }
+    if (!isValidEmail(email)) {
+      setError('Enter a valid contact email address.')
+      return
+    }
+    if (emergencyContacts.some((contact) => contact.id !== contactDraft.id && contact.name.toLowerCase() === name.toLowerCase())) {
+      setError('That emergency contact already exists.')
+      return
+    }
+
+    const nextContact: EmergencyContact = { ...contactDraft, id: contactDraft.id || `contact-${Date.now()}`, name, role: contactDraft.role.trim(), phone, email }
+    setEmergencyContacts((current) => {
+      const next = contactDraft.id ? current.map((contact) => contact.id === contactDraft.id ? nextContact : contact) : [...current, nextContact]
+      setSettings((currentSettings) => ({ ...currentSettings, emergency_contacts: JSON.stringify(next, null, 2) }))
+      return next
+    })
+    setContactModalOpen(false)
+    setMessage('Emergency contact saved.')
+  }
+
+  const removeContact = () => {
+    if (!contactToRemove) return
+    setEmergencyContacts((current) => {
+      const next = current.filter((contact) => contact.id !== contactToRemove.id)
+      setSettings((currentSettings) => ({ ...currentSettings, emergency_contacts: JSON.stringify(next, null, 2) }))
+      return next
+    })
+    setContactToRemove(null)
+    setMessage('Emergency contact removed.')
+  }
+
+  const addSeverity = () => {
+    const name = severityDraft.trim()
+    if (!name) {
+      setError('Severity name is required.')
+      return
+    }
+    if (severitySettings.some((severity) => severity.name.toLowerCase() === name.toLowerCase())) {
+      setError('That severity level already exists.')
+      return
+    }
+    setSeveritySettings((current) => [...current, { name, active: true }])
+    setSeverityDraft('')
+    setMessage('Severity level added.')
+  }
+
+  const toggleSeverity = (name: string) => {
+    setSeveritySettings((current) => current.map((severity) => severity.name.toLowerCase() === name.toLowerCase() ? { ...severity, active: !severity.active } : severity))
+  }
+
+  const addIncidentCategory = () => {
+    const name = normalizeIncidentCategoryName(incidentCategoryDraft)
+    if (!name) {
+      setError('Incident category is required.')
+      return
+    }
+    if (incidentCategorySettings.some((category) => category.name.toLowerCase() === name.toLowerCase())) {
+      setError('That incident category already exists.')
+      return
+    }
+    setIncidentCategorySettings((current) => [...current, { name, active: true }])
+    setIncidentCategoryDraft('')
+    setMessage('Incident category added.')
+  }
+
+  const toggleIncidentCategory = (name: string) => {
+    setIncidentCategorySettings((current) => current.map((category) => category.name.toLowerCase() === name.toLowerCase() ? { ...category, active: !category.active } : category))
+  }
+
+  const openShiftEditor = (shift?: CompanyShiftSetting) => {
+    setShiftDraft(shift ? { ...shift } : { id: '', name: 'Day', start: '07:00', end: '19:00', active: true })
+    setEditingShiftId(shift ? shift.id : null)
+    setError('')
+    setMessage('')
+    setShiftModalOpen(true)
+  }
+
+  const saveShift = () => {
+    const name = shiftDraft.name.trim()
+    if (!name) {
+      setError('Shift name is required.')
+      return
+    }
+    if (shiftSettings.some((shift) => shift.id !== editingShiftId && shift.name.toLowerCase() === name.toLowerCase())) {
+      setError('That shift already exists.')
+      return
+    }
+
+    const nextShift: CompanyShiftSetting = {
+      ...shiftDraft,
+      id: shiftDraft.id || `${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+      name,
+      active: shiftDraft.active !== false,
+    }
+
+    setShiftSettings((current) => {
+      const next = editingShiftId ? current.map((shift) => shift.id === editingShiftId ? nextShift : shift) : [...current, nextShift]
+      setSettings((currentSettings) => ({ ...currentSettings, working_hours: JSON.stringify({ shifts: next }, null, 2) }))
+      return next
+    })
+
+    setShiftModalOpen(false)
+    setEditingShiftId(null)
+    setShiftDraft({ id: '', name: 'Day', start: '07:00', end: '19:00', active: true })
+    setMessage('Shift saved.')
+  }
+
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
     setMessage('')
+
+    const nextWorkingHours = { shifts: shiftSettings }
+    const nextDepartments = departmentSettings.filter((department) => department.name.trim())
+    const nextSites = siteSettings.filter((site) => site.name.trim())
+    const nextContacts = emergencyContacts.filter((contact) => contact.name.trim() && contact.phone.trim())
+    const nextSeverities = severitySettings.filter((severity) => severity.name.trim())
+    const nextCategories = incidentCategorySettings.filter((category) => category.name.trim())
+    if (hasDuplicateNames(nextDepartments) || hasDuplicateNames(nextSites) || hasDuplicateNames(nextSeverities) || hasDuplicateNames(nextCategories) || hasDuplicateNames(nextContacts)) {
+      setError('Duplicate configuration names are not allowed.')
+      return
+    }
+    if (shiftSettings.some((shift) => !shift.name.trim())) {
+      setError('Each shift must have a name.')
+      return
+    }
+    if (emergencyContacts.some((contact) => !contact.name.trim() || !contact.phone.trim() || !isValidEmail(contact.email.trim()))) {
+      setError('Each emergency contact requires a name, phone number, and valid email if provided.')
+      return
+    }
+    const mergedSettings = { ...settings, working_hours: JSON.stringify(nextWorkingHours, null, 2), departments: JSON.stringify(nextDepartments, null, 2), operational_sites: JSON.stringify(nextSites, null, 2), emergency_contacts: JSON.stringify(nextContacts, null, 2), incident_categories: JSON.stringify(nextCategories, null, 2), severity_levels: JSON.stringify(nextSeverities, null, 2) }
+
     let parsed: Record<string, unknown>
     try {
-      parsed = Object.fromEntries(Object.entries(settings).map(([key, value]) => [key, JSON.parse(value)]))
+      parsed = Object.fromEntries(Object.entries(mergedSettings).map(([key, value]) => [key, JSON.parse(value)]))
     } catch {
       setError('Each settings field must contain valid JSON.')
       return
     }
+
+    const { data: existingSites, error: existingSitesError } = await supabase
+      .from('sites')
+      .select('id, name')
+      .eq('organization_id', organizationId)
+    if (existingSitesError) {
+      setError(`Unable to synchronize organization sites: ${existingSitesError.message}`)
+      return
+    }
+
+    const existingSiteNames = new Set((existingSites || []).map((site) => site.name.trim().toLowerCase()))
+    const sitesToCreate = nextSites.filter((site) => !existingSiteNames.has(site.name.trim().toLowerCase()))
+    if (sitesToCreate.length) {
+      const { error: siteSyncError } = await supabase.from('sites').insert(sitesToCreate.map((site) => ({
+        organization_id: organizationId,
+        name: site.name.trim(),
+        code: `${siteCodeSeed(site.name)}-${crypto.randomUUID().slice(0, 8)}`,
+      })))
+      if (siteSyncError) {
+        setError(`Unable to synchronize organization sites: ${siteSyncError.message}`)
+        return
+      }
+    }
+
     const { error: saveError } = await supabase.from('company_settings').upsert({ organization_id: organizationId, ...parsed })
     if (saveError) setError(saveError.message)
     else {
       await recordActivity(organizationId, userId, 'Company settings changed')
+      window.dispatchEvent(new CustomEvent('company-settings-updated'))
       setMessage('Company settings saved.')
     }
   }
+
   if (loading) return <div className="workspace-panel">Loading company settings...</div>
-  const fields: [keyof CompanySettingsState, string][] = [['working_hours', 'Working hours'], ['departments', 'Departments'], ['operational_sites', 'Operational sites'], ['emergency_contacts', 'Emergency contacts'], ['incident_categories', 'Incident categories'], ['risk_categories', 'Risk categories'], ['severity_levels', 'Severity levels'], ['inspection_templates', 'Inspection templates']]
-  return <div className="workspace-panel settings-panel"><div className="eyebrow">ORGANIZATION CONFIGURATION</div><h2>Company Settings</h2><p>Maintain the organization reference data used by operational workflows. Values are stored as structured JSON.</p><form className="settings-form" onSubmit={saveSettings}>{fields.map(([key, label]) => <label key={key}>{label}<textarea value={settings[key]} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} rows={4} spellCheck={false} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save company settings</button></form></div>
+
+  const fields: [keyof CompanySettingsState, string][] = []
+
+  return <div className="workspace-panel settings-panel"><div className="eyebrow">ORGANIZATION CONFIGURATION</div><h2>Company Settings</h2><p>Maintain the organization reference data used by operational workflows. Values are stored as structured JSON.</p><form className="settings-form" onSubmit={saveSettings}><label>Shift<div className="shift-config-list">{shiftSettings.length ? shiftSettings.map((shift) => <div className="shift-config-item" key={shift.id}><div><strong>{shift.name}</strong><small>{shift.active ? 'Enabled' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={shift.active} onChange={() => setShiftSettings((current) => current.map((item) => item.id === shift.id ? { ...item, active: !item.active } : item))} /><span /></label><button className="button button-outline button-small" type="button" onClick={() => openShiftEditor(shift)}>Change shift</button></div></div>) : <div className="workspace-empty">No shifts configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => openShiftEditor()}>Add shift</button></div></label><label>Departments<div className="shift-config-list">{departmentSettings.length ? departmentSettings.map((department) => <div className="shift-config-item" key={department.name}><div><strong>{department.name}</strong><small>{department.active ? 'Active' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={department.active} onChange={() => toggleDepartment(department.name)} /><span /></label></div></div>) : <div className="workspace-empty">No departments configured.</div>}</div><div className="shift-config-footer"><input value={departmentDraft} onChange={(event) => setDepartmentDraft(event.target.value)} placeholder="Add custom department" /><button className="button button-outline button-small" type="button" onClick={addDepartment}>Add department</button></div></label><label>Sites<div className="shift-config-list">{siteSettings.length ? siteSettings.map((site) => <div className="shift-config-item" key={site.name}><div><strong>{site.name}</strong><small>{site.active ? 'Active' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={site.active} onChange={() => toggleSite(site.name)} /><span /></label></div></div>) : <div className="workspace-empty">No sites configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => { setSiteDraft(''); setError(''); setMessage(''); setSiteModalOpen(true) }}>Add site</button></div></label><label>Emergency contacts<div className="shift-config-list">{emergencyContacts.length ? emergencyContacts.map((contact) => <div className="shift-config-item" key={contact.id}><div><strong>{contact.name}</strong><small>{[contact.role, contact.phone].filter(Boolean).join(' · ') || 'Contact details not set'}{contact.active ? '' : ' · Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={contact.active} onChange={() => setEmergencyContacts((current) => current.map((item) => item.id === contact.id ? { ...item, active: !item.active } : item))} /><span /></label><button className="button button-outline button-small" type="button" onClick={() => openContactEditor(contact)}>Edit</button><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(contact)}>Remove</button></div></div>) : <div className="workspace-empty">No emergency contacts configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => openContactEditor()}>Add contact</button></div></label><label>Severity levels<div className="shift-config-list">{severitySettings.map((severity) => <div className="shift-config-item" key={severity.name}><div><strong>{severity.name}</strong><small>{severity.active ? 'Enabled' : 'Disabled'}</small></div><label className="switch"><input type="checkbox" checked={severity.active} onChange={() => toggleSeverity(severity.name)} /><span /></label></div>)}</div><div className="shift-config-footer"><input value={severityDraft} onChange={(event) => setSeverityDraft(event.target.value)} placeholder="Add custom severity" /><button className="button button-outline button-small" type="button" onClick={addSeverity}>Add severity</button></div></label><label>Incident categories<div className="shift-config-list">{incidentCategorySettings.map((category) => <div className="shift-config-item" key={category.name}><div><strong>{category.name}</strong><small>{category.active ? "Enabled" : "Disabled"}</small></div><label className="switch"><input type="checkbox" checked={category.active} onChange={() => toggleIncidentCategory(category.name)} /><span /></label></div>)}</div><div className="shift-config-footer"><input value={incidentCategoryDraft} onChange={(event) => setIncidentCategoryDraft(event.target.value)} placeholder="Add custom category" /><button className="button button-outline button-small" type="button" onClick={addIncidentCategory}>Add category</button></div></label>{fields.map(([key, label]) => <label key={key}>{label}<textarea value={settings[key]} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} rows={4} spellCheck={false} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save company settings</button></form>{shiftModalOpen && <div className="role-creator-backdrop" onClick={() => setShiftModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">SHIFT SETTINGS</div><h3>{editingShiftId ? 'Edit shift' : 'Add shift'}</h3></div><button className="button button-outline button-small" type="button" onClick={() => setShiftModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Shift name<input value={shiftDraft.name} onChange={(event) => setShiftDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Day" required /></label><label className="preference-row"><span><strong>Enabled</strong><small>Show this shift in active options</small></span><input type="checkbox" checked={shiftDraft.active} onChange={(event) => setShiftDraft((current) => ({ ...current, active: event.target.checked }))} /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setShiftModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={saveShift}>Save shift</button></div></div></div>}{siteModalOpen && <div className="role-creator-backdrop" onClick={() => setSiteModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">SITE SETTINGS</div><h3>New site</h3></div><button className="button button-outline button-small" type="button" onClick={() => setSiteModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Site name<input value={siteDraft} onChange={(event) => setSiteDraft(event.target.value)} placeholder="Main Plant" required /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setSiteModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={addSite}>Add site</button></div></div></div>}{contactModalOpen && <div className="role-creator-backdrop" onClick={() => setContactModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">EMERGENCY CONTACTS</div><h3>{contactDraft.id ? 'Edit contact' : 'Add contact'}</h3></div><button className="button button-outline button-small" type="button" onClick={() => setContactModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Contact name<input value={contactDraft.name} onChange={(event) => setContactDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Control room" required /></label><label>Role or service<input value={contactDraft.role} onChange={(event) => setContactDraft((current) => ({ ...current, role: event.target.value }))} placeholder="Emergency response" /></label><label>Phone number<input value={contactDraft.phone} onChange={(event) => setContactDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="+234 ..." required /></label><label>Email address<input value={contactDraft.email} onChange={(event) => setContactDraft((current) => ({ ...current, email: event.target.value }))} type="email" placeholder="control-room@company.com" /></label><label className="preference-row"><span><strong>Enabled</strong><small>Show this contact on the dashboard</small></span><input type="checkbox" checked={contactDraft.active} onChange={(event) => setContactDraft((current) => ({ ...current, active: event.target.checked }))} /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setContactModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={saveContact}>Save contact</button></div></div></div>}{contactToRemove && <div className="role-creator-backdrop" onClick={() => setContactToRemove(null)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">CONFIRM REMOVAL</div><h3>Remove {contactToRemove.name}?</h3></div><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(null)}>Close</button></div><div className="role-creator-body"><p>This contact will be removed from the organization emergency contacts list.</p></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(null)}>Cancel</button><button className="button button-green button-small" type="button" onClick={removeContact}>Remove contact</button></div></div></div>}</div>
 }
+
+type ManagedUserStatus = 'active' | 'pending' | 'suspended' | 'inactive'
 
 type ManagedUser = {
   id: string
@@ -602,22 +1307,191 @@ type ManagedUser = {
   employee_id: string | null
   department: string | null
   job_title: string | null
-  account_status: string
-  role: Role
+  account_status: ManagedUserStatus
+  role: string
 }
 
-const allRoles: Role[] = [
-  'Super Administrator',
-  'Organization Administrator',
-  'QHSE Manager',
-  'Site Supervisor',
-  'Safety Officer / HSE Officer',
-  'Auditor',
-  'Maintenance Engineer',
-  'Field Worker',
-  'Contractor',
-  'Executive / Management',
-]
+type ManagedUserFilters = {
+  query: string
+  role: string
+  department: string
+  status: string
+}
+
+type ExportFormat = 'csv' | 'pdf' | 'xlsx' | 'docx'
+
+type ExportAdmin = {
+  fullName: string
+  role: string
+  department: string | null
+}
+
+type ExportUserRow = {
+  userId: string
+  name: string
+  employeeId: string
+  department: string
+  jobTitle: string
+  role: string
+  status: string
+  action: string
+}
+
+const exportIntroduction = 'This User Management Register provides an administrative overview of user accounts configured within the SentinelQHSE platform. It presents the user identification details, assigned departments, roles, account statuses, and relevant administrative actions included in the export.\n\nThe register is intended to support user-account administration, access oversight, recordkeeping, and internal review. It reflects the information available in the platform at the time of export and should be interpreted in accordance with the organization\'s applicable access-control procedures and information-management requirements.\n\nThis document is intended for authorized administrative use. Its contents should be handled in accordance with applicable organizational confidentiality and data-protection requirements.'
+
+function exportFileName(format: ExportFormat, date: Date) {
+  const datePart = date.toISOString().slice(0, 10)
+  return `SentinelQHSE_User_Management_Register_${datePart}.${format}`
+}
+
+function downloadExport(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportCsv(rows: ExportUserRow[], generatedAt: Date) {
+  const headers = ['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action']
+  const values = rows.map((row) => [row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action])
+  const csvValue = (value: string) => `"${value.replaceAll('"', '""')}"`
+  const csv = [headers, ...values].map((row) => row.map((value) => csvValue(String(value ?? ''))).join(',')).join('\n')
+  downloadExport(new Blob([csv], { type: 'text/csv;charset=utf-8' }), exportFileName('csv', generatedAt))
+}
+
+function exportPdf(rows: ExportUserRow[], admin: ExportAdmin, generatedAt: Date) {
+  const pdf = new jsPDF({ orientation: 'landscape' })
+  pdf.setTextColor('#0f172a')
+  pdf.setFontSize(18)
+  pdf.text('SentinelQHSE', 14, 16)
+  pdf.setFontSize(14)
+  pdf.text('User Management Register', 14, 25)
+  pdf.setFontSize(10)
+  pdf.setTextColor('#475569')
+  pdf.text('User Access, Roles and Status Report', 14, 32)
+  pdf.text(`Exported: ${generatedAt.toLocaleString()} | Records: ${rows.length} | Scope: Current filtered users`, 14, 39)
+  pdf.setFontSize(8)
+  const introLines = pdf.splitTextToSize(exportIntroduction, 265)
+  pdf.text(introLines, 14, 47)
+  const tableStart = 47 + introLines.length * 4 + 5
+  autoTable(pdf, {
+    startY: tableStart,
+    head: [['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action']],
+    body: rows.map((row) => [row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action]),
+    styles: { fontSize: 7, cellPadding: 2 },
+    headStyles: { fillColor: [15, 74, 62] },
+    didDrawPage: (data) => {
+      pdf.setFontSize(8)
+      pdf.setTextColor('#64748b')
+      pdf.text(`SentinelQHSE User Management Register | Page ${data.pageNumber}`, 14, pdf.internal.pageSize.height - 8)
+    },
+  })
+  const finalY = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? tableStart
+  const signoffY = finalY + 14
+  if (signoffY > pdf.internal.pageSize.height - 42) {
+    pdf.addPage()
+  }
+  const visibleSignoffY = signoffY > pdf.internal.pageSize.height - 42 ? 18 : signoffY
+  pdf.setTextColor('#0f172a')
+  pdf.setFontSize(10)
+  pdf.text('AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF', 14, visibleSignoffY)
+  pdf.setFontSize(8)
+  pdf.text(`Authorized / Exported By: ${admin.fullName}`, 14, visibleSignoffY + 7)
+  pdf.text(`Role: ${admin.role}`, 14, visibleSignoffY + 13)
+  pdf.text(`Department: ${getDepartmentLabel(admin.department)}`, 14, visibleSignoffY + 19)
+  pdf.text(`Date and Time of Export: ${generatedAt.toLocaleString()}`, 14, visibleSignoffY + 25)
+  pdf.save(exportFileName('pdf', generatedAt))
+}
+
+async function exportExcel(rows: ExportUserRow[], admin: ExportAdmin, generatedAt: Date) {
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('User Register')
+  sheet.mergeCells('A1:H1')
+  sheet.getCell('A1').value = 'SentinelQHSE — User Management Register'
+  sheet.getCell('A1').font = { bold: true, size: 16, color: { argb: '0F172A' } }
+  sheet.mergeCells('A2:H2')
+  sheet.getCell('A2').value = 'User Access, Roles and Status Report'
+  sheet.getCell('A3').value = 'Exported'
+  sheet.getCell('B3').value = generatedAt.toLocaleString()
+  sheet.getCell('D3').value = 'Records'
+  sheet.getCell('E3').value = rows.length
+  sheet.mergeCells('A5:H7')
+  sheet.getCell('A5').value = exportIntroduction
+  sheet.getCell('A5').alignment = { wrapText: true, vertical: 'top' }
+  const headerRow = sheet.addRow(['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action'])
+  headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F4A3E' } }
+  rows.forEach((row) => sheet.addRow([row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action]))
+  sheet.addRow([])
+  sheet.addRow(['AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF'])
+  sheet.addRow(['Authorized / Exported By', admin.fullName])
+  sheet.addRow(['Role', admin.role])
+  sheet.addRow(['Department', getDepartmentLabel(admin.department)])
+  sheet.addRow(['Date and Time of Export', generatedAt.toLocaleString()])
+  sheet.columns = [{ width: 24 }, { width: 24 }, { width: 18 }, { width: 22 }, { width: 24 }, { width: 28 }, { width: 14 }, { width: 16 }]
+  sheet.eachRow((row) => row.eachCell((cell) => { cell.alignment = { ...cell.alignment, vertical: 'top', wrapText: true } }))
+  const buffer = await workbook.xlsx.writeBuffer()
+  downloadExport(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), exportFileName('xlsx', generatedAt))
+}
+
+async function exportWord(rows: ExportUserRow[], admin: ExportAdmin, generatedAt: Date) {
+  const header = ['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action']
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({ children: header.map((value) => new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: value, bold: true })] })] })) }),
+      ...rows.map((row) => new TableRow({ children: [row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action].map((value) => new TableCell({ children: [new Paragraph(value)] })) })),
+    ],
+  })
+  const document = new Document({ sections: [{ children: [
+    new Paragraph({ text: 'SentinelQHSE', heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ text: 'User Management Register', heading: HeadingLevel.HEADING_2 }),
+    new Paragraph({ text: 'User Access, Roles and Status Report' }),
+    new Paragraph({ text: `Exported: ${generatedAt.toLocaleString()} | Records: ${rows.length} | Scope: Current filtered users` }),
+    new Paragraph({ text: exportIntroduction, spacing: { after: 240 } }),
+    table,
+    new Paragraph({ text: 'AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF', heading: HeadingLevel.HEADING_2, spacing: { before: 360 } }),
+    new Paragraph({ text: `Authorized / Exported By: ${admin.fullName}` }),
+    new Paragraph({ text: `Role: ${admin.role}` }),
+    new Paragraph({ text: `Department: ${getDepartmentLabel(admin.department)}` }),
+    new Paragraph({ text: `Date and Time of Export: ${generatedAt.toLocaleString()}` }),
+  ] }] })
+  const buffer = await Packer.toBlob(document)
+  downloadExport(buffer, exportFileName('docx', generatedAt))
+}
+
+function matchesManagedUserFilters(user: ManagedUser, filters: ManagedUserFilters) {
+  const displayRole = USER_MANAGEMENT_BACKEND_TO_ROLE[user.role] || user.role
+  const searchableText = `${user.id} ${user.full_name} ${user.employee_id || ''} ${user.department || ''} ${user.role} ${displayRole}`.toLowerCase()
+  const matchesQuery = searchableText.includes(filters.query.trim().toLowerCase())
+  const matchesRole = filters.role === 'all' || user.role === filters.role
+  const matchesDepartment = filters.department === 'all'
+    || (filters.department === '__unset__' ? !user.department : user.department === filters.department)
+  const matchesStatus = filters.status === 'all' || user.account_status === filters.status
+  return matchesQuery && matchesRole && matchesDepartment && matchesStatus
+}
+
+function getDepartmentLabel(department: string | null) {
+  return department?.trim() || 'Department not set'
+}
+
+const permissionCatalog: Permission[] = USER_MANAGEMENT_PERMISSION_CATALOG.map((permission) => permission.key)
+
+type CustomRoleRecord = {
+  id?: string
+  organization_id?: string
+  name: string
+  description?: string | null
+  permissions: string[]
+  scope?: Record<string, unknown> | null
+  is_system?: boolean
+  is_active?: boolean
+  created_by?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
 
 function ProfileWorkspace({ userId, organizationId, email }: { userId: string; organizationId: string; email: string }) {
   const [profile, setProfile] = useState<Record<string, string>>({ full_name: '', employee_id: '', department: '', job_title: '', phone: '', emergency_contact: '', site_location: '', supervisor: '', certification_status: '' })
@@ -672,17 +1546,432 @@ function ProfileWorkspace({ userId, organizationId, email }: { userId: string; o
   )
 }
 
-function UsersWorkspace({ organizationId, currentUserId }: { organizationId: string; currentUserId: string }) {
+type RoleSummary = {
+  name: string
+  description: string
+  permissions: readonly string[]
+  isSystem: boolean
+  customRole?: CustomRoleRecord
+}
+
+const permissionGroupOrder = [
+  { label: 'Platform Access', sourceGroups: ['Dashboard', 'Platform', 'Administration'] },
+  { label: 'Incident Management', sourceGroups: ['Incident Management'] },
+  { label: 'User Management', sourceGroups: ['User Management'] },
+  { label: 'Roles & Permissions', sourceGroups: ['Roles & Permissions'] },
+  { label: 'Reports', sourceGroups: ['Reports'] },
+  { label: 'QHSE', sourceGroups: ['QHSE'] },
+] as const
+
+function groupedPermissions(permissions: readonly string[]) {
+  return permissionGroupOrder.map((group) => ({
+    group: group.label,
+    permissions: USER_MANAGEMENT_PERMISSION_CATALOG.filter((permission) => (group.sourceGroups as readonly string[]).includes(permission.group) && permissions.includes(permission.key)),
+  })).filter((section) => section.permissions.length > 0)
+}
+
+const roleDescriptions: Record<string, string> = {
+  'Organization Admin': 'Manage organization users, access controls, roles and settings.',
+  'QHSE Manager': 'Review and manage QHSE incidents, reports and corrective actions.',
+  'Site Supervisor': 'Oversee site operations, incidents and corrective actions.',
+  'Safety Officer / HSE Officer': 'Manage safety operations, incidents and facility risks.',
+  Worker: 'Access core dashboard, analytics and personal reporting workflows.',
+  'Executive/Management': 'Review organization-level operational visibility and reports.',
+  Contractor: 'Access core operational reporting and personal work information.',
+  'Maintenance Engineer': 'Review operational records and maintenance-related actions.',
+}
+
+function RolesPermissionsWorkspace({ organizationId, canManage }: { organizationId: string; canManage: boolean }) {
+  const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
+  const [selectedRole, setSelectedRole] = useState<RoleSummary | null>(null)
+  const [editingRoleName, setEditingRoleName] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const loadRoles = async () => {
+    setLoading(true)
+    setError('')
+    const { data, error: roleError } = await supabase.from('custom_roles').select('*').eq('organization_id', organizationId).eq('is_active', true).order('name')
+    if (roleError) {
+      setCustomRoles([])
+      setError('Unable to load roles and permissions. Please try again.')
+      setLoading(false)
+      return
+    }
+    setCustomRoles((data ?? []).map((role) => ({
+      ...role,
+      name: String(role.name ?? ''),
+      permissions: Array.isArray(role.permissions) ? role.permissions as string[] : [],
+      description: typeof role.description === 'string' ? role.description : null,
+      is_active: role.is_active !== false,
+    })) as CustomRoleRecord[])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    void loadRoles()
+  }, [organizationId])
+
+  const summaries: RoleSummary[] = [
+    ...USER_MANAGEMENT_ROLE_DEFINITIONS.map((role) => ({
+      name: role.name,
+      description: roleDescriptions[role.name] || 'Platform role with centrally configured permissions.',
+      permissions: USER_MANAGEMENT_ROLE_PERMISSION_MATRIX[role.name],
+      isSystem: true,
+    })),
+    {
+      name: 'Super Administrator',
+      description: 'Unrestricted platform administrator with authority to make supported changes and additions.',
+      permissions: SUPER_ADMINISTRATOR_PERMISSION_KEYS,
+      isSystem: true,
+    },
+    ...customRoles.map((role) => ({
+      name: role.name,
+      description: role.description || 'Custom organization role.',
+      permissions: role.permissions,
+      isSystem: false,
+      customRole: role,
+    })),
+  ]
+
+  return (
+    <div className="workspace-panel role-management-panel">
+      <div className="workspace-panel-heading">
+        <div>
+          <div className="eyebrow">ADMINISTRATION / ROLES &amp; PERMISSIONS</div>
+          <h2>Roles &amp; Permissions</h2>
+          <p>Review platform roles and the permissions assigned to each role.</p>
+        </div>
+        <a className="button button-outline button-small" href="#administration">Back to Administration</a>
+      </div>
+      {error && <div className="role-state-message"><AuthMessage error={error} /><button className="button button-outline button-small" type="button" onClick={() => void loadRoles()}>Try again</button></div>}
+      {loading ? <div className="workspace-empty">Loading roles and permissions...</div> : summaries.length === 0 ? <div className="workspace-empty">No roles configured.</div> : (
+        <div className="role-summary-table-wrap">
+          <table className="role-summary-table">
+            <thead><tr><th>Role</th><th>Description</th><th>Permissions</th><th>Actions</th></tr></thead>
+            <tbody>{summaries.map((role) => <tr key={`${role.isSystem ? 'system' : 'custom'}-${role.name}`}>
+              <td><strong>{role.name}</strong><small>{role.isSystem ? 'System role' : 'Custom role'}</small></td>
+              <td>{role.description}</td>
+              <td>{role.permissions.length}</td>
+              <td className="role-summary-actions">
+                <button className="button button-outline button-small" type="button" onClick={() => setSelectedRole(role)}>View</button>
+                {!role.isSystem && canManage && <button className="button button-green button-small" type="button" onClick={() => { setSelectedRole(role); setEditingRoleName(role.name) }}>Edit</button>}
+              </td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      )}
+      {selectedRole && <div className="role-detail-panel">
+        <div className="eyebrow">ROLE DETAILS</div>
+        <h3>{selectedRole.name}</h3>
+        <p>{selectedRole.description}</p>
+        {selectedRole.isSystem && <p className="workspace-note">Protected platform default. Changes shown here are not presented as organization-persisted edits.</p>}
+        <div className="permission-group-list">{groupedPermissions(selectedRole.permissions).map((section) => <section className="permission-group" key={`${selectedRole.name}-${section.group}`}><strong>{section.group}</strong><div className="role-permission-list">{section.permissions.map((permission) => <span title={permission.description} key={`${selectedRole.name}-${permission.key}`}>{permission.label}</span>)}</div></section>)}</div>
+      </div>}
+      {editingRoleName && canManage && <RoleManagementSection organizationId={organizationId} focusRoleName={editingRoleName} canManage />}
+    </div>
+  )
+}
+
+function RoleManagementSection({ organizationId, focusRoleName, canManage = true }: { organizationId: string; focusRoleName?: string; canManage?: boolean }) {
+  const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
+  const [roleForm, setRoleForm] = useState({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
+  const [saving, setSaving] = useState(false)
+  const allEditablePermissions = permissionCatalog
+
+  const loadCustomRoles = async () => {
+    setLoading(true)
+    setError('')
+
+    const { data, error: roleError } = await supabase
+      .from('custom_roles')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('name', { ascending: true })
+
+    if (roleError) {
+      setError('Unable to load roles and permissions. Please try again.')
+      setCustomRoles([])
+      setLoading(false)
+      return
+    }
+
+    const normalizedRoles = (data ?? []).map((role) => ({
+      ...role,
+      name: String(role.name ?? ''),
+      permissions: Array.isArray(role.permissions) ? (role.permissions as string[]) : [],
+      description: typeof role.description === 'string' ? role.description : null,
+      scope: role.scope && typeof role.scope === 'object' ? (role.scope as Record<string, unknown>) : {},
+      is_system: Boolean(role.is_system),
+      is_active: role.is_active !== false,
+    })) as CustomRoleRecord[]
+
+    setCustomRoles(normalizedRoles)
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    void loadCustomRoles()
+  }, [organizationId])
+
+  const resetForm = () => {
+    setSelectedRoleId(null)
+    setRoleForm({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
+  }
+
+  const togglePermission = (permission: Permission) => {
+    if (BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number])) return
+    setRoleForm((current) => ({
+      ...current,
+      permissions: current.permissions.includes(permission)
+        ? current.permissions.filter((item) => item !== permission)
+        : [...current.permissions, permission],
+    }))
+  }
+
+  const setAllPermissions = (enabled: boolean) => {
+    setRoleForm((current) => ({
+      ...current,
+      permissions: enabled ? [...allEditablePermissions] : [...BASELINE_PERMISSION_KEYS] as Permission[],
+    }))
+  }
+
+  const handleEditRole = (role: CustomRoleRecord) => {
+    setSelectedRoleId(role.id ?? null)
+    setRoleForm({
+      name: role.name,
+      description: role.description ?? '',
+      permissions: Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...(Array.isArray(role.permissions) ? role.permissions : [])])) as Permission[],
+    })
+  }
+
+  useEffect(() => {
+    if (!focusRoleName) return
+    const role = customRoles.find((item) => item.name === focusRoleName)
+    if (role) handleEditRole(role)
+  }, [customRoles, focusRoleName])
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setMessage('')
+    setError('')
+    setSaving(true)
+
+    try {
+      if (!roleForm.name.trim()) {
+        setError('Role name is required.')
+        return
+      }
+
+      if (!roleForm.permissions.length) {
+        setError('Choose at least one permission before saving.')
+        return
+      }
+
+      const payload = {
+        p_name: roleForm.name.trim(),
+        p_description: roleForm.description.trim() || null,
+        p_permissions: Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...roleForm.permissions])),
+        p_scope: { organizationId },
+      }
+
+      if (selectedRoleId) {
+        const { error: updateError } = await supabase.rpc('update_custom_role', {
+          p_role_id: selectedRoleId,
+          p_name: payload.p_name,
+          p_description: payload.p_description,
+          p_permissions: payload.p_permissions,
+          p_scope: payload.p_scope,
+          p_is_active: true,
+        })
+
+        if (updateError) throw updateError
+        setMessage('Custom role updated successfully.')
+      } else {
+        const { error: createError } = await supabase.rpc('create_custom_role', {
+          p_organization_id: organizationId,
+          p_name: payload.p_name,
+          p_description: payload.p_description,
+          p_permissions: payload.p_permissions,
+          p_scope: payload.p_scope,
+        })
+
+        if (createError) throw createError
+        setMessage('Custom role created successfully.')
+      }
+
+      resetForm()
+      await loadCustomRoles()
+    } catch (saveError) {
+      const operation = selectedRoleId ? 'update' : 'create'
+      const detail = saveError instanceof Error ? ` ${saveError.message}` : ''
+      setError(`Unable to ${operation} the custom role.${detail}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const builtInRoleCards = BUILT_IN_BACKEND_ROLES.map((role) => {
+    const configuredPermissions = permissionsForRole(role)
+    return {
+      name: role,
+      description: 'System-defined role protected by the platform configuration.',
+      permissions: configuredPermissions,
+      is_system: true,
+      is_active: true,
+      scope: { restricted: true },
+    }
+  })
+
+  return (
+    <div className="workspace-panel role-management-panel">
+      <div className="workspace-panel-heading">
+        <div>
+          <div className="eyebrow">ROLE MANAGEMENT</div>
+          <h2>Custom Roles & Permissions</h2>
+          <p>Review system roles, create organization-specific roles, and maintain permission scopes.</p>
+        </div>
+      </div>
+
+      <p className="workspace-note">Built-in platform roles are protected defaults. Custom organization roles are persisted through the existing secure role backend.</p>
+
+      {canManage && <form className="role-manager-form" onSubmit={handleSubmit}>
+        <div className="role-form-grid">
+          <label>
+            Role name
+            <input value={roleForm.name} onChange={(event) => setRoleForm((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Permit Coordinator" required />
+          </label>
+          <label>
+            Description
+            <input value={roleForm.description} onChange={(event) => setRoleForm((current) => ({ ...current, description: event.target.value }))} placeholder="Optional description" />
+          </label>
+        </div>
+
+        <div className="permission-group-list">
+          {groupedPermissions(permissionCatalog).map((section) => <section className="permission-group" key={section.group}><strong>{section.group}</strong><div className="permission-grid">{section.permissions.map((permission) => { const required = BASELINE_PERMISSION_KEYS.includes(permission.key as typeof BASELINE_PERMISSION_KEYS[number]); return <label className={`permission-toggle${required ? ' permission-required' : ''}`} key={permission.key}><input type="checkbox" checked={roleForm.permissions.includes(permission.key as Permission)} disabled={required} onChange={() => togglePermission(permission.key as Permission)} /><span><b>{permission.label}{required ? ' · Required' : ''}</b><small>{permission.description}</small></span></label> })}</div></section>)}
+        </div>
+
+        <label className="permission-toggle permission-select-all">
+          <input type="checkbox" checked={roleForm.permissions.length === allEditablePermissions.length} onChange={(event) => setAllPermissions(event.target.checked)} />
+          <span>Select all permissions</span>
+        </label>
+
+        <div className="role-form-actions">
+          <button className="button button-green button-small" type="submit" disabled={saving}>{saving ? (selectedRoleId ? 'Saving...' : 'Creating...') : (selectedRoleId ? 'Save role' : 'Create role')}</button>
+          {selectedRoleId && <button className="button button-outline workspace-refresh" type="button" onClick={resetForm}>Cancel edit</button>}
+        </div>
+      </form>}
+
+      <AuthMessage error={error} success={message} />
+
+      {loading ? (
+        <div className="workspace-empty">Loading roles...</div>
+      ) : (
+        <div className="role-card-list">
+          {[...builtInRoleCards, ...customRoles.map((role) => ({
+            name: role.name,
+            description: role.description ?? 'Custom organization role.',
+            permissions: role.permissions as Permission[],
+            is_system: false,
+            is_active: role.is_active !== false,
+            scope: role.scope ?? {},
+            id: role.id,
+          }))].map((role) => (
+            <div className="role-card" key={`${role.is_system ? 'system' : 'custom'}-${role.name}`}>
+              <div className="role-card-header">
+                <div>
+                  <strong>{role.name}</strong>
+                  <small>{role.is_system ? 'System role' : 'Custom role'}</small>
+                </div>
+                {!role.is_system && (
+                  <button className="button button-outline button-small" type="button" onClick={() => { const selectedRole = customRoles.find((item) => item.name === role.name); if (selectedRole) handleEditRole(selectedRole) }}>Edit</button>
+                )}
+              </div>
+              <p>{role.description}</p>
+              <div className="role-permission-list">
+                {role.permissions.map((permission) => <span key={`${role.name}-${permission}`}>{permission.replaceAll('_', ' ')}</span>)}
+              </div>
+              <div className="role-scope">
+                <span>Scope</span>
+                <strong>{Object.keys(role.scope ?? {}).length ? JSON.stringify(role.scope) : 'Organization-wide access'}</strong>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEditUsers, canSuspendUsers, canDeactivateUsers, canManageUserRoles, canManageRolesPermissions }: { organizationId: string; currentUserId: string; canInviteUsers: boolean; canEditUsers: boolean; canSuspendUsers: boolean; canDeactivateUsers: boolean; canManageUserRoles: boolean; canManageRolesPermissions: boolean }) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [query, setQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState('all')
+  const [departmentFilter, setDepartmentFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteName, setInviteName] = useState('')
-  const [inviteRole, setInviteRole] = useState<Role>('Field Worker')
+  const [inviteDepartment, setInviteDepartment] = useState('')
+  const [inviteRole, setInviteRole] = useState<string>('Field Worker')
   const [inviteLoading, setInviteLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [showRoleManagement, setShowRoleManagement] = useState(false)
+  const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
+  const [roleModalOpen, setRoleModalOpen] = useState(false)
+  const [roleDraft, setRoleDraft] = useState({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
+  const [roleDraftLoading, setRoleDraftLoading] = useState(false)
+  const [departments, setDepartments] = useState<DepartmentOption[]>([])
+  const [departmentModalOpen, setDepartmentModalOpen] = useState(false)
+  const [departmentDraft, setDepartmentDraft] = useState('')
+  const [departmentLoading, setDepartmentLoading] = useState(false)
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
+  const [exportAdmin, setExportAdmin] = useState<ExportAdmin | null>(null)
+  const [exportLoading, setExportLoading] = useState(false)
+
+  const loadDepartments = async () => {
+    const { data, error: settingsError } = await supabase
+      .from('company_settings')
+      .select('departments')
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+
+    if (settingsError) {
+      setError(settingsError.message)
+      return
+    }
+
+    const configuredDepartments = normalizeDepartmentSettings(data?.departments)
+    setDepartments(configuredDepartments.filter((department) => department.active))
+  }
+
+  const loadCustomRoles = async () => {
+    const { data, error: customRoleError } = await supabase
+      .from('custom_roles')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('name', { ascending: true })
+
+    if (customRoleError) {
+      setError(customRoleError.message)
+      setCustomRoles([])
+      return
+    }
+
+    setCustomRoles((data ?? []).filter((role) => role.is_active !== false).map((role) => ({
+      ...role,
+      name: String(role.name ?? ''),
+      permissions: Array.isArray(role.permissions) ? role.permissions as string[] : [],
+      description: typeof role.description === 'string' ? role.description : null,
+      scope: role.scope && typeof role.scope === 'object' ? role.scope as Record<string, unknown> : {},
+      is_system: Boolean(role.is_system),
+      is_active: role.is_active !== false,
+    })))
+  }
 
   const loadUsers = async () => {
     setLoading(true)
@@ -692,39 +1981,167 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     ])
     if (profileError || membershipError) setError(profileError?.message || membershipError?.message || 'Unable to load users.')
     else {
-      const roleByUser = new Map((memberships || []).map((membership) => [membership.user_id, membership.role as Role]))
+      const roleByUser = new Map((memberships || []).map((membership) => [membership.user_id, String(membership.role)]))
       setUsers((profiles || []).map((profile) => ({ ...profile, role: roleByUser.get(profile.id) || 'Field Worker' })))
     }
     setLoading(false)
   }
 
-  useEffect(() => { void loadUsers() }, [organizationId])
+  useEffect(() => {
+    void loadCustomRoles()
+    void loadDepartments()
+    void loadUsers()
+    void (async () => {
+      const [{ data: profile, error: profileError }, { data: membership, error: membershipError }] = await Promise.all([
+        supabase.from('profiles').select('full_name, department').eq('id', currentUserId).eq('organization_id', organizationId).maybeSingle(),
+        supabase.from('memberships').select('role').eq('user_id', currentUserId).eq('organization_id', organizationId).maybeSingle(),
+      ])
+      if (profileError || membershipError || !profile?.full_name || !membership?.role) {
+        setExportAdmin(null)
+        setError('Unable to verify the authenticated administrator identity for export.')
+        return
+      }
+      setExportAdmin({ fullName: profile.full_name, role: String(membership.role), department: profile.department })
+    })()
+  }, [currentUserId, organizationId])
+
+  const roleComboOptions = [
+    ...USER_MANAGEMENT_ROLE_DEFINITIONS.map((role) => ({ id: role.id, label: role.name, value: role.backendName })),
+    ...customRoles.map((role) => ({ id: `custom-${role.id || role.name}`, label: role.name, value: role.name })),
+  ]
+
+  const openRoleCreator = () => {
+    setRoleDraft({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
+    setError('')
+    setMessage('')
+    setRoleModalOpen(true)
+  }
+
+  const toggleRolePermission = (permission: Permission) => {
+    if (BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number])) return
+    setRoleDraft((current) => ({
+      ...current,
+      permissions: current.permissions.includes(permission)
+        ? current.permissions.filter((item) => item !== permission)
+        : [...current.permissions, permission],
+    }))
+  }
+
+  const saveCustomRole = async () => {
+    if (!roleDraft.name.trim()) {
+      setError('Role name is required.')
+      return
+    }
+
+    if (!roleDraft.permissions.length) {
+      setError('Select at least one permission before saving.')
+      return
+    }
+
+    setRoleDraftLoading(true)
+    setError('')
+    setMessage('')
+
+    const { data, error: createError } = await supabase.rpc('create_custom_role', {
+      p_organization_id: organizationId,
+      p_name: roleDraft.name.trim(),
+      p_description: roleDraft.description.trim() || null,
+      p_permissions: Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...roleDraft.permissions])),
+      p_scope: { organizationId },
+    })
+
+    setRoleDraftLoading(false)
+
+    if (createError) {
+      setError(createError.message)
+      return
+    }
+
+    const createdName = typeof data?.name === 'string' ? data.name : roleDraft.name.trim()
+    setInviteRole(createdName)
+    setRoleModalOpen(false)
+    setRoleDraft({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
+    await loadCustomRoles()
+    setMessage(`Custom role "${createdName}" created and selected.`)
+  }
 
   const inviteUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!canInviteUsers) {
+      setError('You are not authorized to invite users.')
+      return
+    }
     setError('')
     setMessage('')
     setInviteLoading(true)
     const { error: inviteError } = await supabase.functions.invoke('admin-invite-user', {
-      body: { organizationId, email: inviteEmail, fullName: inviteName, role: inviteRole },
+      body: { organizationId, email: inviteEmail, department: inviteDepartment || null, role: inviteRole },
     })
     setInviteLoading(false)
-    if (inviteError) setError(inviteError.message)
+    if (inviteError) setError(await getEdgeFunctionErrorMessage(inviteError))
     else {
+      await recordActivity(organizationId, currentUserId, 'Invitation sent', { has_department: Boolean(inviteDepartment), role: inviteRole })
       setMessage(`Invitation sent to ${inviteEmail}.`)
       setInviteEmail('')
-      setInviteName('')
+      setInviteDepartment('')
       void loadUsers()
     }
+  }
+
+  const saveDepartment = async () => {
+    const name = departmentDraft.trim()
+    if (!name) {
+      setError('Department name is required.')
+      return
+    }
+    if (departments.some((department) => department.name.toLowerCase() === name.toLowerCase())) {
+      setError('That department already exists.')
+      return
+    }
+
+    setDepartmentLoading(true)
+    setError('')
+    const { data: settings, error: settingsError } = await supabase
+      .from('company_settings')
+      .select('departments')
+      .eq('organization_id', organizationId)
+      .maybeSingle()
+    if (settingsError) {
+      setDepartmentLoading(false)
+      setError(settingsError.message)
+      return
+    }
+
+    const currentDepartments = normalizeDepartmentSettings(settings?.departments)
+    const nextDepartments = [...currentDepartments.filter((department) => department.name.toLowerCase() !== name.toLowerCase()), { name, active: true }]
+    const { error: saveError } = await supabase
+      .from('company_settings')
+      .upsert({ organization_id: organizationId, departments: nextDepartments })
+    setDepartmentLoading(false)
+    if (saveError) {
+      setError(saveError.message)
+      return
+    }
+
+    await loadDepartments()
+    setInviteDepartment(name)
+    setDepartmentDraft('')
+    setDepartmentModalOpen(false)
+    await recordActivity(organizationId, currentUserId, 'Department created', { department_name: name })
+    setMessage(`Department "${name}" created and selected.`)
   }
 
   const updateUser = async (user: ManagedUser, field: 'role' | 'account_status', value: string) => {
     setError('')
     setMessage('')
     if (field === 'role') {
-      const { error: updateError } = await supabase.from('memberships').update({ role: value }).eq('user_id', user.id).eq('organization_id', organizationId)
+      if (!canManageUserRoles) return setError('You are not authorized to change user roles.')
+      const { error: updateError } = await supabase.rpc('update_user_role', { p_organization_id: organizationId, p_target_user_id: user.id, p_role: value })
       if (updateError) return setError(updateError.message)
     } else {
+      if (value === 'suspended' && !canSuspendUsers) return setError('You are not authorized to suspend users.')
+      if (value === 'inactive' && !canDeactivateUsers && !canEditUsers) return setError('You are not authorized to deactivate users.')
+      if ((value === 'active' || value === 'pending') && !canEditUsers) return setError('You are not authorized to edit user status.')
       const { error: updateError } = await supabase.from('profiles').update({ account_status: value }).eq('id', user.id).eq('organization_id', organizationId)
       if (updateError) return setError(updateError.message)
     }
@@ -733,36 +2150,162 @@ function UsersWorkspace({ organizationId, currentUserId }: { organizationId: str
     setMessage(`${user.full_name} updated successfully.`)
   }
 
-  const exportUsers = () => {
-    const header = 'Name,Employee ID,Department,Job Title,Role,Account Status'
-    const rows = filteredUsers.map((user) => [user.full_name, user.employee_id || '', user.department || '', user.job_title || '', user.role, user.account_status].map((value) => `"${value.replaceAll('"', '""')}"`).join(','))
-    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'sentinelqhse-users.csv'
-    link.click()
-    URL.revokeObjectURL(url)
+  const exportUsers = async () => {
+    if (!exportAdmin) {
+      setError('Unable to identify the authenticated administrator for this export.')
+      return
+    }
+    setExportLoading(true)
+    setError('')
+    const generatedAt = new Date()
+    const rows: ExportUserRow[] = filteredUsers.map((user) => ({
+      userId: user.id,
+      name: user.full_name,
+      employeeId: user.employee_id || '',
+      department: getDepartmentLabel(user.department),
+      jobTitle: user.job_title || '',
+      role: USER_MANAGEMENT_BACKEND_TO_ROLE[user.role] || user.role,
+      status: user.account_status,
+      action: user.account_status === 'suspended' ? 'Suspended' : user.account_status === 'inactive' ? 'Deactivated' : '—',
+    }))
+    try {
+      if (exportFormat === 'csv') exportCsv(rows, generatedAt)
+      if (exportFormat === 'pdf') exportPdf(rows, exportAdmin, generatedAt)
+      if (exportFormat === 'xlsx') await exportExcel(rows, exportAdmin, generatedAt)
+      if (exportFormat === 'docx') await exportWord(rows, exportAdmin, generatedAt)
+      await recordActivity(organizationId, currentUserId, 'User register exported', { format: exportFormat, record_count: rows.length })
+      setMessage(`${exportFormat.toUpperCase()} user register downloaded.`)
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'Unable to generate the user register.')
+    } finally {
+      setExportLoading(false)
+    }
   }
 
-  const filteredUsers = users.filter((user) => {
-    const matchesQuery = `${user.full_name} ${user.employee_id || ''} ${user.department || ''} ${user.role}`.toLowerCase().includes(query.toLowerCase())
-    return matchesQuery && (statusFilter === 'all' || user.account_status === statusFilter)
-  })
+  const filteredUsers = users.filter((user) => matchesManagedUserFilters(user, {
+    query,
+    role: roleFilter,
+    department: departmentFilter,
+    status: statusFilter,
+  }))
 
   return (
     <div className="workspace-panel users-panel">
-      <div className="workspace-panel-heading"><div><div className="eyebrow">ADMINISTRATION</div><h2>User Management</h2><p>Manage organization members, roles, and account status.</p></div><button className="button button-green button-small" type="button" onClick={exportUsers}>Export users</button></div>
-      <form className="invite-form" onSubmit={inviteUser}>
+      <div className="workspace-panel-heading">
+        <div>
+          <div className="eyebrow">ADMINISTRATION</div>
+          <h2>User Management</h2>
+          <p>Manage organization members, roles, and account status.</p>
+        </div>
+        <div className="workspace-panel-actions">
+          <a className="button button-outline button-small" href="#administration">Back to Administration</a>
+          {canManageRolesPermissions && <button className="button button-outline button-small" type="button" onClick={() => setShowRoleManagement((current) => !current)}>
+            {showRoleManagement ? 'Hide roles' : 'Manage roles'}
+          </button>}
+          <select className="export-format-select" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)} aria-label="Export format">
+            <option value="pdf">PDF</option>
+            <option value="xlsx">Excel</option>
+            <option value="docx">Word</option>
+            <option value="csv">CSV</option>
+          </select>
+          <button className="button button-green button-small" type="button" onClick={() => void exportUsers()} disabled={exportLoading}>{exportLoading ? 'Generating...' : 'Export users'}</button>
+        </div>
+      </div>
+      {canInviteUsers && <form className="invite-form" onSubmit={inviteUser}>
         <div><strong>Invite a user</strong><span>Invitation emails are sent through Supabase Auth.</span></div>
-        <input value={inviteName} onChange={(event) => setInviteName(event.target.value)} placeholder="Full name" required />
         <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} type="email" placeholder="Work email" required />
-        <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as Role)}>{allRoles.filter((role) => role !== 'Super Administrator').map((role) => <option value={role} key={role}>{role}</option>)}</select>
+        <select value={inviteDepartment} onChange={(event) => {
+          if (event.target.value === '__create_new_department__') {
+            setDepartmentDraft('')
+            setError('')
+            setMessage('')
+            setDepartmentModalOpen(true)
+            return
+          }
+          setInviteDepartment(event.target.value)
+        }}>
+          <option value="">Select department</option>
+          {departments.map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}
+          <option value="__create_new_department__">Create New Department...</option>
+        </select>
+        <select
+          value={inviteRole}
+          onChange={(event) => {
+            const selectedValue = event.target.value
+            if (selectedValue === '__create_new_role__') {
+              openRoleCreator()
+              return
+            }
+            setInviteRole(selectedValue)
+          }}
+        >
+          {roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}
+          {canManageRolesPermissions && <option value="__create_new_role__">Create New Role...</option>}
+        </select>
         <button className="button button-green button-small" disabled={inviteLoading}>{inviteLoading ? 'Sending...' : 'Send invite'}</button>
-      </form>
-      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
+      </form>}
+      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">All roles</option>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select><select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="all">All departments</option>{departments.filter((department) => department.active).map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}<option value="__unset__">Department not set</option></select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
       <AuthMessage error={error} success={message} />
-      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{user.department || 'Not set'}</td><td><select value={user.role} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{allRoles.map((role) => <option value={role} key={role}>{role}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select></td><td><button className="table-action" type="button" disabled={user.id === currentUserId} onClick={() => void updateUser(user, 'account_status', user.account_status === 'suspended' ? 'active' : 'suspended')}>{user.account_status === 'suspended' ? 'Activate' : 'Suspend'}</button></td></tr>)}</tbody></table></div>}
+      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{getDepartmentLabel(user.department)}</td><td><select value={user.role} disabled={user.id === currentUserId || !canManageUserRoles} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId || !canEditUsers} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}>{!['active', 'inactive'].includes(user.account_status) && <option value={user.account_status} disabled>{user.account_status.charAt(0).toUpperCase() + user.account_status.slice(1)}</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></td><td><select aria-label={`Actions for ${user.full_name}`} defaultValue="" disabled={user.id === currentUserId || (!canSuspendUsers && !canDeactivateUsers)} onChange={(event) => { const action = event.target.value; if (action === 'Suspend' && canSuspendUsers) void updateUser(user, 'account_status', 'suspended'); if (action === 'Deactivate' && canDeactivateUsers) void updateUser(user, 'account_status', 'inactive'); event.currentTarget.value = '' }}><option value="">Select action</option>{USER_ACTION_OPTIONS.filter((action) => action === 'Suspend' ? canSuspendUsers : canDeactivateUsers).map((action) => <option value={action} key={action}>{action}</option>)}</select></td></tr>)}</tbody></table></div>}
+      {showRoleManagement && canManageRolesPermissions && <RoleManagementSection organizationId={organizationId} canManage />}
+      {roleModalOpen && canManageRolesPermissions && (
+        <div className="role-creator-backdrop" onClick={() => setRoleModalOpen(false)}>
+          <div className="role-creator-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="role-creator-header">
+              <div>
+                <div className="eyebrow">CREATE ROLE</div>
+                <h3>New custom role</h3>
+              </div>
+              <button className="button button-outline button-small" type="button" onClick={() => setRoleModalOpen(false)}>Close</button>
+            </div>
+            <div className="role-creator-body">
+              <label>
+                Role name
+                <input value={roleDraft.name} onChange={(event) => setRoleDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Permit Coordinator" required />
+              </label>
+              <label>
+                Description
+                <input value={roleDraft.description} onChange={(event) => setRoleDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional description" />
+              </label>
+              <div className="permission-grid">
+                {permissionCatalog.map((permission) => { const definition = USER_MANAGEMENT_PERMISSION_CATALOG.find((item) => item.key === permission); const required = BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number]); return (
+                  <label className={`permission-toggle${required ? ' permission-required' : ''}`} key={permission}>
+                    <input type="checkbox" checked={roleDraft.permissions.includes(permission)} disabled={required} onChange={() => toggleRolePermission(permission)} />
+                    <span><b>{definition?.label || permission.replaceAll('_', ' ')}{required ? ' · Required' : ''}</b><small>{definition?.description}</small></span>
+                  </label>
+                )})}
+              </div>
+            </div>
+            <div className="role-creator-actions">
+              <button className="button button-outline button-small" type="button" onClick={() => setRoleModalOpen(false)}>Cancel</button>
+              <button className="button button-green button-small" type="button" onClick={() => void saveCustomRole()} disabled={roleDraftLoading}>{roleDraftLoading ? 'Saving...' : 'Save role'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {departmentModalOpen && (
+        <div className="role-creator-backdrop" onClick={() => setDepartmentModalOpen(false)}>
+          <div className="role-creator-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="role-creator-header">
+              <div>
+                <div className="eyebrow">ORGANIZATION SETTINGS</div>
+                <h3>New department</h3>
+              </div>
+              <button className="button button-outline button-small" type="button" onClick={() => setDepartmentModalOpen(false)}>Close</button>
+            </div>
+            <div className="role-creator-body">
+              <label>
+                Department name
+                <input value={departmentDraft} onChange={(event) => setDepartmentDraft(event.target.value)} placeholder="e.g. Process Safety" autoFocus required />
+              </label>
+            </div>
+            <div className="role-creator-actions">
+              <button className="button button-outline button-small" type="button" onClick={() => setDepartmentModalOpen(false)}>Cancel</button>
+              <button className="button button-green button-small" type="button" onClick={() => void saveDepartment()} disabled={departmentLoading}>{departmentLoading ? 'Saving...' : 'Save department'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <p className="workspace-note">Password resets remain server-side through Supabase Auth. The browser never receives the service-role credential.</p>
     </div>
   )
@@ -901,7 +2444,13 @@ function RegistrationPage() {
 
   return (
     <AuthShell title="Register your organization" subtitle="Create your company workspace and become its first Super Administrator.">
-      <form className="auth-form registration-form" onSubmit={submit}>
+      {message ? (
+        <div className="auth-form">
+          <AuthMessage success="Registration successful. Check your email and verify your account before signing in." />
+          <p className="auth-footer-copy">Your organization setup is complete. Use the verification link in your email, then return to sign in.</p>
+          <a className="button button-green auth-submit" href="#sign-in">Return to sign in</a>
+        </div>
+      ) : <form className="auth-form registration-form" onSubmit={submit}>
         <div className="form-section-title">Company details</div>
         <div className="form-grid">
           <label>Company name<input name="companyName" placeholder="Acme Energy Ltd" /></label>
@@ -931,9 +2480,9 @@ function RegistrationPage() {
         </div>
         <label className="checkbox-label"><input name="acceptTerms" type="checkbox" /> I agree to the platform terms and privacy policy.</label>
         <AuthMessage error={error} success={message} />
-        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : 'Create organization →'}</button>
+        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : <>Create organization <ArrowRight size={16} /></>}</button>
         <p className="auth-footer-copy">Already registered? <a href="#sign-in">Sign in</a></p>
-      </form>
+      </form>}
     </AuthShell>
   )
 }
@@ -970,11 +2519,12 @@ export default function App() {
     })
   }
 
-  if (authRoute === 'sign-in') return <SignInPage />
+  if (authRoute === 'sign-in') return <SignInPage userOnly={new URLSearchParams(window.location.hash.split('?')[1] || '').get('mode') === 'user'} />
   if (authRoute === 'register') return <RegistrationPage />
   if (authRoute === 'forgot-password') return <ForgotPasswordPage />
   if (authRoute === 'reset-password') return <PasswordPage reset />
   if (authRoute === 'change-password') return <PasswordPage />
+  if (authRoute === 'invite-signup') return <InviteSignupPage />
   if (authRoute === 'demo') return <DemoRequestPage />
 
   const requestedRoute = window.location.hash.replace('#/', '').replace('#', '')
@@ -982,7 +2532,7 @@ export default function App() {
     window.location.hash = '#dashboard'
     return <div className="protected-state">Opening your workspace...</div>
   }
-  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'users' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
+  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>
     if (!session) return <SignInPage />
@@ -1065,7 +2615,7 @@ export default function App() {
               <div className="hero-actions">
                 <a className="button button-green button-large" href="#demo">
                   Request Demo
-                  <span aria-hidden="true">→</span>
+                  <ArrowRight size={19} aria-hidden="true" />
                 </a>
                 <a className="button button-outline button-large" href="#sign-in">
                   Sign In
@@ -1086,7 +2636,7 @@ export default function App() {
                 </div>
                 <div>
                   <strong>62%</strong>
-                  <span>faster corrective action closure across contractors</span>
+                  <span>faster corrective action closure across operating teams</span>
                 </div>
                 <div>
                   <strong>100%</strong>
@@ -1110,7 +2660,6 @@ export default function App() {
                   <div className="dash-nav">Risk Management</div>
                   <div className="dash-nav">Audits &amp; Inspections</div>
                   <div className="dash-nav">Training</div>
-                  <div className="dash-nav">Contractors</div>
                   <div className="dash-nav">Reports</div>
                   <div className="dash-nav">Analytics</div>
                   <div className="dash-nav">Alerts</div>
@@ -1291,7 +2840,7 @@ export default function App() {
               </div>
               <div className="industry-card">
                 <span><Drill size={24} /></span>
-                <strong>Drilling Contractors</strong>
+                <strong>Drilling Operations</strong>
               </div>
               <div className="industry-card">
                 <span><Zap size={24} /></span>
