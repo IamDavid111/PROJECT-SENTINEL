@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import {
@@ -11,13 +12,15 @@ import {
   getOrganizationContext,
   downloadIncidentEvidence,
   submitIncident,
+  submitNewIncident,
   updateIncidentDraft,
   uploadIncidentEvidence,
   type IncidentActivity,
   type IncidentListResult,
 } from './incidentService'
 import { incidentQueryKeys } from './incidentQueryKeys'
-import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentSubmissionInput, IncidentSummary } from './incidentTypes'
+import { syncQueuedIncidentSubmissions } from './incidentOfflineQueue'
+import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentSubmissionInput, IncidentSummary } from './incidentTypes'
 
 export function useIncidentOrganization(client: SupabaseClient) {
   const session = useQuery({
@@ -39,11 +42,38 @@ export function useIncidentOrganization(client: SupabaseClient) {
   })
 }
 
-export function useIncidents(client: SupabaseClient, filters: IncidentListFilters = {}) {
+export function useIncidentOfflineSync(client: SupabaseClient) {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    let active = true
+    const sync = async () => {
+      if (!active) return
+      try {
+        const result = await syncQueuedIncidentSubmissions(client)
+        if (result.submitted.length) {
+          await queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
+          await queryClient.invalidateQueries({ queryKey: ['dashboard', result.submitted[0].organizationId] })
+        }
+      } catch {
+        // Keep queued items for a later reconnect attempt.
+      }
+    }
+    const handleOnline = () => { void sync() }
+    void sync()
+    window.addEventListener('online', handleOnline)
+    return () => {
+      active = false
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [client, queryClient])
+}
+
+export function useIncidents(client: SupabaseClient, filters: IncidentListFilters = {}, scope: IncidentListScope = 'organization') {
   const organization = useIncidentOrganization(client)
   return useQuery<IncidentListResult>({
-    queryKey: incidentQueryKeys.list(organization.data?.organizationId || 'pending', filters),
-    queryFn: () => getIncidents(client, filters),
+    queryKey: incidentQueryKeys.list(organization.data?.organizationId || 'pending', scope, filters),
+    queryFn: () => getIncidents(client, filters, scope),
     enabled: Boolean(organization.data?.organizationId),
     staleTime: 30_000,
     refetchOnWindowFocus: true,
@@ -86,6 +116,17 @@ export function useSubmitIncident(client: SupabaseClient) {
     onSuccess: (incident) => {
       queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
       queryClient.invalidateQueries({ queryKey: ['incidents', 'detail', incident.organizationId, incident.id] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', incident.organizationId] })
+    },
+  })
+}
+
+export function useSubmitNewIncident(client: SupabaseClient) {
+  const queryClient = useQueryClient()
+  return useMutation<IncidentSummary, Error, IncidentSubmissionInput>({
+    mutationFn: (input) => submitNewIncident(client, input),
+    onSuccess: (incident) => {
+      queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
       queryClient.invalidateQueries({ queryKey: ['dashboard', incident.organizationId] })
     },
   })

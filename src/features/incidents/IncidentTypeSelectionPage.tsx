@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Check, Circle, Eye, Hand, Leaf, ShieldAlert, Siren } from 'lucide-react'
+import { ArrowRight, Check, Circle, Eye, Hand, Leaf, ShieldAlert, Siren } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import type { Role } from '../../types'
@@ -184,9 +184,16 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
         </div>
       </div>
 
+      <div className="incident-workflow-cards">
+        <article className="incident-quick-options-panel incident-workflow-card">
+          <div className="incident-quick-header"><h3>My Reports</h3><p>Review the incident reports you have submitted.</p></div>
+          <a className="button button-outline button-small" href="#my-reports">Open My Reports</a>
+        </article>
+      </div>
+
       <div className="incident-type-actions">
         <button className="button button-green button-large" type="button" disabled={!selectedType} onClick={continueToReport}>
-          Continue to report →
+          Continue to report <ArrowRight size={16} />
         </button>
         <a className="button button-outline button-large" href="#dashboard">Cancel</a>
       </div>

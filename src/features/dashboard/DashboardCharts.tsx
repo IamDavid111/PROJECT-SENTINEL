@@ -24,7 +24,7 @@ export function IncidentSeverityChart({ data }: { data: DashboardDistributionPoi
 
 export function IncidentTypeChart({ data, configuredTypes }: { data: DashboardDistributionPoint[]; configuredTypes: string[] }) {
   const detail = configuredTypes.length ? `Configured categories: ${configuredTypes.join(', ')}` : 'Configure incident categories in Company Settings.'
-  return <ChartCard eyebrow="INCIDENT INTELLIGENCE" title="Incident types">{data.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={data} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis type="number" allowDecimals={false} /><YAxis dataKey="name" type="category" width={90} /><Tooltip /><Bar dataKey="value" name="Incidents" fill="#12a94f" /></BarChart></ResponsiveContainer> : <ChartEmpty message="No incident type data available" detail={detail} />}</ChartCard>
+  return <ChartCard eyebrow="INCIDENT INTELLIGENCE" title="Incident categories">{data.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={data} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis type="number" allowDecimals={false} /><YAxis dataKey="name" type="category" width={90} /><Tooltip /><Bar dataKey="value" name="Incidents" fill="#12a94f" /></BarChart></ResponsiveContainer> : <ChartEmpty message="No incident category data available" detail={detail} />}</ChartCard>
 }
 
 export function ComparisonChart({ title, eyebrow, data, emptyMessage, configuredNames }: { title: string; eyebrow: string; data: DashboardComparisonPoint[]; emptyMessage: string; configuredNames: string[] }) {

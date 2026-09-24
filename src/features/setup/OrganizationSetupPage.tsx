@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
+import { ArrowRight } from 'lucide-react'
 
 import { countries, worldRegions } from '../../lib/locations'
 import { organizationSetupSchema } from '../../lib/schemas'
@@ -161,7 +162,7 @@ export function OrganizationSetupPage({ email }: { email: string }) {
         </div>
         {error && <div className="auth-message error" role="alert">{error}</div>}
         {message && <div className="auth-message success" role="status">{message}</div>}
-        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : 'Create organization →'}</button>
+        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : <>Create organization <ArrowRight size={16} /></>}</button>
         <p className="auth-footer-copy"><a href="#top" onClick={(event) => { event.preventDefault(); void signOut() }}>Sign out</a></p>
       </form>
     </div>
