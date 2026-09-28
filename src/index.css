@@ -3650,6 +3650,18 @@ blockquote footer span {
   flex: 0 0 auto;
 }
 
+.settings-form > label:first-child .shift-config-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.settings-form > label:first-child .shift-config-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
 .settings-form .switch {
   display: inline-flex;
   align-items: center;
@@ -3666,7 +3678,7 @@ blockquote footer span {
 
 .settings-form .shift-config-footer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   min-width: 0;
