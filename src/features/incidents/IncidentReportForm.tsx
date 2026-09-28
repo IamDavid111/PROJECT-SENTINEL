@@ -105,6 +105,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   const [draftType, setDraftType] = useState<'manual' | 'offline-pending' | null>(existingDraftId ? 'manual' : null)
   const [activeStage, setActiveStage] = useState(0)
   const [submitConfirmationOpen, setSubmitConfirmationOpen] = useState(false)
+  const [submissionSuccessOpen, setSubmissionSuccessOpen] = useState(false)
   const createDraft = useCreateIncidentDraft(supabase)
   const updateDraft = useUpdateIncidentDraft(supabase)
   const submitIncident = useSubmitIncident(supabase)
@@ -294,13 +295,13 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       if (!activeDraftId) {
         const submitted = await submitNewIncident.mutateAsync(validated.data)
         setSubmitMessage(`Report ${submitted.referenceNumber} submitted successfully.`)
-        window.location.hash = '#incidents'
+        setSubmissionSuccessOpen(true)
         return
       }
 
       const submitted = await submitIncident.mutateAsync({ incidentId: activeDraftId, input: validated.data })
       setSubmitMessage(`Report ${submitted.referenceNumber} submitted successfully.`)
-      window.location.hash = '#incidents'
+      setSubmissionSuccessOpen(true)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Unable to submit the incident report.')
     }
@@ -392,6 +393,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
         {submitMessage && <div className="auth-message success" role="status">{submitMessage}</div>}
         <div className="incident-form-actions">
           {activeStage === 1 && <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(0)}>Back</button>}
+          {activeStage === 2 && <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(1)}>Back</button>}
           {activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : (
             <>
               <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(2)}>Back</button>
@@ -414,6 +416,19 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           <div className="role-creator-actions">
             <button className="button button-outline button-small" type="button" onClick={() => setSubmitConfirmationOpen(false)}>Cancel</button>
             <button className="button button-green button-small" type="button" disabled={isBusy} onClick={() => { setSubmitConfirmationOpen(false); void submitReport() }}>{isSubmitting ? 'Submitting...' : 'Confirm submit'}</button>
+          </div>
+        </div>
+      </div>}
+      {submissionSuccessOpen && <div className="role-creator-backdrop" role="presentation">
+        <div className="role-creator-modal" role="dialog" aria-modal="true" aria-labelledby="incident-submission-success-title" onClick={(event) => event.stopPropagation()}>
+          <div className="role-creator-header">
+            <div>
+              <div className="eyebrow">SUBMISSION COMPLETE</div>
+              <h3 id="incident-submission-success-title">Incident successfully submitted</h3>
+            </div>
+          </div>
+          <div className="role-creator-actions">
+            <button className="button button-green button-small" type="button" onClick={() => { setSubmissionSuccessOpen(false); window.location.hash = '#incidents' }}>OK</button>
           </div>
         </div>
       </div>}
