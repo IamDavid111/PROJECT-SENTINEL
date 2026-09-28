@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ArrowRight, Check, Circle, Eye, Hand, Leaf, ShieldAlert, Siren } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -6,7 +6,7 @@ import type { LucideIcon } from 'lucide-react'
 import type { Role } from '../../types'
 import { incidentReportTypes, type IncidentReportType } from './incidentTypes'
 import { IncidentReportForm } from './IncidentReportForm'
-import { useIncident } from './useIncidentData'
+import { useIncident, useIncidentOrganization } from './useIncidentData'
 
 const reportTypeDetails: Record<IncidentReportType, { label: string; description: string; icon: LucideIcon }> = {
   incident: {
@@ -55,16 +55,9 @@ export type QuickIncidentOption = {
   environmentalImpact?: boolean
 }
 
-export const quickIncidentOptions: QuickIncidentOption[] = [
-  { id: 'near_miss', title: 'Near miss', reportType: 'near_miss', category: 'Near Miss' },
-  { id: 'unsafe_condition', title: 'Unsafe condition', reportType: 'unsafe_condition', category: 'Unsafe Condition' },
-  { id: 'slip_trip_fall', title: 'Slip / trip / fall', reportType: 'incident', category: 'Injury' },
-  { id: 'minor_spill', title: 'Minor spill', reportType: 'environmental_incident', category: 'Oil Spill', environmentalImpact: true },
-  { id: 'vehicle_incident', title: 'Vehicle incident', reportType: 'incident', category: 'Vehicle Incident' },
-]
-
 export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: Role; supabase: SupabaseClient; draftId?: string | null }) {
   const allowedTypes = useMemo(() => roleReportTypes[role] || [], [role])
+  const organization = useIncidentOrganization(supabase)
   const [selectedType, setSelectedType] = useState<IncidentReportType | null>(allowedTypes[0] || null)
   const [selectedQuickId, setSelectedQuickId] = useState<string | null>(null)
   const [selectedTitle, setSelectedTitle] = useState<string>('Incident')
@@ -73,6 +66,36 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: R
   const [isFormOpen, setIsFormOpen] = useState(false)
   const draft = useIncident(supabase, draftId || null)
   const [message, setMessage] = useState('')
+  const [configuredCategories, setConfiguredCategories] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!organization.data?.organizationId) return
+    let active = true
+    void supabase
+      .from('company_settings')
+      .select('incident_categories')
+      .eq('organization_id', organization.data.organizationId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active || error) return
+        const categories = Array.isArray(data?.incident_categories) ? data.incident_categories.flatMap((item: unknown) => {
+          if (typeof item === 'string') return item.trim() ? [item.trim()] : []
+          if (!item || typeof item !== 'object') return []
+          const entry = item as { name?: unknown; active?: unknown }
+          return typeof entry.name === 'string' && entry.name.trim() && entry.active !== false ? [entry.name.trim()] : []
+        }) : []
+        setConfiguredCategories(categories)
+      })
+    return () => { active = false }
+  }, [organization.data?.organizationId, supabase])
+
+  const quickIncidentOptions: QuickIncidentOption[] = configuredCategories.map((category) => ({
+    id: category.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+    title: category,
+    reportType: 'incident',
+    category,
+    environmentalImpact: /environment|spill|chemical|oil/i.test(category),
+  }))
 
   const handleSelectReportType = (type: IncidentReportType) => {
     setSelectedType(type)

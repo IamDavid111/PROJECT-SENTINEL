@@ -11,29 +11,6 @@ import type { IncidentDetail, IncidentDraftInput, IncidentReportType, IncidentSu
 
 const stages = ['Event', 'Location & context', 'People', 'Evidence & sign-off'] as const
 
-const incidentCategories = [
-  'Injury / Illness',
-  'Vehicle / Transportation Incident',
-  'Fire / Explosion',
-  'Environmental Incident',
-  'Oil / Chemical Spill',
-  'Property / Equipment Damage',
-  'Process Safety Incident',
-  'Electrical Incident',
-  'Dropped Object',
-  'Slip / Trip / Fall',
-  'Exposure to Hazardous Substance',
-  'Security Incident',
-  'Structural / Facility Incident',
-  'Equipment / Machinery Failure',
-  'Occupational Health Incident',
-  'Marine / Offshore Incident',
-  'Gas Release / Leak',
-  'Other',
-] as const
-
-const incidentSeverities = ['Low', 'Medium', 'High'] as const
-
 type SiteOption = { id: string; name: string }
 function configuredOptions(value: unknown, fallback: string[], legacyValue = '') {
   if (!Array.isArray(value)) return legacyValue ? [legacyValue] : fallback
@@ -55,15 +32,17 @@ function configuredSiteNames(value: unknown) {
   })
 }
 
-function configuredShiftNames(value: unknown) {
+function configuredShiftNames(value: unknown, legacyValue = '') {
   if (!value || typeof value !== 'object') return []
   const shifts = (value as Record<string, unknown>).shifts
   if (!Array.isArray(shifts)) return []
-  return shifts.flatMap((item: unknown) => {
+  const names = shifts.flatMap((item: unknown) => {
     if (!item || typeof item !== 'object') return []
     const shift = item as Record<string, unknown>
     return typeof shift.name === 'string' && shift.name.trim() && shift.active !== false ? [shift.name.trim()] : []
   })
+  if (legacyValue && !names.some((name) => name.toLowerCase() === legacyValue.toLowerCase())) names.push(legacyValue)
+  return names
 }
 
 function fieldError(message?: string) {
@@ -117,6 +96,8 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   const loadedIncident = initialIncident || existingDraft.data
   const [sites, setSites] = useState<SiteOption[]>([])
   const [settings, setSettings] = useState<Record<string, unknown>>({})
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [settingsError, setSettingsError] = useState('')
   const [submitMessage, setSubmitMessage] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [draftId, setDraftId] = useState<string | null>(existingDraftId || null)
@@ -230,20 +211,29 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours').eq('organization_id', organization.data.organizationId).maybeSingle(),
     ]).then(([siteResult, settingsResult]) => {
       if (!active) return
-      setSites(siteResult.data || [])
-      setSettings(settingsResult.data || {})
+      if (siteResult.error || settingsResult.error) {
+        setSettingsError('Unable to load company configuration. Please try again before reporting an incident.')
+        setSites([])
+        setSettings({})
+      } else {
+        setSites(siteResult.data || [])
+        setSettings(settingsResult.data || {})
+      }
+      setSettingsLoading(false)
     })
     return () => { active = false }
   }, [organization.data?.organizationId, supabase])
 
   if (existingDraftId && existingDraft.isLoading) return <div className="workspace-panel">Loading draft...</div>
   if (existingDraftId && (existingDraft.isError || !loadedIncident || loadedIncident.status !== 'draft')) return <div className="workspace-panel"><div className="auth-message error">This draft could not be loaded or is no longer editable.</div><a className="button button-outline workspace-back-link" href="#my-reports">Return to My Reports</a></div>
+  if (settingsLoading) return <div className="workspace-panel">Loading company configuration...</div>
+  if (settingsError) return <div className="workspace-panel"><div className="auth-message error" role="alert">{settingsError}</div><a className="button button-outline workspace-back-link" href="#dashboard">Return to dashboard</a></div>
 
-  const configuredSites = settings.operational_sites === undefined ? sites : sites.filter((site) => configuredSiteNames(settings.operational_sites).some((name) => name.toLowerCase() === site.name.toLowerCase()))
-  const departments = configuredOptions(settings.departments, [])
-  const shifts = configuredShiftNames(settings.working_hours)
-  const categories = incidentCategories
-  const severities = incidentSeverities
+  const configuredSites = sites.filter((site) => configuredSiteNames(settings.operational_sites).some((name) => name.toLowerCase() === site.name.toLowerCase()) || site.id === loadedIncident?.siteId)
+  const departments = configuredOptions(settings.departments, [], loadedIncident?.department || '')
+  const shifts = configuredShiftNames(settings.working_hours, loadedIncident?.shift || '')
+  const categories = configuredOptions(settings.incident_categories, [], loadedIncident?.incidentCategory || '')
+  const severities = configuredOptions(settings.severity_levels, [], loadedIncident?.severity || '')
 
   const isSaving = createDraft.isPending || updateDraft.isPending
   const isSubmitting = submitIncident.isPending || submitNewIncident.isPending
