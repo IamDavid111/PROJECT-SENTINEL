@@ -394,7 +394,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           {activeStage === 1 && <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(0)}>Back</button>}
           {activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : (
             <>
-              <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => void saveDraft()}>Save as Draft</button>
+              <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(2)}>Back</button>
               <button className="button button-green button-large" type="submit" disabled={isBusy}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>
             </>
           )}
