@@ -1,0 +1,6 @@
+{
+  "mssql.autoDisableNonTSqlLanguageService": true,
+  "files.associations": {
+    "**/supabase/migrations/**/*.sql": "sql"
+  }
+}

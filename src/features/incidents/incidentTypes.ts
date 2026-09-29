@@ -64,6 +64,7 @@ export type IncidentSummary = {
 }
 
 export type IncidentDetail = IncidentSummary & {
+  draftStage: number
   description: string | null
   workActivityContext: string | null
   reportedBy: string
@@ -89,6 +90,7 @@ export type IncidentDetail = IncidentSummary & {
 
 export type IncidentDraftInput = {
   reportType: IncidentReportType
+  draftStage?: number
   title?: string
   description?: string
   occurredAt?: string

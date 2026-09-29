@@ -54,6 +54,7 @@ type IncidentRow = {
   immediate_correction: string | null
   created_at: string
   updated_at: string
+  draft_stage: number
 }
 
 type IncidentPersonRow = {
@@ -183,7 +184,7 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   const to = from + pageSize - 1
   let query = client
     .from('incidents')
-    .select('id, organization_id, reference_number, report_type, status, title, description, occurred_at, reported_at, site_id, facility_id, location, department, shift, work_activity_context, reported_by, created_by, contractor_involved, contractor_organization, severity, potential_severity, incident_category, environmental_impact, injury_or_illness, property_damage, work_related, immediate_correction, priority, gps_coordinates, weather_conditions, equipment_involved, people_involved, witnesses, potential_root_cause, digital_signature, accuracy_confirmed, created_at, updated_at', { count: 'exact' })
+    .select('id, organization_id, reference_number, report_type, status, title, description, occurred_at, reported_at, site_id, facility_id, location, department, shift, work_activity_context, reported_by, created_by, contractor_involved, contractor_organization, severity, potential_severity, incident_category, environmental_impact, injury_or_illness, property_damage, work_related, immediate_correction, priority, gps_coordinates, weather_conditions, equipment_involved, people_involved, witnesses, potential_root_cause, digital_signature, accuracy_confirmed, draft_stage, created_at, updated_at', { count: 'exact' })
     .eq('organization_id', context.organizationId)
     .order('created_at', { ascending: false })
     .range(from, to)
@@ -246,6 +247,7 @@ export async function getIncident(client: SupabaseClient, incidentId: string): P
     potentialRootCause: incident.potential_root_cause,
     digitalSignature: incident.digital_signature,
     accuracyConfirmed: incident.accuracy_confirmed,
+    draftStage: incident.draft_stage,
     evidence: (evidence || []).map(toIncidentEvidence),
     people: (people || []).map(toIncidentPerson),
   }
@@ -254,6 +256,7 @@ export async function getIncident(client: SupabaseClient, incidentId: string): P
 function toIncidentPayload(input: IncidentDraftInput) {
   return {
     report_type: input.reportType,
+    draft_stage: input.draftStage ?? 0,
     title: input.title || 'Untitled draft',
     description: input.description || null,
     occurred_at: input.occurredAt || null,
@@ -286,37 +289,22 @@ function toIncidentPayload(input: IncidentDraftInput) {
 }
 
 export async function createIncidentDraft(client: SupabaseClient, input: IncidentDraftInput, options: { clientSubmissionId?: string } = {}): Promise<IncidentSummary> {
-  const context = await getOrganizationContext(client)
-  if (options.clientSubmissionId) {
-    const { data: existing, error: existingError } = await client
-      .from('incidents')
-      .select('*')
-      .eq('organization_id', context.organizationId)
-      .eq('client_submission_id', options.clientSubmissionId)
-      .maybeSingle()
-    if (existingError) throw new Error('Unable to check the queued incident submission.')
-    if (existing) return toIncidentSummary(existing as IncidentRow)
-  }
-  const payload = {
-    organization_id: context.organizationId,
-    reported_by: context.userId,
-    created_by: context.userId,
-    status: 'draft',
-    ...toIncidentPayload(input),
-    ...(options.clientSubmissionId ? { client_submission_id: options.clientSubmissionId } : {}),
-  }
-  const { data, error } = await client.from('incidents').insert(payload).select('*').single()
+  const { data, error } = await client.rpc('save_incident_draft', {
+    p_incident_id: null,
+    p_input: input,
+    p_client_submission_id: options.clientSubmissionId || null,
+  }).single()
   if (error || !data) throw new Error(error?.message || 'Unable to save the incident draft.')
-  await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident draft created', metadata: { incident_id: data.id } })
   return toIncidentSummary(data as IncidentRow)
 }
 
 export async function updateIncidentDraft(client: SupabaseClient, incidentId: string, input: IncidentDraftInput): Promise<IncidentSummary> {
-  const context = await getOrganizationContext(client)
-  const { data, error } = await client.from('incidents').update(toIncidentPayload(input)).eq('id', incidentId).eq('organization_id', context.organizationId).eq('created_by', context.userId).eq('status', 'draft').select('*').single()
+  const { data, error } = await client.rpc('save_incident_draft', {
+    p_incident_id: incidentId,
+    p_input: input,
+    p_client_submission_id: null,
+  }).single()
   if (error || !data) throw new Error(error?.message || 'Unable to update the incident draft.')
-  await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident draft updated', metadata: { incident_id: incidentId } })
-  await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident updated', metadata: { incident_id: incidentId, status: 'draft' } })
   return toIncidentSummary(data as IncidentRow)
 }
 
