@@ -15,15 +15,6 @@ function metadataText(metadata: Record<string, unknown>, key: string) {
   return typeof metadata[key] === 'string' ? metadata[key] : ''
 }
 
-function configuredNames(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((item) => {
-    if (typeof item === 'string') return [item.trim()].filter(Boolean)
-    if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string' && (!('active' in item) || item.active !== false)) return [item.name.trim()].filter(Boolean)
-    return []
-  })
-}
-
 function normalizeIncidentCategoryName(value: string) {
   const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ')
   const legacyMap: Record<string, string> = {
@@ -65,6 +56,38 @@ function configuredActiveNames(value: unknown): string[] {
     }
     return []
   })
+}
+
+type DashboardIncidentRow = {
+  id: string
+  reference_number: string
+  title: string
+  report_type: string
+  status: string
+  occurred_at: string | null
+  created_at: string
+  location: string | null
+  site_id: string | null
+  department: string | null
+  shift: string | null
+  severity: string | null
+  incident_category: string | null
+}
+
+function configuredDistribution(configuredNames: string[], values: Array<string | null | undefined>) {
+  const counts = new Map(configuredNames.map((name) => [name, 0]))
+  values.forEach((value) => {
+    const name = value?.trim()
+    if (!name) return
+    const configuredName = configuredNames.find((candidate) => candidate.toLowerCase() === name.toLowerCase())
+    counts.set(configuredName || name, (counts.get(configuredName || name) || 0) + 1)
+  })
+  return [...counts.entries()]
+    .map(([name, value]) => ({ name, value }))
+}
+
+function monthLabel(value: Date) {
+  return value.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
 }
 
 function unavailableMetrics(): DashboardMetric[] {
@@ -111,17 +134,26 @@ export async function getDashboardSnapshot(
   const { data, error } = await activityQuery
   if (error) throw new Error('Unable to load dashboard activity.')
 
-  const { data: settings } = await client
-    .from('company_settings')
-    .select('departments, operational_sites, incident_categories')
-    .eq('organization_id', organizationId)
-    .maybeSingle()
+  const [{ data: settings, error: settingsError }, { data: organizationSites, error: sitesError }] = await Promise.all([
+    client
+      .from('company_settings')
+      .select('departments, operational_sites, incident_categories, severity_levels, working_hours')
+      .eq('organization_id', organizationId)
+      .maybeSingle(),
+    client
+      .from('sites')
+      .select('id, name')
+      .eq('organization_id', organizationId)
+      .order('name'),
+  ])
+  if (settingsError || sitesError) throw new Error('Unable to load organization dashboard configuration.')
 
   const countIncidents = async (status?: 'submitted' | 'under_review' | 'closed', reportType?: 'near_miss') => {
     let query = client
       .from('incidents')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
+      .neq('status', 'draft')
     if (status) query = query.eq('status', status)
     if (reportType) query = query.eq('report_type', reportType)
     if (since) query = query.gte('occurred_at', since)
@@ -129,19 +161,33 @@ export async function getDashboardSnapshot(
     if (filters.department !== 'all') query = query.eq('department', filters.department)
     if (filters.severity !== 'all') query = query.eq('severity', filters.severity)
     if (filters.incidentType !== 'all') query = query.in('incident_category', incidentCategoryValues(filters.incidentType))
+    if (filters.shift !== 'all') query = query.eq('shift', filters.shift)
     return query
   }
 
-  const [totalResult, submittedResult, reviewResult, closedResult, nearMissResult, recentIncidentResult] = await Promise.all([
+  let filteredIncidentQuery = client
+    .from('incidents')
+    .select('id, reference_number, title, report_type, status, occurred_at, created_at, location, site_id, department, shift, severity, incident_category')
+    .eq('organization_id', organizationId)
+    .neq('status', 'draft')
+    .order('created_at', { ascending: false })
+  if (since) filteredIncidentQuery = filteredIncidentQuery.gte('occurred_at', since)
+  if (filters.site !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('site_id', filters.site)
+  if (filters.department !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('department', filters.department)
+  if (filters.severity !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('severity', filters.severity)
+  if (filters.incidentType !== 'all') filteredIncidentQuery = filteredIncidentQuery.in('incident_category', incidentCategoryValues(filters.incidentType))
+  if (filters.shift !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('shift', filters.shift)
+
+  const [totalResult, submittedResult, reviewResult, closedResult, nearMissResult, filteredIncidentResult] = await Promise.all([
     countIncidents(),
     countIncidents('submitted'),
     countIncidents('under_review'),
     countIncidents('closed'),
     countIncidents(undefined, 'near_miss'),
-    client.from('incidents').select('id, reference_number, title, report_type, status, occurred_at, location, severity').eq('organization_id', organizationId).order('created_at', { ascending: false }).limit(5),
+    filteredIncidentQuery,
   ])
   const incidentQueryError = [totalResult, submittedResult, reviewResult, closedResult, nearMissResult].find((result) => result.error)?.error
-  if (incidentQueryError || recentIncidentResult.error) throw new Error('Unable to load incident dashboard metrics.')
+  if (incidentQueryError || filteredIncidentResult.error) throw new Error('Unable to load incident dashboard metrics.')
   const incidentCount = totalResult.count || 0
   const incidentMetricValues: Record<string, number> = {
     'total-incidents': incidentCount,
@@ -155,7 +201,9 @@ export async function getDashboardSnapshot(
     if (value === undefined) return metric
     return { ...metric, value: String(value), detail: 'Organization incident data', available: true, tone: metric.key === 'open-incidents' ? 'orange' as const : 'green' as const }
   })
-  const recentIncidents = (recentIncidentResult.data || []).map((incident) => ({
+  const incidentRows = (filteredIncidentResult.data || []) as DashboardIncidentRow[]
+  const siteNames = new Map((organizationSites || []).map((site) => [site.id, site.name]))
+  const recentIncidents = incidentRows.slice(0, 5).map((incident) => ({
     id: incident.id,
     referenceNumber: incident.reference_number,
     title: incident.title,
@@ -165,6 +213,27 @@ export async function getDashboardSnapshot(
     location: incident.location,
     severity: incident.severity,
   })) as DashboardIncident[]
+
+  const configuredIncidentTypes = configuredActiveNames(settings?.incident_categories).map(normalizeIncidentCategoryName)
+  const configuredDepartments = configuredActiveNames(settings?.departments)
+  const configuredSites = configuredActiveNames(settings?.operational_sites)
+  const configuredSeverities = configuredActiveNames(settings?.severity_levels)
+  const trendBuckets = new Map<string, { label: string; incidents: number; nearMisses: number }>()
+  incidentRows.forEach((incident) => {
+    if (!incident.occurred_at) return
+    const date = new Date(incident.occurred_at)
+    if (Number.isNaN(date.getTime())) return
+    const key = `${date.getFullYear()}-${date.getMonth()}`
+    const bucket = trendBuckets.get(key) || { label: monthLabel(date), incidents: 0, nearMisses: 0 }
+    if (incident.report_type === 'near_miss') bucket.nearMisses += 1
+    else bucket.incidents += 1
+    trendBuckets.set(key, bucket)
+  })
+  const incidentTrend = [...trendBuckets.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, value]) => value)
+  const incidentSeverity = configuredDistribution(configuredSeverities, incidentRows.map((incident) => incident.severity))
+  const incidentTypes = configuredDistribution(configuredIncidentTypes, incidentRows.map((incident) => incident.incident_category))
+  const departmentComparison = configuredDistribution(configuredDepartments, incidentRows.map((incident) => incident.department))
+  const siteComparison = configuredDistribution(configuredSites, incidentRows.map((incident) => incident.site_id ? siteNames.get(incident.site_id) : null))
 
   const filteredData = (data || []).filter((item) => {
     const metadata = (item.metadata || {}) as Record<string, unknown>
@@ -194,17 +263,17 @@ export async function getDashboardSnapshot(
     activities,
     recentIncidents,
     metrics,
-    incidentTrend: [],
-    incidentSeverity: [],
-    incidentTypes: [],
-    departmentComparison: [],
-    siteComparison: [],
+    incidentTrend,
+    incidentSeverity,
+    incidentTypes,
+    departmentComparison,
+    siteComparison,
     correctiveActions: [],
     inspections: null,
     sites: [],
-    configuredIncidentTypes: configuredNames(settings?.incident_categories).map(normalizeIncidentCategoryName),
-    configuredDepartments: configuredNames(settings?.departments),
-    configuredSites: configuredActiveNames(settings?.operational_sites),
+    configuredIncidentTypes,
+    configuredDepartments,
+    configuredSites,
     hasOperationalData: incidentCount > 0,
   }
 }

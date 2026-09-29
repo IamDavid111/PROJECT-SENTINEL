@@ -114,7 +114,7 @@ as $$
     from public.memberships
     where user_id = auth.uid()
       and organization_id = p_organization_id
-      and role = any(array['Super Administrator', 'Organization Administrator']::text[])
+      and role = any(array['Super Administrator', 'Organization Administrator']::public.membership_role[])
   );
 $$;
 

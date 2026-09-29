@@ -639,7 +639,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
         </header>
         <section className="workspace-content">
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
-          {route === 'report-incident' && canAccess('report_incident') && <IncidentReportForm key={`report-incident-${navResetKey}`} supabase={supabase} reportType="incident" draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} onBack={() => { window.location.hash = '#dashboard' }} />}
+          {route === 'report-incident' && canAccess('report_incident') && <IncidentReportForm key={`report-incident-${navResetKey}`} supabase={supabase} reportType="incident" draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} />}
           {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} scope="own" canExport={canAccess('export_reports')} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
           {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} scope="organization" canExport={canAccess('export_reports')} />}
@@ -1045,9 +1045,13 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
     void loadSettings()
   }, [organizationId])
 
+  const syncJsonSetting = <T,>(key: keyof CompanySettingsState, value: T) => {
+    setSettings((current) => ({ ...current, [key]: JSON.stringify(value, null, 2) }))
+  }
+
   const syncDepartmentSettings = (next: DepartmentOption[]) => {
     setDepartmentSettings(next)
-    setSettings((current) => ({ ...current, departments: JSON.stringify(next, null, 2) }))
+    syncJsonSetting('departments', next)
   }
 
   const addDepartment = () => {
@@ -1070,14 +1074,14 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
   const toggleDepartment = (name: string) => {
     setDepartmentSettings((current) => {
       const next = current.map((department) => department.name.toLowerCase() === name.toLowerCase() ? { ...department, active: !department.active } : department)
-      setSettings((currentSettings) => ({ ...currentSettings, departments: JSON.stringify(next, null, 2) }))
+      syncJsonSetting('departments', next)
       return next
     })
   }
 
   const syncSiteSettings = (next: SiteOption[]) => {
     setSiteSettings(next)
-    setSettings((current) => ({ ...current, operational_sites: JSON.stringify(next, null, 2) }))
+    syncJsonSetting('operational_sites', next)
   }
 
   const addSite = () => {
@@ -1101,7 +1105,7 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
   const toggleSite = (name: string) => {
     setSiteSettings((current) => {
       const next = current.map((site) => site.name.toLowerCase() === name.toLowerCase() ? { ...site, active: !site.active } : site)
-      setSettings((currentSettings) => ({ ...currentSettings, operational_sites: JSON.stringify(next, null, 2) }))
+      syncJsonSetting('operational_sites', next)
       return next
     })
   }
@@ -1133,7 +1137,7 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
     const nextContact: EmergencyContact = { ...contactDraft, id: contactDraft.id || `contact-${Date.now()}`, name, role: contactDraft.role.trim(), phone, email }
     setEmergencyContacts((current) => {
       const next = contactDraft.id ? current.map((contact) => contact.id === contactDraft.id ? nextContact : contact) : [...current, nextContact]
-      setSettings((currentSettings) => ({ ...currentSettings, emergency_contacts: JSON.stringify(next, null, 2) }))
+      syncJsonSetting('emergency_contacts', next)
       return next
     })
     setContactModalOpen(false)
@@ -1144,7 +1148,7 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
     if (!contactToRemove) return
     setEmergencyContacts((current) => {
       const next = current.filter((contact) => contact.id !== contactToRemove.id)
-      setSettings((currentSettings) => ({ ...currentSettings, emergency_contacts: JSON.stringify(next, null, 2) }))
+      syncJsonSetting('emergency_contacts', next)
       return next
     })
     setContactToRemove(null)
@@ -1161,13 +1165,21 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
       setError('That severity level already exists.')
       return
     }
-    setSeveritySettings((current) => [...current, { name, active: true }])
+    setSeveritySettings((current) => {
+      const next = [...current, { name, active: true }]
+      syncJsonSetting('severity_levels', next)
+      return next
+    })
     setSeverityDraft('')
     setMessage('Severity level added.')
   }
 
   const toggleSeverity = (name: string) => {
-    setSeveritySettings((current) => current.map((severity) => severity.name.toLowerCase() === name.toLowerCase() ? { ...severity, active: !severity.active } : severity))
+    setSeveritySettings((current) => {
+      const next = current.map((severity) => severity.name.toLowerCase() === name.toLowerCase() ? { ...severity, active: !severity.active } : severity)
+      syncJsonSetting('severity_levels', next)
+      return next
+    })
   }
 
   const addIncidentCategory = () => {
@@ -1180,13 +1192,21 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
       setError('That incident category already exists.')
       return
     }
-    setIncidentCategorySettings((current) => [...current, { name, active: true }])
+    setIncidentCategorySettings((current) => {
+      const next = [...current, { name, active: true }]
+      syncJsonSetting('incident_categories', next)
+      return next
+    })
     setIncidentCategoryDraft('')
     setMessage('Incident category added.')
   }
 
   const toggleIncidentCategory = (name: string) => {
-    setIncidentCategorySettings((current) => current.map((category) => category.name.toLowerCase() === name.toLowerCase() ? { ...category, active: !category.active } : category))
+    setIncidentCategorySettings((current) => {
+      const next = current.map((category) => category.name.toLowerCase() === name.toLowerCase() ? { ...category, active: !category.active } : category)
+      syncJsonSetting('incident_categories', next)
+      return next
+    })
   }
 
   const openShiftEditor = (shift?: CompanyShiftSetting) => {
@@ -1217,7 +1237,7 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
 
     setShiftSettings((current) => {
       const next = editingShiftId ? current.map((shift) => shift.id === editingShiftId ? nextShift : shift) : [...current, nextShift]
-      setSettings((currentSettings) => ({ ...currentSettings, working_hours: JSON.stringify({ shifts: next }, null, 2) }))
+      syncJsonSetting('working_hours', { shifts: next })
       return next
     })
 
@@ -1250,7 +1270,17 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
       setError('Each emergency contact requires a name, phone number, and valid email if provided.')
       return
     }
-    const mergedSettings = { ...settings, working_hours: JSON.stringify(nextWorkingHours, null, 2), departments: JSON.stringify(nextDepartments, null, 2), operational_sites: JSON.stringify(nextSites, null, 2), emergency_contacts: JSON.stringify(nextContacts, null, 2), incident_categories: JSON.stringify(nextCategories, null, 2), severity_levels: JSON.stringify(nextSeverities, null, 2) }
+    const mergedSettings = {
+      ...settings,
+      working_hours: JSON.stringify(nextWorkingHours, null, 2),
+      departments: JSON.stringify(nextDepartments, null, 2),
+      operational_sites: JSON.stringify(nextSites, null, 2),
+      emergency_contacts: JSON.stringify(nextContacts, null, 2),
+      incident_categories: JSON.stringify(nextCategories, null, 2),
+      risk_categories: settings.risk_categories || JSON.stringify([], null, 2),
+      severity_levels: JSON.stringify(nextSeverities, null, 2),
+      inspection_templates: settings.inspection_templates || JSON.stringify([], null, 2),
+    }
 
     let parsed: Record<string, unknown>
     try {

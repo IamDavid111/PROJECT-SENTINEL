@@ -2498,7 +2498,7 @@ blockquote footer span {
 
 .incident-wizard-layout {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -2588,6 +2588,18 @@ blockquote footer span {
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
+}
+
+.incident-form-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.incident-form-header-actions .button {
+  width: 145px;
+  white-space: nowrap;
 }
 
 .incident-form-header h2 {
@@ -3598,6 +3610,93 @@ blockquote footer span {
   color: #334155;
   font-size: 13px;
   font-weight: 750;
+}
+
+.settings-form > label:nth-of-type(-n+6) {
+  min-width: 0;
+  grid-template-rows: auto 1fr auto;
+  align-content: stretch;
+  gap: 12px;
+}
+
+.settings-form .shift-config-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-form .shift-config-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-form .shift-config-item > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.settings-form .shift-config-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.settings-form > label:first-child .shift-config-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.settings-form > label:first-child .shift-config-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.settings-form .switch {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  width: auto;
+  gap: 0;
+  cursor: pointer;
+}
+
+.settings-form .switch input {
+  margin: 0;
+  accent-color: var(--green);
+}
+
+.settings-form .shift-config-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-form .shift-config-footer input {
+  min-width: 0;
+  width: 100%;
+}
+
+.settings-form .shift-config-footer button,
+.settings-form .shift-config-actions button {
+  grid-column: auto;
+}
+
+.settings-form .workspace-empty {
+  padding: 12px 0;
+  text-align: left;
 }
 
 .settings-form textarea {
