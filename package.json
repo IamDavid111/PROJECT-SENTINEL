@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "seed:demo": "node scripts/seed-demo.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.39.0",
     "mapbox-gl": "^3.30.0",
+    "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.87.0",
