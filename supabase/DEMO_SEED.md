@@ -33,7 +33,7 @@ Check generated records and transaction SQL without database access:
 npm run seed:demo -- --dry-run
 ```
 
-Populate the explicitly confirmed dedicated demo project after setting `SUPABASE_URL`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `DEMO_USER_PASSWORD` in the terminal:
+Populate the explicitly confirmed dedicated demo project after setting `SUPABASE_URL`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DEMO_USER_PASSWORD`, and `DEMO_SUPABASE_PROJECT_REF` in the terminal. The database URL must use TLS, and the ref variable must match both connection endpoints:
 
 ```powershell
 npm run seed:demo -- "--confirm-remote=$env:DEMO_SUPABASE_PROJECT_REF"

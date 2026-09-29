@@ -48,7 +48,7 @@ const sites = [
 ]
 
 const users = [
-  ['Chinedu Okafor', 'Organization Administrator', 'Administration', 'Operations Administrator'],
+  ['Chinedu Okafor', 'Super Administrator', 'Administration', 'Demo Organization Administrator'],
   ['Adebayo Adeyemi', 'QHSE Manager', 'HSE', 'QHSE Manager'],
   ['Chiamaka Nwosu', 'Safety Officer / HSE Officer', 'HSE', 'Environmental Officer'],
   ['Ibrahim Musa', 'Site Supervisor', 'Operations', 'Operations Supervisor'],
@@ -609,8 +609,10 @@ async function resolveDemoOrganization(client) {
 }
 
 async function requireTargetSafety(url, databaseUrl, confirmRemote) {
-  const apiHost = new URL(url).hostname
-  const databaseHost = new URL(databaseUrl).hostname
+  const apiUrl = new URL(url)
+  const databaseConnectionUrl = new URL(databaseUrl)
+  const apiHost = apiUrl.hostname
+  const databaseHost = databaseConnectionUrl.hostname
   const localHosts = ['localhost', '127.0.0.1', '::1']
   const isLocalApi = localHosts.includes(apiHost)
   const isLocalDatabase = localHosts.includes(databaseHost)
@@ -620,6 +622,9 @@ async function requireTargetSafety(url, databaseUrl, confirmRemote) {
   const ref = targetProjectRef(url)
   const dbRef = databaseProjectRef(databaseUrl)
   if (!ref || ref !== dbRef) throw new Error('Remote seed blocked: the database endpoint does not match the Supabase API project ref.')
+  if (!['require', 'verify-ca', 'verify-full'].includes(databaseConnectionUrl.searchParams.get('sslmode') || '')) {
+    throw new Error('Remote seed blocked: SUPABASE_DB_URL must specify sslmode=require (or stricter certificate verification).')
+  }
   if (confirmRemote !== ref) throw new Error(`Remote seed blocked. For this demo project only, pass --confirm-remote=${ref} after confirming the target.`)
   return { local: false, ref }
 }
@@ -696,6 +701,17 @@ async function main() {
     if (records.rows.length !== demoIncidentCount || records.drafts.length !== demoDraftCount) throw new Error('Generated record count check failed.')
     if (records.rows.some(({ incident }) => !allowedStatuses.has(incident.status) || !categories.includes(incident.incident_category) || !severities.includes(incident.severity))) throw new Error('Generated incident enum/configuration check failed.')
     if (records.rows.some(({ incident }) => new Date(incident.occurred_at) > new Date(incident.reported_at))) throw new Error('Generated incident/report chronology check failed.')
+    const expectedSiteIds = new Set(sites.map((site) => uuidFor(seedNamespace, `site-${site.code}`)))
+    const expectedFacilityIds = new Set(sites.map((site) => {
+      const facilityName = `${site.name.replace(' Site', '').replace(' Base', '')} - Main Operations Area`
+      return uuidFor(seedNamespace, `facility-${site.code}-${facilityName}`)
+    }))
+    if (records.rows.some(({ incident }) => !expectedSiteIds.has(incident.site_id) || !expectedFacilityIds.has(incident.facility_id))) throw new Error('Generated site/facility relationship check failed.')
+    if (records.rows.some(({ investigation }) => investigation && (
+      new Date(investigation.started_at) < new Date(investigation.assigned_at)
+      || (investigation.completed_at && new Date(investigation.completed_at) < new Date(investigation.started_at))
+      || investigation.target_completion_date < investigation.created_at.slice(0, 10)
+    ))) throw new Error('Generated investigation chronology check failed.')
     if (!sqlText.startsWith('BEGIN;') || !sqlText.trimEnd().endsWith('COMMIT;') || /^\+/m.test(sqlText)) throw new Error('Generated SQL transaction/format check failed.')
     const statusCounts = Object.fromEntries([...allowedStatuses].map((status) => [status, records.rows.filter(({ incident }) => incident.status === status).length]))
     console.log(JSON.stringify({ dryRun: true, generatedIncidents: records.rows.length, generatedDrafts: records.drafts.length, generatedInvestigations: records.rows.filter((record) => record.investigation).length, sqlBytes: Buffer.byteLength(sqlText), statuses: statusCounts, firstIncident: records.rows[0].incident.reference_number, lastIncident: records.rows.at(-1).incident.reference_number }, null, 2))
