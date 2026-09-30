@@ -144,8 +144,13 @@ Deno.serve(async (request: Request) => {
 
     stage = 'auth_invitation'
     const requestOrigin = request.headers.get('origin')
+    // The route must stay out of the URL fragment. Supabase's implicit flow
+    // appends the session to the fragment, so a hash route here would collide
+    // with it and the auth client would parse the token key as
+    // "/invite-signup#access_token" and never establish a session. A query
+    // parameter keeps the fragment free for Supabase.
     const inviteRedirectUrl = requestOrigin
-      ? `${requestOrigin}/#/invite-signup`
+      ? `${requestOrigin}/?invite=1`
       : Deno.env.get('INVITE_REDIRECT_URL')
     if (!inviteRedirectUrl) {
       throw new Error('Could not determine where to send the invitation link')
