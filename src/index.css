@@ -2833,6 +2833,12 @@ blockquote footer span {
   cursor: pointer;
 }
 
+.reports-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .reports-table-wrap {
   overflow-x: auto;
   border: 1px solid #dfe5ec;
@@ -4761,6 +4767,11 @@ blockquote footer span {
 
   .reports-clear {
     width: 100%;
+  }
+
+  .reports-toolbar-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .reports-pagination {

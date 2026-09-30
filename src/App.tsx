@@ -16,6 +16,7 @@ import { registrationSchema } from './lib/schemas'
 import { countries, worldRegions } from './lib/locations'
 import type { Role } from './types'
 import { BASELINE_PERMISSION_KEYS, BUILT_IN_BACKEND_ROLES, SUPER_ADMINISTRATOR_PERMISSION_KEYS, USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_PERMISSION_CATALOG, USER_MANAGEMENT_ROLE_DEFINITIONS, USER_MANAGEMENT_ROLE_PERMISSION_MATRIX, hasPermission, permissionsForRole } from './data/userManagementConfig'
+import { starnetMockUserBatch } from './data/starnetMockUserBatch'
 import type { PermissionKey } from './data/userManagementConfig'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { IncidentReportForm } from './features/incidents/IncidentReportForm'
@@ -1947,6 +1948,18 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
   const [inviteDepartment, setInviteDepartment] = useState('')
   const [inviteRole, setInviteRole] = useState<string>('Field Worker')
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [mockBatchLoading, setMockBatchLoading] = useState(false)
+  const [mockBatchResult, setMockBatchResult] = useState<{ createdCount: number; alreadyExistingCount: number; users: Array<{ id: string; fullName: string; email: string; role: string; department: string; siteLocation: string; employeeId: string; temporaryPassword: string | null }> } | null>(null)
+  const [mockIncidentLoading, setMockIncidentLoading] = useState(false)
+  const [mockIncidentResult, setMockIncidentResult] = useState<{
+    batchId: string
+    createdCount: number
+    alreadyExistingCount: number
+    tableCounts: Record<string, number>
+    byStatus: Record<string, number>
+    bySeverity: Record<string, number>
+    byCategory: Record<string, number>
+  } | null>(null)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -2118,6 +2131,52 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
     }
   }
 
+  const createMockUserBatch = async () => {
+    if (!canInviteUsers || organizationId !== starnetMockUserBatch.organizationId) {
+      setError('This mock-user batch is restricted to StarNet Tech administrators.')
+      return
+    }
+    setError('')
+    setMessage('')
+    setMockBatchLoading(true)
+    setMockBatchResult(null)
+    const { data, error: batchError } = await supabase.functions.invoke('admin-seed-mock-users', {
+      body: { ...starnetMockUserBatch, organizationId },
+    })
+    setMockBatchLoading(false)
+    if (batchError) {
+      setError(await getEdgeFunctionErrorMessage(batchError))
+      return
+    }
+    const result = data as { createdCount: number; alreadyExistingCount: number; users: NonNullable<typeof mockBatchResult>['users'] }
+    setMockBatchResult(result)
+    setMessage(`Mock batch complete: ${result.createdCount} created, ${result.alreadyExistingCount} already existed.`)
+    await loadUsers()
+  }
+
+  const seedMockIncidentBatch = async () => {
+    if (!canInviteUsers || organizationId !== starnetMockUserBatch.organizationId) {
+      setError('This mock-incident batch is restricted to StarNet Tech administrators.')
+      return
+    }
+    setError('')
+    setMessage('')
+    setMockIncidentLoading(true)
+    setMockIncidentResult(null)
+    const { data, error: seedError } = await supabase.functions.invoke('admin-seed-mock-incidents', {
+      body: { organizationId, organizationCode: starnetMockUserBatch.organizationCode, batchId: 'MOCK-STARNET-INCIDENTS-20260929' },
+    })
+    setMockIncidentLoading(false)
+    if (seedError) {
+      setError(await getEdgeFunctionErrorMessage(seedError))
+      return
+    }
+    const result = data as NonNullable<typeof mockIncidentResult>
+    setMockIncidentResult(result)
+    setMessage(`Incident batch complete: ${result.createdCount} created, ${result.alreadyExistingCount} already present.`)
+    window.dispatchEvent(new CustomEvent('incident-records-updated', { detail: { organizationId } }))
+  }
+
   const saveDepartment = async () => {
     const name = departmentDraft.trim()
     if (!name) {
@@ -2274,6 +2333,21 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
         </select>
         <button className="button button-green button-small" disabled={inviteLoading}>{inviteLoading ? 'Sending...' : 'Send invite'}</button>
       </form>}
+      {canInviteUsers && organizationId === starnetMockUserBatch.organizationId && <div className="workspace-panel-actions">
+        <button className="button button-outline button-small" type="button" disabled={mockBatchLoading} onClick={() => void createMockUserBatch()}>{mockBatchLoading ? 'Creating test accounts...' : 'Create StarNet test accounts'}</button>
+        <button className="button button-outline button-small" type="button" disabled={mockIncidentLoading} onClick={() => void seedMockIncidentBatch()}>{mockIncidentLoading ? 'Seeding 1,000 mock incidents...' : 'Seed 1,000 mock incidents'}</button>
+      </div>}
+      {mockIncidentResult && <section className="workspace-section" aria-live="polite">
+        <h3>Incident batch: {mockIncidentResult.createdCount} created, {mockIncidentResult.alreadyExistingCount} already present</h3>
+        <p>Batch {mockIncidentResult.batchId}; timestamps are limited to 2023-09-29 through 2026-09-29. Evidence attachments were not created.</p>
+        <div className="user-table-wrap"><table className="user-table"><thead><tr><th>Table</th><th>Rows</th></tr></thead><tbody>{Object.entries(mockIncidentResult.tableCounts).map(([table, count]) => <tr key={table}><td>{table}</td><td>{count}</td></tr>)}</tbody></table></div>
+        <div className="role-permission-list">{Object.entries(mockIncidentResult.byStatus).map(([value, count]) => <span key={`status-${value}`}>Status: {value} ({count})</span>)}{Object.entries(mockIncidentResult.bySeverity).map(([value, count]) => <span key={`severity-${value}`}>Severity: {value} ({count})</span>)}{Object.entries(mockIncidentResult.byCategory).map(([value, count]) => <span key={`category-${value}`}>Category: {value} ({count})</span>)}</div>
+      </section>}
+      {mockBatchResult && <section className="workspace-section" aria-live="polite">
+        <h3>Mock accounts: {mockBatchResult.createdCount} created, {mockBatchResult.alreadyExistingCount} already existed</h3>
+        <p>New accounts have active status. Temporary passwords are shown once here; distribute them securely and rotate them after first sign-in. Password rotation is not currently enforced by the application.</p>
+        <div className="user-table-wrap"><table className="user-table"><thead><tr><th>Name / ID</th><th>Email</th><th>Role</th><th>Department</th><th>Site</th><th>One-time password</th></tr></thead><tbody>{mockBatchResult.users.map((user) => <tr key={user.id}><td><strong>{user.fullName}</strong><small>{user.id} · {user.employeeId}</small></td><td>{user.email}</td><td>{user.role}</td><td>{user.department}</td><td>{user.siteLocation}</td><td>{user.temporaryPassword ?? 'Existing account; unchanged'}</td></tr>)}</tbody></table></div>
+      </section>}
       <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">All roles</option>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select><select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="all">All departments</option>{departments.filter((department) => department.active).map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}<option value="__unset__">Department not set</option></select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
       <AuthMessage error={error} success={message} />
       {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{getDepartmentLabel(user.department)}</td><td><select value={user.role} disabled={user.id === currentUserId || !canManageUserRoles} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId || !canEditUsers} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}>{!['active', 'inactive'].includes(user.account_status) && <option value={user.account_status} disabled>{user.account_status.charAt(0).toUpperCase() + user.account_status.slice(1)}</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></td><td><select aria-label={`Actions for ${user.full_name}`} defaultValue="" disabled={user.id === currentUserId || (!canSuspendUsers && !canDeactivateUsers)} onChange={(event) => { const action = event.target.value; if (action === 'Suspend' && canSuspendUsers) void updateUser(user, 'account_status', 'suspended'); if (action === 'Deactivate' && canDeactivateUsers) void updateUser(user, 'account_status', 'inactive'); event.currentTarget.value = '' }}><option value="">Select action</option>{USER_ACTION_OPTIONS.filter((action) => action === 'Suspend' ? canSuspendUsers : canDeactivateUsers).map((action) => <option value={action} key={action}>{action}</option>)}</select></td></tr>)}</tbody></table></div>}
