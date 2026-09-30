@@ -143,6 +143,12 @@ Apply migrations in order:
 
 The region migration adds `organizations.region` and updates the organization-owner registration function. The activity-log migration removes organizationless authenticated reads/inserts and requires a valid organization membership for audit data access. The incident migrations add the incident domain, private evidence storage, organization-scoped references, and role-aware incident/evidence policies.
 
+Invitation-related migrations that must be applied in order after the rest of the series:
+
+- `202609290028_fix_company_config_validation.sql` — treats empty, null, and non-array company settings as "nothing configured" so incident reporting is not blocked by placeholder settings.
+- `202609290029_fix_has_org_role_and_pending_access.sql` — compares membership roles as text so custom role names work, and excludes `pending` profiles from `is_org_member`. Suspended and inactive accounts keep their existing access.
+- `202609290030_list_organization_invitations_rpc.sql` — adds the read-only `list_organization_invitations` RPC used by the Invitations panel.
+
 ## RLS and tenant isolation
 
 RLS is the actual security boundary. Frontend navigation and role checks are not sufficient by themselves.
@@ -228,6 +234,46 @@ supabase functions deploy admin-invite-user
 ```
 
 Supabase supplies the function secrets. Do not expose or manually add the service-role key to Vite environment variables.
+
+## Invitation email delivery
+
+Invitation emails are sent through EmailJS, not Supabase's built-in SMTP. `admin-invite-user` calls `auth.admin.generateLink({ type: 'invite' })` to create the user and link, then hands the HTML to [supabase/functions/_shared/inviteEmail.ts](supabase/functions/_shared/inviteEmail.ts), which posts to the EmailJS send API.
+
+Set these as Edge Function secrets for the deployed function. The deployed function reads only the Supabase secret store, never a local file. The same four values in the gitignored root `.env` are used by the local test script:
+
+```env
+EMAILJS_SERVICE_ID=service_xxxxxxx
+EMAILJS_TEMPLATE_ID=template_xxxxxxx
+EMAILJS_PUBLIC_KEY=your_public_key
+EMAILJS_PRIVATE_KEY=your_private_key
+```
+
+`EMAILJS_PUBLIC_KEY` and `EMAILJS_PRIVATE_KEY` are both on the Account -> API keys page. The private key is required because the account has "Allow EmailJS API for non-browser applications" enabled, which puts the API in strict mode and demands `accessToken` on every request. It stays server-side: the sender is imported only by the Edge Function and never by the frontend bundle. Vite only inlines `VITE_`-prefixed variables, so the key is not exposed to the browser even though it sits in the root `.env`.
+
+EmailJS requires a template on every send, so the dashboard template is a thin shell and all real markup lives in the Edge Function:
+
+- Subject line: `{{subject}}`
+- Body: `<html><body>{{{message}}}</body></html>`
+
+**Triple braces are mandatory.** EmailJS HTML-escapes double-brace variables by default, so `{{message}}` would show the recipient the markup as literal `<table>` and `<h1>` text. Every value interpolated into the fragment is passed through `escapeHtml` first, so the unescaped injection is limited to markup this repository generates.
+
+Because the template supplies the document, the fragment returned by `renderInviteEmail` must not include `<!DOCTYPE html>`, `<html>`, or `<body>` of its own.
+
+### Testing the email template
+
+```bash
+npm run test:emailjs
+```
+
+[scripts/test-emailjs.mjs](scripts/test-emailjs.mjs) sends a small HTML fragment through the real EmailJS API using the values in the root `.env`, so template changes can be verified without deploying or sending a real invitation. It reports the HTTP status and EmailJS's response body, and names any missing environment variable before attempting a send.
+
+### Invitation lifecycle
+
+- Links expire after 24 hours, matching `admin_invitations.expires_at`.
+- The invitee's `profiles.account_status` stays `pending` until they complete setup; `is_org_member` excludes pending users so an invitee cannot read tenant data before accepting.
+- `redirectTo` is built from the request `Origin` plus `/#/invite-signup`, falling back to `INVITE_REDIRECT_URL`. Both the localhost and deployed URLs must be listed explicitly in the Supabase redirect URL allow-list. Never use a wildcard.
+- Resending replaces the old auth user, profile, and membership row with a fresh invitation. If delivery fails, the partial invite is rolled back so no half-created user is left behind.
+- The **Invitations** panel in User Management lists invitation status for organization administrators and allows resending any invitation that has not expired.
 
 ## Application routes
 
