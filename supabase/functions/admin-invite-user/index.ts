@@ -1,4 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { sendInviteEmail } from '../_shared/inviteEmail.ts'
+
+const INVITE_EXPIRY_HOURS = 24
 
 type InviteRequest = {
   organizationId: string
@@ -114,70 +117,118 @@ Deno.serve(async (request: Request) => {
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
     const { data: existingInvitation } = await adminClient
       .from('admin_invitations')
-      .select('id, status, expires_at')
+      .select('id, status, expires_at, invited_user_id')
       .eq('organization_id', organizationId)
       .eq('invitee_email', normalizedEmail)
       .eq('status', 'pending')
       .maybeSingle()
     if (existingInvitation) {
       if (new Date(existingInvitation.expires_at).getTime() > Date.now()) throw new Error('A pending invitation already exists for this email')
+      // generateLink returns the same expired token for an auth user that already
+      // exists, so the old user has to go before a fresh link can be issued.
       await adminClient.from('admin_invitations').update({ status: 'expired' }).eq('id', existingInvitation.id).eq('status', 'pending')
+      if (existingInvitation.invited_user_id) {
+        await adminClient.from('memberships').delete().eq('user_id', existingInvitation.invited_user_id).eq('organization_id', organizationId)
+        await adminClient.from('profiles').delete().eq('id', existingInvitation.invited_user_id).eq('organization_id', organizationId)
+        await adminClient.auth.admin.deleteUser(existingInvitation.invited_user_id)
+      }
     }
+
+    stage = 'organization_lookup'
+    const { data: organization, error: organizationError } = await adminClient
+      .from('organizations')
+      .select('company_name')
+      .eq('id', organizationId)
+      .maybeSingle()
+    if (organizationError) throw new Error(organizationError.message)
 
     stage = 'auth_invitation'
     const requestOrigin = request.headers.get('origin')
-    const inviteRedirectUrl = Deno.env.get('INVITE_REDIRECT_URL') || (requestOrigin ? `${requestOrigin}/#/invite-signup` : undefined)
-    const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, inviteRedirectUrl ? { redirectTo: inviteRedirectUrl } : undefined)
-    if (inviteError || !invited.user) {
-      const message = inviteError?.message || 'Unable to invite user'
+    const inviteRedirectUrl = requestOrigin
+      ? `${requestOrigin}/#/invite-signup`
+      : Deno.env.get('INVITE_REDIRECT_URL')
+    if (!inviteRedirectUrl) {
+      throw new Error('Could not determine where to send the invitation link')
+    }
+    console.log(JSON.stringify({ event: 'invite_redirect', organizationId, requesterId, inviteRedirectUrl }))
+
+    const { data: linked, error: linkError } = await adminClient.auth.admin.generateLink({
+      type: 'invite',
+      email: normalizedEmail,
+      options: { redirectTo: inviteRedirectUrl },
+    })
+    if (linkError || !linked?.properties?.action_link) {
+      const message = linkError?.message || 'Unable to create the invitation link'
       if (/already (been )?registered|already exists/i.test(message)) {
         throw new Error('This email already has a SentinelQHSE account and cannot be invited again.')
       }
       throw new Error(message)
     }
+    const actionLink = linked.properties.action_link
 
     const derivedFullName = normalizedEmail.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+    const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000).toISOString()
 
     stage = 'invitation_record_insert'
     const { data: invitation, error: invitationError } = await adminClient.from('admin_invitations').insert({
       organization_id: organizationId,
       invitee_email: normalizedEmail,
-      invited_user_id: invited.user.id,
+      invited_user_id: linked.user.id,
       department: normalizedDepartment || null,
       role: normalizedRole,
       inviter_id: requester.id,
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      expires_at: expiresAt,
     }).select('id').single()
     if (invitationError || !invitation) {
-      await adminClient.auth.admin.deleteUser(invited.user.id)
+      await adminClient.auth.admin.deleteUser(linked.user.id)
       throw new Error(invitationError?.message || 'Unable to create invitation record')
     }
 
     stage = 'profile_insert'
     const { error: profileError } = await adminClient.rpc('create_pending_invited_profile', {
-      p_user_id: invited.user.id,
+      p_user_id: linked.user.id,
       p_organization_id: organizationId,
       p_full_name: derivedFullName || 'Invited user',
       p_department: normalizedDepartment || null,
     })
     if (profileError) {
       await adminClient.from('admin_invitations').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', invitation.id)
-      await adminClient.auth.admin.deleteUser(invited.user.id)
+      await adminClient.auth.admin.deleteUser(linked.user.id)
       throw new Error(profileError.message)
     }
 
     stage = 'membership_insert'
     const { error: membershipError } = await adminClient.from('memberships').insert({
-      user_id: invited.user.id,
+      user_id: linked.user.id,
       organization_id: organizationId,
       role: normalizedRole,
     })
     if (membershipError) {
       await adminClient.from('admin_invitations').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', invitation.id)
       await recordActivity(adminClient, organizationId, requester.id, 'Invitation revoked', { reason: 'membership_creation_failed' })
-      await adminClient.from('profiles').delete().eq('id', invited.user.id).eq('organization_id', organizationId)
-      await adminClient.auth.admin.deleteUser(invited.user.id)
+      await adminClient.from('profiles').delete().eq('id', linked.user.id).eq('organization_id', organizationId)
+      await adminClient.auth.admin.deleteUser(linked.user.id)
       throw new Error(membershipError.message)
+    }
+
+    stage = 'email_delivery'
+    try {
+      await sendInviteEmail({
+        inviteeEmail: normalizedEmail,
+        organizationName: organization?.company_name || 'your organization',
+        department: normalizedDepartment || null,
+        role: normalizedRole,
+        inviteUrl: actionLink,
+        expiresInHours: INVITE_EXPIRY_HOURS,
+      })
+    } catch (emailError) {
+      const message = emailError instanceof Error ? emailError.message : 'Invitation email could not be sent'
+      await adminClient.from('admin_invitations').update({ status: 'revoked', revoked_at: new Date().toISOString() }).eq('id', invitation.id)
+      await recordActivity(adminClient, organizationId, requester.id, 'Invitation revoked', { reason: 'email_delivery_failed' })
+      await adminClient.from('memberships').delete().eq('user_id', linked.user.id).eq('organization_id', organizationId)
+      await adminClient.from('profiles').delete().eq('id', linked.user.id).eq('organization_id', organizationId)
+      await adminClient.auth.admin.deleteUser(linked.user.id)
+      throw new Error(message)
     }
 
     stage = 'activity_log'

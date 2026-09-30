@@ -3124,8 +3124,9 @@ blockquote footer span {
 .permission-group-list {
   display: grid;
   gap: 16px;
-  max-height: min(52vh, 560px);
+  max-height: min(42vh, 420px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 6px;
 }
 
@@ -3205,11 +3206,14 @@ blockquote footer span {
   place-items: center;
   padding: 20px;
   background: rgba(15, 23, 42, 0.5);
+  overflow-y: auto;
 }
 
 .role-creator-modal {
   width: min(760px, 100%);
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 40px);
   gap: 20px;
   padding: 20px;
   border: 1px solid #dfe5ec;
@@ -3223,6 +3227,7 @@ blockquote footer span {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex: none;
 }
 
 .role-creator-header h3 {
@@ -3231,9 +3236,17 @@ blockquote footer span {
   font-size: 22px;
 }
 
+/* Header and actions keep their intrinsic height; the body absorbs the
+   remaining space and scrolls. min-height:0 on the body is required on a flex
+   item, otherwise it refuses to shrink below its content and overflow-y never
+   engages. */
 .role-creator-body {
   display: grid;
   gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .role-creator-body label {
@@ -3257,6 +3270,7 @@ blockquote footer span {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex: none;
 }
 
 .role-card {
@@ -4795,5 +4809,13 @@ blockquote footer span {
 
   .incident-activity-list span {
     grid-column: auto;
+  }
+
+  .role-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .permission-group-list {
+    max-height: min(52vh, 420px);
   }
 }

@@ -264,6 +264,7 @@ function InviteSignupPage() {
   const [details, setDetails] = useState<InvitationDetails | null>(null)
   const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -301,6 +302,11 @@ function InviteSignupPage() {
       return
     }
     setSubmitting(true)
+    if (password !== confirmPassword) {
+      setSubmitting(false)
+      setError('Passwords do not match.')
+      return
+    }
     const { error: passwordError } = await supabase.auth.updateUser({ password })
     if (passwordError) {
       setSubmitting(false)
@@ -315,8 +321,8 @@ function InviteSignupPage() {
       setError(acceptanceError?.message || 'This invitation could not be accepted.')
       return
     }
-    setMessage('Your account is ready. Redirecting to User sign in...')
-    window.setTimeout(() => { window.location.hash = '#sign-in?mode=user' }, 800)
+    setMessage('Your account is ready. Taking you to your workspace...')
+    window.setTimeout(() => { window.location.hash = '#dashboard' }, 800)
   }
 
   return (
@@ -329,6 +335,7 @@ function InviteSignupPage() {
           <label>Role<input value={details.role} readOnly /></label>
           <label>Full name<input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required /></label>
           <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" required /></label>
+          <label>Confirm password<input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" required /></label>
           <AuthMessage error={error} success={message} />
           <button className="button button-green auth-submit" disabled={submitting}>{submitting ? 'Setting up account...' : 'Set up account'}</button>
         </form>
@@ -386,6 +393,7 @@ const secondaryNavigation: { route: AppRoute; label: string; permission: Permiss
 
 const futureModuleRoutes: { route: AppRoute; label: string; permission: PermissionKey }[] = [
   { route: 'incidents', label: 'Incident Management', permission: 'view_all_incidents' },
+  { route: 'incident-detail', label: 'Incident Detail', permission: 'view_all_incidents' },
   { route: 'corrective-actions', label: 'Corrective Actions', permission: 'view_dashboard' },
   { route: 'inspections', label: 'Safety Inspections', permission: 'view_dashboard' },
   { route: 'audits', label: 'Audit Management', permission: 'view_dashboard' },
@@ -460,6 +468,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id, account_status').eq('id', session.user.id).maybeSingle()
       if (profileError) setError(profileError.message)
       else if (!profile) setNeedsSetup(true)
+      else if (profile.account_status === 'pending') {
+        setLoading(false)
+        window.location.hash = '#/invite-signup'
+        return
+      }
       if (profile?.full_name) setProfileName(profile.full_name)
       if (profile?.organization_id) {
         setOrganizationId(profile.organization_id)
@@ -1341,6 +1354,31 @@ type ManagedUser = {
   role: string
 }
 
+type OrganizationInvitation = {
+  id: string
+  invitee_email: string
+  department: string | null
+  role: string
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  invited_user_id: string
+  inviter_id: string
+  invited_by_name: string | null
+  created_at: string
+  expires_at: string
+  accepted_at: string | null
+  revoked_at: string | null
+}
+
+function describeInvitationExpiry(invitation: OrganizationInvitation) {
+  if (invitation.status !== 'pending') return null
+  const remainingMs = new Date(invitation.expires_at).getTime() - Date.now()
+  if (remainingMs <= 0) return 'Expired'
+  const remainingHours = Math.floor(remainingMs / 3_600_000)
+  if (remainingHours < 1) return `Expires in ${Math.max(1, Math.floor(remainingMs / 60_000))}m`
+  if (remainingHours < 24) return `Expires in ${remainingHours}h`
+  return `Expires in ${Math.floor(remainingHours / 24)}d`
+}
+
 type ManagedUserFilters = {
   query: string
   role: string
@@ -1947,6 +1985,10 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
   const [inviteDepartment, setInviteDepartment] = useState('')
   const [inviteRole, setInviteRole] = useState<string>('Field Worker')
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [invitations, setInvitations] = useState<OrganizationInvitation[]>([])
+  const [invitationsLoading, setInvitationsLoading] = useState(false)
+  const [resendingEmail, setResendingEmail] = useState<string | null>(null)
+  const [showInvitations, setShowInvitations] = useState(false)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -2118,6 +2160,33 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
     }
   }
 
+  const loadInvitations = async () => {
+    setInvitationsLoading(true)
+    const { data, error: invitationsError } = await supabase.rpc('list_organization_invitations')
+    setInvitationsLoading(false)
+    if (invitationsError) {
+      setError(invitationsError.message)
+      return
+    }
+    setInvitations((data as OrganizationInvitation[] | null) || [])
+  }
+
+  const resendInvitation = async (invitation: OrganizationInvitation) => {
+    setError('')
+    setMessage('')
+    setResendingEmail(invitation.invitee_email)
+    const { error: resendError } = await supabase.functions.invoke('admin-invite-user', {
+      body: { organizationId, email: invitation.invitee_email, department: invitation.department, role: invitation.role },
+    })
+    setResendingEmail(null)
+    if (resendError) {
+      setError(await getEdgeFunctionErrorMessage(resendError))
+      return
+    }
+    setMessage(`A new invitation was sent to ${invitation.invitee_email}.`)
+    await loadInvitations()
+  }
+
   const saveDepartment = async () => {
     const name = departmentDraft.trim()
     if (!name) {
@@ -2232,6 +2301,12 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
           {canManageRolesPermissions && <button className="button button-outline button-small" type="button" onClick={() => setShowRoleManagement((current) => !current)}>
             {showRoleManagement ? 'Hide roles' : 'Manage roles'}
           </button>}
+          {canInviteUsers && <button className="button button-outline button-small" type="button" onClick={() => {
+            setShowInvitations((current) => !current)
+            if (!showInvitations) void loadInvitations()
+          }}>
+            {showInvitations ? 'Hide invitations' : 'Invitations'}
+          </button>}
           <select className="export-format-select" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)} aria-label="Export format">
             <option value="pdf">PDF</option>
             <option value="xlsx">Excel</option>
@@ -2242,7 +2317,7 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
         </div>
       </div>
       {canInviteUsers && <form className="invite-form" onSubmit={inviteUser}>
-        <div><strong>Invite a user</strong><span>Invitation emails are sent through Supabase Auth.</span></div>
+        <div><strong>Invite a user</strong><span>Invitation emails expire after 24 hours.</span></div>
         <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} type="email" placeholder="Work email" required />
         <select value={inviteDepartment} onChange={(event) => {
           if (event.target.value === '__create_new_department__') {
@@ -2277,6 +2352,41 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
       <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">All roles</option>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select><select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="all">All departments</option>{departments.filter((department) => department.active).map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}<option value="__unset__">Department not set</option></select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
       <AuthMessage error={error} success={message} />
       {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{getDepartmentLabel(user.department)}</td><td><select value={user.role} disabled={user.id === currentUserId || !canManageUserRoles} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId || !canEditUsers} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}>{!['active', 'inactive'].includes(user.account_status) && <option value={user.account_status} disabled>{user.account_status.charAt(0).toUpperCase() + user.account_status.slice(1)}</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></td><td><select aria-label={`Actions for ${user.full_name}`} defaultValue="" disabled={user.id === currentUserId || (!canSuspendUsers && !canDeactivateUsers)} onChange={(event) => { const action = event.target.value; if (action === 'Suspend' && canSuspendUsers) void updateUser(user, 'account_status', 'suspended'); if (action === 'Deactivate' && canDeactivateUsers) void updateUser(user, 'account_status', 'inactive'); event.currentTarget.value = '' }}><option value="">Select action</option>{USER_ACTION_OPTIONS.filter((action) => action === 'Suspend' ? canSuspendUsers : canDeactivateUsers).map((action) => <option value={action} key={action}>{action}</option>)}</select></td></tr>)}</tbody></table></div>}
+      {showInvitations && canInviteUsers && (
+        <section className="invitations-section">
+          <div className="workspace-panel-heading">
+            <div>
+              <div className="eyebrow">INVITATIONS</div>
+              <h2>Pending and recent invitations</h2>
+              <p>Invitation links expire 24 hours after they are sent.</p>
+            </div>
+            <div className="workspace-panel-actions">
+              <button className="button button-outline button-small" type="button" onClick={() => void loadInvitations()} disabled={invitationsLoading}>
+                {invitationsLoading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+          {invitationsLoading && invitations.length === 0 ? <div className="workspace-empty">Loading invitations...</div>
+            : invitations.length === 0 ? <div className="workspace-empty">No invitations have been sent yet.</div>
+            : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>Invitee</th><th>Department</th><th>Role</th><th>Status</th><th>Invited by</th><th>Sent</th><th>Actions</th></tr></thead><tbody>{invitations.map((invitation) => {
+              const expiryLabel = describeInvitationExpiry(invitation)
+              const canResend = invitation.status === 'pending' && expiryLabel !== 'Expired'
+              return <tr key={invitation.id}>
+                <td><strong>{invitation.invitee_email}</strong></td>
+                <td>{getDepartmentLabel(invitation.department)}</td>
+                <td>{invitation.role}</td>
+                <td>{invitation.status.charAt(0).toUpperCase() + invitation.status.slice(1)}{expiryLabel ? <small>{expiryLabel}</small> : null}</td>
+                <td>{invitation.invited_by_name || '—'}</td>
+                <td>{new Date(invitation.created_at).toLocaleString()}</td>
+                <td>{canResend
+                  ? <button className="button button-outline button-small" type="button" disabled={resendingEmail === invitation.invitee_email} onClick={() => void resendInvitation(invitation)}>
+                    {resendingEmail === invitation.invitee_email ? 'Sending...' : 'Resend'}
+                  </button>
+                  : <span>—</span>}</td>
+              </tr>
+            })}</tbody></table></div>}
+        </section>
+      )}
       {showRoleManagement && canManageRolesPermissions && <RoleManagementSection organizationId={organizationId} canManage />}
       {roleModalOpen && canManageRolesPermissions && (
         <div className="role-creator-backdrop" onClick={() => setRoleModalOpen(false)}>
