@@ -71,11 +71,27 @@ export function useIncidentOfflineSync(client: SupabaseClient) {
 
 export function useIncidents(client: SupabaseClient, filters: IncidentListFilters = {}, scope: IncidentListScope = 'organization') {
   const organization = useIncidentOrganization(client)
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    const organizationId = organization.data?.organizationId
+    if (!organizationId) return
+    const handleIncidentRecordsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ organizationId?: string }>).detail
+      if (detail?.organizationId === organizationId) {
+        void queryClient.invalidateQueries({ queryKey: ['incidents', 'list', organizationId] })
+        void queryClient.invalidateQueries({ queryKey: ['dashboard', organizationId] })
+      }
+    }
+    window.addEventListener('incident-records-updated', handleIncidentRecordsUpdated)
+    return () => window.removeEventListener('incident-records-updated', handleIncidentRecordsUpdated)
+  }, [organization.data?.organizationId, queryClient])
+
   return useQuery<IncidentListResult>({
     queryKey: incidentQueryKeys.list(organization.data?.organizationId || 'pending', scope, filters),
     queryFn: () => getIncidents(client, filters, scope),
     enabled: Boolean(organization.data?.organizationId),
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
     refetchOnWindowFocus: true,
   })
 }

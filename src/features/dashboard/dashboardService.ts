@@ -148,6 +148,10 @@ export async function getDashboardSnapshot(
   ])
   if (settingsError || sitesError) throw new Error('Unable to load organization dashboard configuration.')
 
+  const selectedSiteId = filters.site === 'all'
+    ? null
+    : organizationSites?.find((site) => site.name.trim().toLowerCase() === filters.site.trim().toLowerCase())?.id ?? '00000000-0000-0000-0000-000000000000'
+
   const countIncidents = async (status?: 'submitted' | 'under_review' | 'closed', reportType?: 'near_miss') => {
     let query = client
       .from('incidents')
@@ -157,7 +161,7 @@ export async function getDashboardSnapshot(
     if (status) query = query.eq('status', status)
     if (reportType) query = query.eq('report_type', reportType)
     if (since) query = query.gte('occurred_at', since)
-    if (filters.site !== 'all') query = query.eq('site_id', filters.site)
+    if (selectedSiteId) query = query.eq('site_id', selectedSiteId)
     if (filters.department !== 'all') query = query.eq('department', filters.department)
     if (filters.severity !== 'all') query = query.eq('severity', filters.severity)
     if (filters.incidentType !== 'all') query = query.in('incident_category', incidentCategoryValues(filters.incidentType))
@@ -171,29 +175,37 @@ export async function getDashboardSnapshot(
     .eq('organization_id', organizationId)
     .neq('status', 'draft')
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
   if (since) filteredIncidentQuery = filteredIncidentQuery.gte('occurred_at', since)
-  if (filters.site !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('site_id', filters.site)
+  if (selectedSiteId) filteredIncidentQuery = filteredIncidentQuery.eq('site_id', selectedSiteId)
   if (filters.department !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('department', filters.department)
   if (filters.severity !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('severity', filters.severity)
   if (filters.incidentType !== 'all') filteredIncidentQuery = filteredIncidentQuery.in('incident_category', incidentCategoryValues(filters.incidentType))
   if (filters.shift !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('shift', filters.shift)
 
-  const [totalResult, submittedResult, reviewResult, closedResult, nearMissResult, filteredIncidentResult] = await Promise.all([
+  const [totalResult, submittedResult, reviewResult, closedResult, nearMissResult] = await Promise.all([
     countIncidents(),
     countIncidents('submitted'),
     countIncidents('under_review'),
     countIncidents('closed'),
     countIncidents(undefined, 'near_miss'),
-    filteredIncidentQuery,
   ])
   const incidentQueryError = [totalResult, submittedResult, reviewResult, closedResult, nearMissResult].find((result) => result.error)?.error
-  if (incidentQueryError || filteredIncidentResult.error) throw new Error('Unable to load incident dashboard metrics.')
+  if (incidentQueryError) throw new Error('Unable to load incident dashboard metrics.')
+  const incidentRows: DashboardIncidentRow[] = []
+  const incidentPageSize = 500
+  for (let offset = 0; ; offset += incidentPageSize) {
+    const { data: page, error: pageError } = await filteredIncidentQuery.range(offset, offset + incidentPageSize - 1)
+    if (pageError) throw new Error('Unable to load incident dashboard metrics.')
+    incidentRows.push(...(page || []) as DashboardIncidentRow[])
+    if (!page || page.length < incidentPageSize) break
+  }
   const incidentCount = totalResult.count || 0
   const incidentMetricValues: Record<string, number> = {
     'total-incidents': incidentCount,
     'open-incidents': submittedResult.count || 0,
     'under-review-incidents': reviewResult.count || 0,
-    'closed-incidents': closedResult.count || 0,
+    'resolved-incidents': closedResult.count || 0,
     'near-misses': nearMissResult.count || 0,
   }
   const metrics = unavailableMetrics().map((metric) => {
@@ -201,7 +213,6 @@ export async function getDashboardSnapshot(
     if (value === undefined) return metric
     return { ...metric, value: String(value), detail: 'Organization incident data', available: true, tone: metric.key === 'open-incidents' ? 'orange' as const : 'green' as const }
   })
-  const incidentRows = (filteredIncidentResult.data || []) as DashboardIncidentRow[]
   const siteNames = new Map((organizationSites || []).map((site) => [site.id, site.name]))
   const recentIncidents = incidentRows.slice(0, 5).map((incident) => ({
     id: incident.id,
