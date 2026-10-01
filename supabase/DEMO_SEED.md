@@ -1,54 +1,77 @@
-# SentinelQHSE Demo Seed
+# SentinelQHSE PostgreSQL demo seed
 
-This seed targets the migrated SentinelQHSE schema. It creates only records for the clearly marked `SENTINEL-DEMO` organization. It does not reset the database, delete existing rows, disable RLS, create schema, or seed corrective actions (the migrated schema has no corrective-action table).
+This runbook describes the reviewed SQL seed in `seed.sql` and its read-only report in `seed_validation.sql`. Neither file has been executed against a database as part of this change.
 
-## Contents
+## What the seed creates
 
-- One reused or created `Sentinel Energy & Industrial Services Ltd` demo organization.
-- 20 confirmed Supabase Auth users with `@example.com` demo addresses and one configured demo-only password.
-- 20 organization-scoped profiles and memberships using existing enum roles.
-- 10 department, 3 shift, 16 category, 4 severity JSON settings; 8 sites/facilities; synthetic emergency contacts.
-- 1,000 non-draft incidents distributed over the historical window, plus 15 incomplete drafts.
-- Investigation, incident-people, notification-preference, and selected activity rows where those tables support them.
+- One reused or clearly marked `Sentinel Energy & Industrial Services Ltd` demo organization.
+- 20 organization-scoped profiles and memberships backed by real Supabase Auth users.
+- 10 departments, 8 demo Nigerian sites and facilities, 3 shifts, 17 incident categories, and four lowercase severity settings, merged into the existing `company_settings` JSON configuration without replacing unrelated entries.
+- 1,200 submitted incidents and 15 drafts in the existing `incidents` table, distributed across 2023-09-29 through 2026-09-29.
+- 960 investigations, 900 corrective actions, selected incident-people links, notification preferences, and approximately 330 activity rows.
 
-The incident schema stores department, shift, category, and severity as text snapshots; site and facility are foreign-key relationships. The script uses the schema's actual representation. `incident_evidence` metadata is not fabricated because the project has no physical demo files to back it. No normalized corrective-action data is created because the table does not exist.
+The database reference-number triggers assign incident and corrective-action references. The seed uses stable record IDs and demo markers for idempotency; it does not reset reference sequences.
 
-## Credentials and target safety
+The checked-in schema has no normalized departments, shifts, categories, or severity tables. These options use `company_settings`; sites/facilities are normalized. Drafts are `incidents` with `status = 'draft'`. There is no notifications table; notification preferences are seeded. Evidence metadata is intentionally omitted because the seed has no real files or storage objects to reference.
 
-The script creates Auth users with `auth.admin.createUser` in Node, never from browser code or SQL. It requires server-only `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL`, and `DEMO_USER_PASSWORD` environment variables. The service key, database URL/password, and demo password must never use a `VITE_` prefix or be committed.
+Incident scenarios are weighted rather than evenly distributed: near misses, unsafe conditions, and unsafe acts are most common. Severity uses approximately 60% low, 30% medium, 9% high, and 1% critical. Recent incidents are kept in active workflow statuses. Corrective actions use the existing `open`, `in_progress`, `pending_verification`, and `verified` statuses; `verified` represents completed, and overdue is derived from a past `due_date` on a nonterminal action.
 
-Set these variables in the local terminal environment. `.env.local` is already ignored by Git and may be used locally. The seed refuses remote writes unless the project ref in `SUPABASE_URL` matches the direct DB host (`db.<ref>.supabase.co`) or pooler username (`postgres.<ref>`), and that ref is explicitly confirmed. Run this only against a dedicated disposable demo project, not production. It performs upserts/inserts and does not truncate or delete database rows; new Auth identities are created only when the demo email is absent and are reused only when marked as demo accounts. The DB URL is passed through the process environment to the Node PostgreSQL driver, not on a command line.
+## Demo Auth users
 
-## Commands
+Profiles reference `auth.users(id)`, so SQL cannot safely invent profile-only identities. Create the accounts first with the server-side Admin API helper; it calls `auth.admin.createUser` with confirmed demo accounts and sends no invitations or emails.
 
-Inspect the planned data without credentials or database access:
+Before creating Auth accounts, run the read-only validation against the explicitly confirmed target and verify it has the schema expected by these files. In particular, the checked-in migrations include `corrective_actions` after the user-stated `202609280027` migration; the SQL intentionally stops if required tables are absent.
+
+In a PowerShell terminal, provide server-only environment values without adding them to frontend files:
+
+```powershell
+$env:SUPABASE_URL = '<dedicated demo Supabase URL>'
+$env:SUPABASE_SERVICE_ROLE_KEY = '<server-only service-role key>'
+$env:DEMO_USER_PASSWORD = '<private demo-only password of at least 12 characters>'
+$env:DEMO_SUPABASE_PROJECT_REF = '<expected 20-character project ref>'
+npm run users:demo -- "--confirm-project=$env:DEMO_SUPABASE_PROJECT_REF"
+```
+
+For a local Auth stack, point `SUPABASE_URL` at the local endpoint and run `npm run users:demo -- --local`. The helper never reads a Vite-prefixed key, prints a password, changes an existing password, or adopts an account unless both Auth metadata markers identify it as a demo account. It reuses a single existing marked account with the same full name, including accounts from the older demo generator; ambiguous duplicates stop with an error. New addresses use `@sentinelqhse.example`. These addresses are synthetic and must not be used to send mail.
+
+The SQL seed verifies that all 20 identities are marked demo accounts and refuses to move a profile from another organization. If the existing demo organization contains older `DEMO-INC-%` seed records, it stops rather than creating a second incident batch. Review those records separately; the seed never deletes them.
+
+## Review and execution
+
+The SQL runs in one transaction. It does not drop, truncate, or delete rows and does not change migrations, RLS policies, application code, or reference-number logic. Use a database-owner maintenance connection to a dedicated demo project; do not use the browser client or put a service-role key in frontend code.
+
+Inspect the plan and static transaction checks without database access:
 
 ```powershell
 npm run seed:demo -- --plan
-```
-
-Check generated records and transaction SQL without database access:
-
-```powershell
 npm run seed:demo -- --dry-run
 ```
 
-Populate the explicitly confirmed dedicated demo project after setting `SUPABASE_URL`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DEMO_USER_PASSWORD`, and `DEMO_SUPABASE_PROJECT_REF` in the terminal. The database URL must use TLS, and the ref variable must match both connection endpoints:
+After creating/reusing the Auth users, reviewing the SQL, and confirming a local test database target, run from the repository root:
 
 ```powershell
-npm run seed:demo -- "--confirm-remote=$env:DEMO_SUPABASE_PROJECT_REF"
+npm run seed:demo -- --local
 ```
 
-Set `DEMO_SUPABASE_PROJECT_REF` to the expected 20-character ref. The script verifies it equals the ref in both connection endpoints before any Auth or database write. The generated PostgreSQL executes as a single transaction. Use a TLS-enabled connection string for remote Supabase databases.
-
-Run the read-only report after seeding:
+For an explicitly reviewed dedicated demo project, set `SUPABASE_DB_URL` and `DEMO_SUPABASE_PROJECT_REF` in the server-side terminal. The runner verifies that the database endpoint ref matches both `DEMO_SUPABASE_PROJECT_REF` and the explicit command confirmation, and requires TLS:
 
 ```powershell
+# Read-only check before the write:
+npm run seed:demo -- "--validate-only" "--confirm-remote=$env:DEMO_SUPABASE_PROJECT_REF"
+# Seed only after reviewing this SQL and confirming the target:
+npm run seed:demo -- "--confirm-remote=$env:DEMO_SUPABASE_PROJECT_REF"
+# Read-only verification after the seed:
 npm run seed:demo -- "--validate-only" "--confirm-remote=$env:DEMO_SUPABASE_PROJECT_REF"
 ```
 
-Validation is read-only and does not require a service-role key or demo password. The current repository has no `supabase/config.toml`, so a local Supabase stack is not configured here. Do not use `supabase db reset` against a remote project; it is destructive. A live SQL catalog was not available during implementation, so the seed performs a target-side table/column/status preflight inside its transaction and aborts if the migrated schema differs.
+The read-only validation file can also be run directly with `psql` if preferred:
 
-## Demo sign-in
+```powershell
+psql "$env:SUPABASE_DB_URL" --set=ON_ERROR_STOP=1 --file=supabase\seed_validation.sql
+```
 
-All 20 demo accounts use the same `DEMO_USER_PASSWORD` value supplied at seed time. The seeded emails are `given.family.demo@example.com`. These are synthetic, confirmed Auth accounts for a dedicated demo project only; no invitation or email is sent.
+The new seed uses tables and columns from the checked-in schema. That migration directory contains migrations newer than `202609280027_validate_incident_company_configuration.sql`, through `20260930150000_starnet_mock_incident_utc_date_guard.sql`. Before any future remote execution, verify the reviewed SQL against the actual target schema and migration history. There is no local `supabase/config.toml` in this repository, so this implementation was not tested against a local Supabase database.
+
+RLS is not disabled or modified. The seed uses the trusted database-owner connection for bulk inserts, so it is not an authenticated-client/RLS exercise; all created records still use real Auth user IDs and same-organization foreign keys. Existing RLS remains in force for application access after seeding.
+
+The pre-existing `scripts/seed-demo.mjs` is a legacy JavaScript generator and is no longer wired to `npm run seed:demo`. Do not invoke it alongside this SQL seed; it has different identity/reference markers and may create overlapping demo data.

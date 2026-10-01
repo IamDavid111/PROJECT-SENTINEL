@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
 
-    "seed:demo": "node scripts/seed-demo.mjs",
+    "seed:demo": "node scripts/run-demo-seed.mjs",
+    "users:demo": "node scripts/create-demo-users.mjs",
 
     "test:emailjs": "node scripts/test-emailjs.mjs",
   
