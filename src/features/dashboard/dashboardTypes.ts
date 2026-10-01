@@ -14,7 +14,7 @@ export type DashboardFilters = {
 export const defaultDashboardFilters: DashboardFilters = {
   site: 'all',
   department: 'all',
-  dateRange: '30d',
+  dateRange: 'all',
   severity: 'all',
   incidentType: 'all',
   shift: 'all',
