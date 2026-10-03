@@ -1,3 +1,4 @@
+// Keep the labels shown in User Management separate from the role names stored by the backend.
 export const USER_MANAGEMENT_ROLE_DEFINITIONS = [
   { id: 'organization_admin', name: 'Organization Admin', backendName: 'Organization Administrator' },
   { id: 'qhse_manager', name: 'QHSE Manager', backendName: 'QHSE Manager' },
@@ -51,6 +52,8 @@ export type PermissionDefinition = {
   group: PermissionGroup
 }
 
+// This catalog describes permissions used by the frontend to show or hide interface actions.
+// Database RLS policies and server functions must still authorize protected data and operations.
 export const USER_MANAGEMENT_PERMISSION_CATALOG = [
   { key: 'view_dashboard', label: 'View Dashboard', description: 'Allows access to the main SentinelQHSE dashboard.', group: 'Dashboard' },
   { key: 'view_kpis', label: 'View KPIs', description: 'Allows the user to view key performance indicators available to their account.', group: 'Dashboard' },
@@ -173,6 +176,8 @@ const LEGACY_ROLE_PERMISSION_KEYS: Record<string, readonly PermissionKey[]> = {
   Auditor: ['use_ai_assistant', 'view_executive_analytics', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
 }
 
+// Build the permission set used by app-side checks from built-in, legacy, and custom role entries.
+// This result controls frontend visibility; it is not a replacement for backend authorization.
 export function permissionsForRole(role: string, customPermissions: readonly string[] = []): readonly PermissionKey[] {
   if (role === 'Super Administrator') return SUPER_ADMINISTRATOR_PERMISSION_KEYS
   const displayRole = USER_MANAGEMENT_BACKEND_TO_ROLE[role]

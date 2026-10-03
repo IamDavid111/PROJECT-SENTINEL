@@ -1,3 +1,5 @@
+// Names of built-in roles used by application logic. User Management can display a friendlier label,
+// then map that label back to the corresponding backend role name when handling user roles.
 export type Role =
   | 'Super Administrator'
   | 'Organization Administrator'

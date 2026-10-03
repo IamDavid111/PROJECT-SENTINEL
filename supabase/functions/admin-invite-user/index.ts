@@ -46,6 +46,7 @@ Deno.serve(async (request: Request) => {
     const authorization = request.headers.get('Authorization')
     if (!authorization) throw new Error('Authentication is required')
 
+    // Forward the caller's token so membership and organization-setting reads use that user's access.
     const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } })
     const { data: { user: requester }, error: requesterError } = await userClient.auth.getUser()
     if (requesterError || !requester) throw new Error('Invalid authentication token')
@@ -111,6 +112,7 @@ Deno.serve(async (request: Request) => {
     }
 
     stage = 'invitation_record_check'
+    // This client bypasses RLS. Use it only after the caller, role, department, and custom-role checks above.
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
     const { data: existingInvitation } = await adminClient
       .from('admin_invitations')
@@ -124,6 +126,8 @@ Deno.serve(async (request: Request) => {
       await adminClient.from('admin_invitations').update({ status: 'expired' }).eq('id', existingInvitation.id).eq('status', 'pending')
     }
 
+    // Auth and database writes below are separate operations, not one transaction; later error branches
+    // attempt cleanup by revoking invitation records and deleting Auth users or profiles created earlier.
     stage = 'auth_invitation'
     const requestOrigin = request.headers.get('origin')
     const inviteRedirectUrl = Deno.env.get('INVITE_REDIRECT_URL') || (requestOrigin ? `${requestOrigin}/#/invite-signup` : undefined)

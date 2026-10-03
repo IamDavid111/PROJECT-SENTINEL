@@ -182,6 +182,8 @@ function NotificationPanel({ activities }: { activities: DashboardActivity[] }) 
   return <DashboardCard eyebrow="NOTIFICATIONS" title="Operational alerts"><div className="notification-list">{notificationActivities.length ? notificationActivities.map((activity) => <div key={activity.id}><strong>{activity.activity}</strong><small>{activity.location} · {new Date(activity.createdAt).toLocaleDateString()}</small></div>) : <EmptyState message="No new operational notifications." />}</div><div className="notification-placeholder"><strong>Permit alerts</strong><span>Coming with Permit-to-Work module.</span></div></DashboardCard>
 }
 
+// This page combines the filtered metrics and activity snapshot with filter choices from organization settings.
+// The permission flags decide which quick-action links are shown to the current user.
 export function DashboardPage({ organizationId, organizationName, userName, role, canReportIncident, canCreateInspection, canCreateCorrectiveAction, canStartAudit, canViewReports, supabase }: DashboardPageProps & { supabase: SupabaseClient }) {
   const [filters, setFilters] = useState(defaultDashboardFilters)
   const [filterOptions, setFilterOptions] = useState(fallbackFilterOptions)
@@ -221,6 +223,7 @@ export function DashboardPage({ organizationId, organizationName, userName, role
         incidentType: data?.incident_categories ? buildIncidentCategoryOptions(data.incident_categories) : current.incidentType,
       }))
     }
+    // Company Settings dispatches this event after a save, so refresh filter choices and dashboard data without reloading the page.
     const handleSettingsUpdated = () => {
       void loadSettings()
       void invalidateDashboardData(queryClient, organizationId)

@@ -1,3 +1,5 @@
+-- Incident row policies use this helper: a user must belong to the target organization and either
+-- have one of the broad-view roles below or be the incident's creator or reporter.
 create or replace function public.can_view_incident(
   target_organization_id uuid,
   target_incident_id uuid

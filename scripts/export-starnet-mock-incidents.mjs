@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const outputDirectory = path.join(projectRoot, 'supabase', 'seed', 'data')
+// Export only this fixed tagged batch from the currently linked project; verified output replaces the tracked JSON and CSV snapshots.
 const organizationId = '25ad3a5c-514b-4097-96a6-a712c715d92b'
 const batchPrefix = 'MOCK-STARNET-INCIDENTS-20260929-'
 const expectedCount = 1000

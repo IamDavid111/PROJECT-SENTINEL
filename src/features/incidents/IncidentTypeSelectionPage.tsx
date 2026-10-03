@@ -55,6 +55,8 @@ export type QuickIncidentOption = {
   environmentalImpact?: boolean
 }
 
+// New reports start here: the user's role controls available report types, and active organization categories become quick options.
+// Choosing a quick option pre-fills the form; opening an existing draft skips this chooser and restores that report directly.
 export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: Role; supabase: SupabaseClient; draftId?: string | null }) {
   const allowedTypes = useMemo(() => roleReportTypes[role] || [], [role])
   const organization = useIncidentOrganization(supabase)

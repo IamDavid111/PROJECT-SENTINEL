@@ -193,6 +193,7 @@ export async function getDashboardSnapshot(
   const incidentQueryError = [totalResult, submittedResult, reviewResult, closedResult, nearMissResult].find((result) => result.error)?.error
   if (incidentQueryError) throw new Error('Unable to load incident dashboard metrics.')
   const incidentRows: DashboardIncidentRow[] = []
+  // Chart distributions need every matching row, so fetch them in bounded pages instead of one unbounded request.
   const incidentPageSize = 500
   for (let offset = 0; ; offset += incidentPageSize) {
     const { data: page, error: pageError } = await filteredIncidentQuery.range(offset, offset + incidentPageSize - 1)
@@ -208,6 +209,7 @@ export async function getDashboardSnapshot(
     'resolved-incidents': closedResult.count || 0,
     'near-misses': nearMissResult.count || 0,
   }
+  // Only keys present in incidentMetricValues have live counts; all other metric cards remain explicitly unavailable.
   const metrics = unavailableMetrics().map((metric) => {
     const value = incidentMetricValues[metric.key]
     if (value === undefined) return metric
@@ -229,6 +231,7 @@ export async function getDashboardSnapshot(
   const configuredDepartments = configuredActiveNames(settings?.departments)
   const configuredSites = configuredActiveNames(settings?.operational_sites)
   const configuredSeverities = configuredActiveNames(settings?.severity_levels)
+  // Group timestamps by the browser's local calendar month; rows without a valid occurrence time are skipped.
   const trendBuckets = new Map<string, { label: string; incidents: number; nearMisses: number }>()
   incidentRows.forEach((incident) => {
     if (!incident.occurred_at) return

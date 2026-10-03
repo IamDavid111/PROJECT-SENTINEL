@@ -48,6 +48,8 @@ declare
   by_category jsonb := '{}'::jsonb;
   incident_day date;
 begin
+  -- SECURITY DEFINER grants this function elevated database access, so it repeats caller, active-profile,
+  -- organization, and administrator checks instead of trusting the Edge Function's request preflight.
   if current_user_id is null then
     raise exception 'Authentication is required';
   end if;

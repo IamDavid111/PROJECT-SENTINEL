@@ -53,6 +53,8 @@ create table public.incident_sequences (
   updated_at timestamptz not null default now()
 );
 
+-- Pairing record IDs with organization_id in the composite keys below prevents the listed incident
+-- and evidence relationships from pointing to records owned by a different organization.
 create table public.incidents (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,

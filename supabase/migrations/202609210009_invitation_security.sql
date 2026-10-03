@@ -31,6 +31,8 @@ create trigger admin_invitations_set_updated_at
 before update on public.admin_invitations
 for each row execute function public.set_updated_at();
 
+-- Invitation records contain pending account details; clients cannot access this table directly.
+-- Authorized Edge Functions and database RPCs perform invitation reads and state changes instead.
 alter table public.admin_invitations enable row level security;
 
 revoke all on public.admin_invitations from anon, authenticated;
