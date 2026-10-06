@@ -20,7 +20,7 @@ Incident scenarios are weighted rather than evenly distributed: near misses, uns
 
 Profiles reference `auth.users(id)`, so SQL cannot safely invent profile-only identities. Create the accounts first with the server-side Admin API helper; it calls `auth.admin.createUser` with confirmed demo accounts and sends no invitations or emails.
 
-Before creating Auth accounts, run the read-only validation against the explicitly confirmed target and verify it has the schema expected by these files. In particular, the checked-in migrations include `corrective_actions` after the user-stated `202609280027` migration; the SQL intentionally stops if required tables are absent.
+Provision Auth users only in a dedicated development/demo Supabase project. The final `seed_validation.sql` is a post-seed validation and is not a preflight: it intentionally fails until the expected demo data exists. Confirm the target project and reviewed migration history before provisioning.
 
 In a PowerShell terminal, provide server-only environment values without adding them to frontend files:
 
@@ -28,13 +28,16 @@ In a PowerShell terminal, provide server-only environment values without adding 
 $env:SUPABASE_URL = '<dedicated demo Supabase URL>'
 $env:SUPABASE_SERVICE_ROLE_KEY = '<server-only service-role key>'
 $env:DEMO_USER_PASSWORD = '<private demo-only password of at least 12 characters>'
+$env:DEMO_USER_PROVISIONING = 'development'
 $env:DEMO_SUPABASE_PROJECT_REF = '<expected 20-character project ref>'
 npm run users:demo -- "--confirm-project=$env:DEMO_SUPABASE_PROJECT_REF"
 ```
 
-For a local Auth stack, point `SUPABASE_URL` at the local endpoint and run `npm run users:demo -- --local`. The helper never reads a Vite-prefixed key, prints a password, changes an existing password, or adopts an account unless both Auth metadata markers identify it as a demo account. It reuses a single existing marked account with the same full name, including accounts from the older demo generator; ambiguous duplicates stop with an error. New addresses use `@sentinelqhse.example`. These addresses are synthetic and must not be used to send mail.
+For a local Auth stack, set the same `DEMO_USER_PROVISIONING=development` value, point `SUPABASE_URL` at the local endpoint, and run `npm run users:demo -- --local`. The helper refuses `NODE_ENV=production`, never reads a Vite-prefixed key, never prints or changes passwords, and calls `auth.admin.createUser` without sending invitations or emails. It reuses only an account with the exact expected email, full name, both demo metadata markers, and confirmed email; a same-name account at another address stops the run. New addresses use `@sentinelqhse.example`. These addresses are synthetic and must not be used to send mail.
 
-The SQL seed verifies that all 20 identities are marked demo accounts and refuses to move a profile from another organization. If the existing demo organization contains older `DEMO-INC-%` seed records, it stops rather than creating a second incident batch. Review those records separately; the seed never deletes them.
+The safe order is: (1) confirm the dedicated development/demo target; (2) create or reuse the 20 Auth users with the server-side helper; (3) review and run the SQL seed against that same target only after approval; (4) run the read-only validation below. The service-role key and demo password belong only in the server-side terminal environment and must never be placed in Vite variables, frontend code, or checked-in files.
+
+The SQL seed verifies all 20 exact email/name Auth identities and refuses to move or overwrite mismatched profiles, memberships, organizations, or generated incident/action records. If the existing demo organization contains older `DEMO-INC-%` seed records, it stops rather than creating a second incident batch. Review those records separately; the seed never deletes them.
 
 ## Review and execution
 

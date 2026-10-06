@@ -62,6 +62,13 @@ async function listUsers(client) {
 }
 
 async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Demo Auth provisioning is disabled when NODE_ENV=production.')
+  }
+  if (process.env.DEMO_USER_PROVISIONING !== 'development') {
+    throw new Error('Set DEMO_USER_PROVISIONING=development in the server-side terminal to enable demo Auth provisioning.')
+  }
+
   const url = process.env.SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const password = process.env.DEMO_USER_PASSWORD
@@ -85,12 +92,11 @@ async function main() {
 
   for (const [index, demoUser] of demoUsers.entries()) {
     const existingUser = existingUsers.get(demoUser.email)
-    const matchingDemoUsers = [...existingUsers.values()].filter((user) =>
+    const sameNameDemoUsers = [...existingUsers.values()].filter((user) =>
       user.user_metadata?.sentinel_demo === true
       && user.app_metadata?.sentinel_demo === true
-      && Boolean(user.email_confirmed_at)
       && user.user_metadata?.full_name === demoUser.fullName)
-    if (matchingDemoUsers.length > 1) {
+    if (sameNameDemoUsers.length > 1) {
       throw new Error(`Multiple marked demo Auth accounts match demo-user position ${index + 1}; refusing to choose one automatically.`)
     }
 
@@ -107,9 +113,8 @@ async function main() {
       continue
     }
 
-    if (matchingDemoUsers.length === 1) {
-      reusedCount += 1
-      continue
+    if (sameNameDemoUsers.length === 1) {
+      throw new Error(`A marked demo Auth account for demo-user position ${index + 1} exists with a different email; refusing to create a duplicate identity.`)
     }
 
     const { error } = await client.auth.admin.createUser({

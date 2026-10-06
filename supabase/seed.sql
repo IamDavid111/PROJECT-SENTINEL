@@ -38,6 +38,9 @@ DECLARE
   missing_tables text[];
   missing_columns text[];
   demo_auth_count integer;
+  demo_admin_role_count integer;
+  demo_qhse_role_count integer;
+  eligible_qhse_user_count integer;
   organization_id_conflict boolean;
 BEGIN
   SELECT array_agg(required.table_name)
@@ -138,9 +141,39 @@ BEGIN
       AND auth_user.raw_app_meta_data->>'sentinel_demo' = 'true'
       AND auth_user.email_confirmed_at IS NOT NULL
       AND auth_user.raw_user_meta_data->>'full_name' = input.full_name
+      AND lower(auth_user.email) = lower(input.email)
   ) = 1;
   IF demo_auth_count <> 20 THEN
-    RAISE EXCEPTION 'SentinelQHSE demo seed requires all 20 Auth users created by scripts/create-demo-users.mjs; found % marked demo accounts.', demo_auth_count;
+    RAISE EXCEPTION 'SentinelQHSE demo seed requires exactly one confirmed, marked Auth user for each of the 20 expected email/name pairs; found %.', demo_auth_count;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM _sentinel_demo_user_input input
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM pg_enum enum_value
+      JOIN pg_type enum_type ON enum_type.oid = enum_value.enumtypid
+      WHERE enum_type.typnamespace = 'public'::regnamespace
+        AND enum_type.typname = 'membership_role'
+        AND enum_value.enumlabel = input.role
+    )
+  ) THEN
+    RAISE EXCEPTION 'SentinelQHSE demo seed stopped: an input role is not a value of public.membership_role.';
+  END IF;
+
+  SELECT count(*) INTO demo_admin_role_count
+  FROM _sentinel_demo_user_input WHERE role = 'Super Administrator';
+  SELECT count(*) INTO demo_qhse_role_count
+  FROM _sentinel_demo_user_input WHERE role = 'QHSE Manager';
+  IF demo_admin_role_count <> 1 OR demo_qhse_role_count <> 1 THEN
+    RAISE EXCEPTION 'SentinelQHSE demo seed requires exactly one Super Administrator lead and one QHSE Manager investigator to generate 960 investigations and 900 actions.';
+  END IF;
+  SELECT count(*) INTO eligible_qhse_user_count
+  FROM _sentinel_demo_user_input
+  WHERE role IN ('QHSE Manager', 'Safety Officer / HSE Officer');
+  IF eligible_qhse_user_count < 2 THEN
+    RAISE EXCEPTION 'SentinelQHSE demo seed requires at least two QHSE-role demo users to assign distinct verified-action owners and verifiers.';
   END IF;
 
   IF EXISTS (
@@ -170,6 +203,27 @@ BEGIN
     RAISE EXCEPTION 'SentinelQHSE demo seed stopped: one or more expected enum values are missing.';
   END IF;
 
+  IF EXISTS (
+    SELECT 1
+    FROM (VALUES
+      ('corrective_action_priority', 'low'),
+      ('corrective_action_priority', 'medium'),
+      ('corrective_action_priority', 'high'),
+      ('corrective_action_priority', 'critical'),
+      ('incident_person_type', 'affected_person'),
+      ('incident_person_type', 'witness')
+    ) AS required(type_name, label)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM pg_enum enum_value
+      JOIN pg_type enum_type ON enum_type.oid = enum_value.enumtypid
+      WHERE enum_type.typnamespace = 'public'::regnamespace
+        AND enum_type.typname = required.type_name
+        AND enum_value.enumlabel = required.label
+    )
+  ) THEN
+    RAISE EXCEPTION 'SentinelQHSE demo seed stopped: one or more expected priority or incident-person enum values are missing.';
+  END IF;
+
   SELECT EXISTS (
     SELECT 1 FROM public.organizations
     WHERE id = 'c623e7b1-c717-52a3-8a7c-51e50d3b4f18'::uuid
@@ -182,19 +236,16 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM public.organizations
     WHERE company_code = 'SENTINEL-DEMO'
-      AND company_name <> 'Sentinel Energy & Industrial Services Ltd'
+      AND (company_name <> 'Sentinel Energy & Industrial Services Ltd'
+        OR address IS NULL OR address NOT LIKE 'DEMO DATA ONLY%')
   ) THEN
-    RAISE EXCEPTION 'SENTINEL-DEMO belongs to a different organization; refusing to modify it.';
+    RAISE EXCEPTION 'SENTINEL-DEMO is assigned to a different or unmarked organization; refusing to adopt or modify it.';
   END IF;
 
   IF EXISTS (
     SELECT 1 FROM public.organizations
     WHERE company_name = 'Sentinel Energy & Industrial Services Ltd'
       AND (address IS NULL OR address NOT LIKE 'DEMO DATA ONLY%')
-  ) AND NOT EXISTS (
-    SELECT 1 FROM public.organizations
-    WHERE company_code = 'SENTINEL-DEMO'
-      AND company_name = 'Sentinel Energy & Industrial Services Ltd'
   ) THEN
     RAISE EXCEPTION 'An organization with the demo name exists without the DEMO DATA ONLY marker; refusing to adopt it.';
   END IF;
@@ -276,7 +327,7 @@ JOIN LATERAL (
     AND candidate.raw_app_meta_data->>'sentinel_demo' = 'true'
     AND candidate.email_confirmed_at IS NOT NULL
     AND candidate.raw_user_meta_data->>'full_name' = input.full_name
-  ORDER BY (lower(candidate.email) = input.email) DESC
+    AND lower(candidate.email) = lower(input.email)
   LIMIT 1
 ) auth_user ON true;
 
@@ -563,6 +614,26 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'A demo Auth user already has a profile in another organization; refusing to move it.';
   END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM _sentinel_demo_users user_seed
+    JOIN public.profiles profile ON profile.id = user_seed.user_id
+    WHERE profile.organization_id = (SELECT id FROM _sentinel_demo_org)
+      AND (profile.employee_id IS DISTINCT FROM user_seed.employee_id
+        OR profile.full_name IS DISTINCT FROM user_seed.full_name)
+  ) THEN
+    RAISE EXCEPTION 'A demo Auth user already has a non-demo or mismatched profile; refusing to overwrite it.';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM _sentinel_demo_users user_seed
+    JOIN public.memberships membership
+      ON membership.user_id = user_seed.user_id
+     AND membership.organization_id = (SELECT id FROM _sentinel_demo_org)
+    WHERE membership.role::text IS DISTINCT FROM user_seed.role
+  ) THEN
+    RAISE EXCEPTION 'A demo Auth user already has a different organization role; refusing to overwrite the membership.';
+  END IF;
 END;
 $relationship_preflight$;
 
@@ -595,7 +666,7 @@ INSERT INTO public.memberships (user_id, organization_id, role)
 SELECT user_seed.user_id, demo.id, user_seed.role::public.membership_role
 FROM _sentinel_demo_users user_seed
 CROSS JOIN _sentinel_demo_org demo
-ON CONFLICT (user_id, organization_id) DO UPDATE SET role = EXCLUDED.role;
+ON CONFLICT (user_id, organization_id) DO NOTHING;
 
 INSERT INTO public.notification_preferences (
   user_id, email, sms, push, incident_assignments,
@@ -1034,9 +1105,18 @@ JOIN public.investigations investigation
  AND investigation.incident_id = seeded.incident_id;
 
 CREATE TEMP TABLE _sentinel_demo_action_rows ON COMMIT DROP AS
-WITH action_candidates AS (
+WITH qhse_user_pool AS (
+  SELECT user_id,
+         row_number() OVER (ORDER BY user_order)::integer AS pool_position,
+         (count(*) OVER ())::integer AS pool_size
+  FROM _sentinel_demo_users
+  WHERE role IN ('QHSE Manager', 'Safety Officer / HSE Officer')
+),
+action_candidates AS (
   SELECT incident.*,
          owner.user_id AS owner_id,
+         qhse_owner.user_id AS qhse_owner_id,
+         qhse_verifier.user_id AS verifier_id,
          administrator.user_id AS actor_id,
          investigation.investigation_id,
          (
@@ -1050,6 +1130,10 @@ WITH action_candidates AS (
          (('x' || substr(md5('sentinelqhse-demo-v1:action-title:' || incident.sequence_no::text), 1, 8))::bit(32)::bigint % 12)::integer + 1 AS title_order
   FROM _sentinel_demo_incident_map incident
   JOIN _sentinel_demo_users owner ON owner.user_id = incident.reported_by
+  JOIN qhse_user_pool qhse_owner
+    ON qhse_owner.pool_position = ((incident.sequence_no - 1) % qhse_owner.pool_size) + 1
+  JOIN qhse_user_pool qhse_verifier
+    ON qhse_verifier.pool_position = (qhse_owner.pool_position % qhse_owner.pool_size) + 1
   CROSS JOIN _sentinel_demo_users administrator
   LEFT JOIN _sentinel_demo_investigation_map investigation ON investigation.sequence_no = incident.sequence_no
   WHERE incident.sequence_no % 4 <> 0
@@ -1116,14 +1200,15 @@ SELECT
        WHEN dated.status_bucket < 55 THEN 'medium'::public.corrective_action_priority
        ELSE 'low'::public.corrective_action_priority END AS priority,
   dated.action_status::public.corrective_action_status AS status,
-  dated.owner_id AS assigned_owner_id,
+    CASE WHEN dated.action_status = 'verified' THEN dated.qhse_owner_id
+      ELSE dated.owner_id END AS assigned_owner_id,
   dated.actor_id AS assigned_by,
   dated.action_created_at AS assigned_at,
   dated.action_created_at::date + 14 AS due_date,
   CASE WHEN dated.action_status = 'verified' THEN dated.action_created_at::date + 8 ELSE NULL END AS completion_date,
-  CASE WHEN dated.action_status = 'verified' THEN 'verified' ELSE NULL END AS verification_status,
+  CASE WHEN dated.action_status = 'verified' THEN 'approved' ELSE NULL END AS verification_status,
   CASE WHEN dated.action_status = 'verified' THEN dated.action_created_at + interval '8 days' ELSE NULL END AS verification_date,
-  CASE WHEN dated.action_status = 'verified' THEN dated.actor_id ELSE NULL END AS verified_by,
+  CASE WHEN dated.action_status = 'verified' THEN dated.verifier_id ELSE NULL END AS verified_by,
   CASE WHEN dated.action_status = 'verified' THEN 'Demo verification completed after follow-up review.' ELSE NULL END AS verification_notes,
   dated.actor_id AS created_by,
   dated.action_created_at AS created_at,

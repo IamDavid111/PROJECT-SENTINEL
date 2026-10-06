@@ -68,6 +68,7 @@ export type DashboardSnapshot = {
 
 export type DashboardPageProps = {
   organizationId: string
+  currentUserId: string
   organizationName: string
   userName: string
   role: Role
