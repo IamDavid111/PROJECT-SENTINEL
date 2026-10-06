@@ -33,6 +33,8 @@ function loadPendingRegistration(): PendingRegistration {
   }
 }
 
+// If email confirmation interrupted registration, restore the saved organization details and create the organization and owner together.
+// Logo upload and linking are separate steps afterward, so a logo error does not undo successful organization creation.
 export function OrganizationSetupPage({ email }: { email: string }) {
   const pending = useMemo<PendingRegistration>(() => loadPendingRegistration(), [])
   const [companyCode, setCompanyCode] = useState(() => pending.companyCode || `SENT-${Math.random().toString(36).slice(2, 8).toUpperCase()}`)

@@ -14,6 +14,7 @@ const sections = [
   ['Recent incident summary', 'Incident summaries will appear when incident records are available.'],
 ] as const
 
+// This panel is a foundation placeholder: it explains planned analysis but does not call an AI service yet.
 export function AiSafetySummary({ organizationId, role, hasAuthorizedQhseData }: AiSafetySummaryProps) {
   void organizationId
   void role

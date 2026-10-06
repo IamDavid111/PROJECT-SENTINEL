@@ -184,6 +184,9 @@ using (
   )
 );
 
+-- Evidence object paths use organization UUID / incident UUID / uploader UUID as their first three folders.
+-- These policies tie file access to incident visibility, require the uploader's own ID on insert, and
+-- allow deletion by that uploader or by the listed manager roles.
 drop policy if exists incident_evidence_storage_select_member on storage.objects;
 drop policy if exists incident_evidence_storage_insert_member on storage.objects;
 drop policy if exists incident_evidence_storage_delete_owner_or_manager on storage.objects;

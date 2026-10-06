@@ -5,6 +5,7 @@ import { incidentReportTypes, incidentSeverities, incidentStatuses } from './inc
 const optionalText = z.string().trim().optional()
 const uuid = z.string().uuid()
 
+// Draft fields stay optional so a user can save an incomplete report and return to it later.
 const incidentDraftFields = z.object({
   reportType: z.enum(incidentReportTypes),
   title: z.string().trim().max(240, 'Title must be 240 characters or fewer.').optional(),
@@ -37,6 +38,7 @@ const incidentDraftFields = z.object({
   accuracyConfirmed: z.boolean().optional(),
 })
 
+// These cross-field checks prevent contradictory combinations in both saved drafts and final submissions.
 function addCommonIncidentRules(data: { contractorInvolved?: boolean; contractorOrganization?: string; reportType: string; environmentalImpact?: boolean }, context: z.RefinementCtx) {
   if (!data.contractorInvolved && data.contractorOrganization) {
     context.addIssue({ code: 'custom', path: ['contractorOrganization'], message: 'Contractor organization requires contractor involvement.' })
@@ -48,6 +50,7 @@ function addCommonIncidentRules(data: { contractorInvolved?: boolean; contractor
 
 export const incidentDraftSchema = incidentDraftFields.superRefine(addCommonIncidentRules)
 
+// Final submission reuses the draft fields but makes the information needed to process a report mandatory.
 export const incidentSubmissionSchema = incidentDraftFields.extend({
   title: z.string().trim().min(3, 'Title is required.').max(240),
   description: z.string().trim().min(1, 'Describe what happened.').max(10000),
@@ -68,6 +71,7 @@ export const incidentSubmissionSchema = incidentDraftFields.extend({
   }
 })
 
+// Browser date and time inputs are separate; the form keeps them separate until IncidentReportForm combines them.
 export const incidentFormSchema = incidentDraftFields.extend({
   occurrenceDate: z.string().optional(),
   occurrenceTime: z.string().optional(),
@@ -78,6 +82,7 @@ export const incidentFormSchema = incidentDraftFields.extend({
   witnessContactDetails: z.string().trim().max(500).optional(),
 }).superRefine(addCommonIncidentRules)
 
+// This allow-list validates evidence metadata; incidentService applies stricter per-file and per-incident size limits.
 export const incidentEvidenceMetadataSchema = z.object({
   incidentId: uuid,
   originalFilename: z.string().trim().min(1).max(255),
@@ -94,6 +99,7 @@ export const incidentPersonSchema = z.object({
   contactDetails: z.string().trim().max(500).optional(),
 })
 
+// Defaults give list queries stable filter values, and the final check rejects a reversed date range.
 export const incidentListFiltersSchema = z.object({
   search: z.string().trim().max(120).optional(),
   status: z.enum([...incidentStatuses, 'all'] as const).optional().default('all'),

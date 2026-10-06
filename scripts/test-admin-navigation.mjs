@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 
+// This checks for expected source strings only; it does not launch the app or exercise navigation in a browser.
 const source = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
 const checks = [
   ['Administration to User Management link', "href: '#users'"],

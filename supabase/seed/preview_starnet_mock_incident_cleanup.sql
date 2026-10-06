@@ -1,3 +1,4 @@
+-- Read-only preflight for cleanup: verify the organization and count exact batch/signature matches before deletion is considered.
 with organization_check as (
   select exists (
     select 1 from public.organizations

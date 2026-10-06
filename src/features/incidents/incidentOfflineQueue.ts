@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { createIncidentDraft, submitIncident } from './incidentService'
+import { createIncidentDraft, getIncidentSummary, submitIncident } from './incidentService'
 import type { IncidentDraftInput, IncidentSubmissionInput, IncidentSummary } from './incidentTypes'
 
 const databaseName = 'sentinelqhse-incident-queue'
 const databaseVersion = 1
 const storeName = 'auto-submit'
+// Startup and reconnect events can overlap, so share one in-flight queue sync per browser tab.
 let activeSync: Promise<{ submitted: IncidentSummary[]; failed: number }> | null = null
 
 type QueuedIncident = {
@@ -76,6 +77,7 @@ async function removeQueuedIncident(id: string) {
   })
 }
 
+// Keep unsent reports in IndexedDB so they survive a page reload; identical form payloads reuse the same queue entry.
 export async function enqueueIncidentSubmission(input: IncidentSubmissionInput) {
   const existing = (await readQueuedIncidents()).find((item) => JSON.stringify(item.input) === JSON.stringify(input))
   if (existing) return existing
@@ -109,6 +111,8 @@ async function syncQueuedIncidentSubmissionsInternal(client: SupabaseClient) {
   const submitted: IncidentSummary[] = []
   let failed = 0
 
+  // Process oldest entries first. The stable queue ID is also sent to the server when creating a draft,
+  // allowing the database to find that same draft if the client has to retry creation.
   for (const item of queued) {
     try {
       let draftId = item.serverDraftId
@@ -119,7 +123,17 @@ async function syncQueuedIncidentSubmissionsInternal(client: SupabaseClient) {
         await writeQueuedIncident({ ...item, serverDraftId: draftId, lastError: null })
       }
 
-      if (draft?.status === 'submitted') {
+      // A previous sync may have submitted this saved draft before it failed to remove the local queue entry.
+      if (item.serverDraftId) {
+        const existingDraft = await getIncidentSummary(client, item.serverDraftId)
+        if (existingDraft.status !== 'draft') {
+          submitted.push(existingDraft)
+          await removeQueuedIncident(item.id)
+          continue
+        }
+      }
+
+      if (draft && draft.status !== 'draft') {
         submitted.push(draft)
         await removeQueuedIncident(item.id)
         continue
@@ -130,6 +144,7 @@ async function syncQueuedIncidentSubmissionsInternal(client: SupabaseClient) {
       submitted.push(result)
       await removeQueuedIncident(item.id)
     } catch (error) {
+      // Keep failed work for a later sync; saved server drafts are checked for completion before another submit.
       failed += 1
       await writeQueuedIncident({
         ...item,

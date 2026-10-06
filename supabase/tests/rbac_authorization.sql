@@ -1,3 +1,4 @@
+-- Requires the referenced fixture users and memberships; the outer transaction rolls back test role changes and custom roles.
 begin;
 
 update public.memberships

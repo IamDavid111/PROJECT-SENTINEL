@@ -2,5 +2,11 @@
   "mssql.autoDisableNonTSqlLanguageService": true,
   "files.associations": {
     "**/supabase/migrations/**/*.sql": "sql"
+  },
+  "chat.tools.terminal.autoApprove": {
+    "/^node scripts/test-profile-contract\\.mjs$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
   }
 }
