@@ -191,7 +191,8 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
 
   if (scope === 'own') query = query.or(`created_by.eq.${context.userId},reported_by.eq.${context.userId}`)
 
-  if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
+  if (filters.status === 'open') query = query.neq('status', 'draft').neq('status', 'closed')
+  else if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
   if (filters.reportType && filters.reportType !== 'all') query = query.eq('report_type', filters.reportType)
   if (filters.incidentCategory && filters.incidentCategory !== 'all') query = query.eq('incident_category', filters.incidentCategory)
   if (filters.severity && filters.severity !== 'all') query = query.eq('severity', filters.severity)
