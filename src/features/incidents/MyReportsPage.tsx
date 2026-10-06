@@ -57,6 +57,7 @@ type IncidentExportRow = {
 }
 
 function downloadExport(blob: Blob, fileName: string) {
+  // Browsers download generated files through a temporary object URL; revoke it after the anchor starts the download.
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -166,6 +167,8 @@ async function exportWord(rows: IncidentExportRow[], generatedAt: Date, administ
   downloadExport(buffer, exportFileName('docx', generatedAt))
 }
 
+// The own view lists the current user's reports; the organization view lists incidents across the organization.
+// Both reuse this page's filters, table, and links for reopening drafts or viewing submitted incidents.
 export function MyReportsPage({ supabase, canExport = false, scope = 'organization' }: { supabase: SupabaseClient; canExport?: boolean; scope?: IncidentListScope }) {
   const organization = useIncidentOrganization(supabase)
   const [sites, setSites] = useState<Array<{ id: string; name: string }>>([])
@@ -209,6 +212,7 @@ export function MyReportsPage({ supabase, canExport = false, scope = 'organizati
     setExportError('')
     setExportMessage('')
     const generatedAt = new Date()
+    // incidents.data contains only the current page, so this export does not fetch other matching pages.
     const rows = exportRows(incidents.data.items, sites)
     try {
       if (exportFormat === 'xlsx') await exportExcel(rows, generatedAt, administrator)

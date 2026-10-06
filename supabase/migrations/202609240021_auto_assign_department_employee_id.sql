@@ -56,9 +56,12 @@ begin
 end;
 $$;
 
+-- Only the trusted invitation backend can create this pre-acceptance profile; clients cannot call the helper.
 revoke all on function public.create_pending_invited_profile(uuid, uuid, text, text) from public, anon, authenticated;
 grant execute on function public.create_pending_invited_profile(uuid, uuid, text, text) to service_role;
 
+-- This authenticated RPC is the authoritative invitation acceptance step. It rechecks the confirmed email,
+-- pending invitation, expiry, profile, and role before activating the profile and assigning membership.
 create or replace function public.complete_admin_invitation(
   p_full_name text,
   p_employee_id text

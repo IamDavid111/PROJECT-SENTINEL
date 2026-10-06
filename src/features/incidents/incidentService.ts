@@ -209,6 +209,19 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   return { items: (data || []).map(toIncidentSummary), page, pageSize, total: count || 0 }
 }
 
+// Offline sync checks this organization-scoped server record before retrying a saved draft's submission.
+export async function getIncidentSummary(client: SupabaseClient, incidentId: string): Promise<IncidentSummary> {
+  const context = await getOrganizationContext(client)
+  const { data, error } = await client
+    .from('incidents')
+    .select('*')
+    .eq('id', incidentId)
+    .eq('organization_id', context.organizationId)
+    .single()
+  if (error || !data) throw new Error('Incident report not found.')
+  return toIncidentSummary(data as IncidentRow)
+}
+
 export async function getIncident(client: SupabaseClient, incidentId: string): Promise<IncidentDetail> {
   const context = await getOrganizationContext(client)
   const { data: incident, error: incidentError } = await client
@@ -253,6 +266,7 @@ export async function getIncident(client: SupabaseClient, incidentId: string): P
   }
 }
 
+// Translate the form's camelCase fields to database column names; empty optional values become SQL nulls.
 function toIncidentPayload(input: IncidentDraftInput) {
   return {
     report_type: input.reportType,
@@ -288,6 +302,7 @@ function toIncidentPayload(input: IncidentDraftInput) {
   }
 }
 
+// Offline sync supplies a stable clientSubmissionId so a retry can receive the draft created by an earlier attempt.
 export async function createIncidentDraft(client: SupabaseClient, input: IncidentDraftInput, options: { clientSubmissionId?: string } = {}): Promise<IncidentSummary> {
   const { data, error } = await client.rpc('save_incident_draft', {
     p_incident_id: null,
@@ -308,6 +323,7 @@ export async function updateIncidentDraft(client: SupabaseClient, incidentId: st
   return toIncidentSummary(data as IncidentRow)
 }
 
+// Submit an existing manual draft only after applying the stricter final-submission schema.
 export async function submitIncident(client: SupabaseClient, incidentId: string, input: IncidentSubmissionInput): Promise<IncidentSummary> {
   const validated = incidentSubmissionSchema.safeParse(input)
   if (!validated.success) throw new Error(validated.error.issues[0]?.message || 'Incident submission is invalid.')
@@ -319,6 +335,7 @@ export async function submitIncident(client: SupabaseClient, incidentId: string,
   return toIncidentSummary(data as IncidentRow)
 }
 
+// A new online report with no saved draft is submitted directly through the database RPC.
 export async function submitNewIncident(client: SupabaseClient, input: IncidentSubmissionInput): Promise<IncidentSummary> {
   const validated = incidentSubmissionSchema.safeParse(input)
   if (!validated.success) throw new Error(validated.error.issues[0]?.message || 'Incident submission is invalid.')
@@ -327,6 +344,7 @@ export async function submitNewIncident(client: SupabaseClient, input: IncidentS
   return toIncidentSummary(data as IncidentRow)
 }
 
+// Check file type and size before uploading the object, then add its database metadata; remove the object if metadata insertion fails.
 export async function uploadIncidentEvidence(client: SupabaseClient, incidentId: string, file: File): Promise<IncidentEvidence> {
   const context = await getOrganizationContext(client)
   const metadata = incidentEvidenceMetadataSchema.safeParse({ incidentId, originalFilename: file.name, mimeType: file.type, fileSize: file.size })
@@ -359,6 +377,7 @@ export async function deleteIncidentEvidence(client: SupabaseClient, evidenceId:
   const context = await getOrganizationContext(client)
   const { data: evidence, error: evidenceError } = await client.from('incident_evidence').select('id, incident_id, storage_path').eq('id', evidenceId).eq('organization_id', context.organizationId).single()
   if (evidenceError || !evidence) throw new Error('Evidence not found.')
+  // Storage and metadata are separate operations: if the row delete fails after this succeeds, its file reference is stale.
   const { error: storageError } = await client.storage.from('incident-evidence').remove([evidence.storage_path])
   if (storageError) throw new Error('Unable to remove evidence file.')
   const { error: deleteError } = await client.from('incident_evidence').delete().eq('id', evidenceId).eq('organization_id', context.organizationId)

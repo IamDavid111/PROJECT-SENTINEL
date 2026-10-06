@@ -41,6 +41,7 @@ export function InspectionPerformanceChart({ data }: { data: InspectionSummary |
   return <ChartCard eyebrow="COMPLIANCE" title="Inspection performance">{chartData.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={chartData}><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" name="Inspections" fill="#12a94f" /></BarChart></ResponsiveContainer> : <ChartEmpty message="Inspection data unavailable" detail="Completion rate will be calculated when inspection records exist." />}</ChartCard>
 }
 
+// These components display prepared chart points; query filtering and aggregation belong in the dashboard service.
 export default function DashboardCharts({ data }: { data: {
   incidentTrend: DashboardTrendPoint[]
   incidentSeverity: DashboardDistributionPoint[]

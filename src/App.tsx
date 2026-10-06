@@ -74,6 +74,8 @@ function getHashRoute(): string {
   return getCleanHash().replace('#/', '').replace('#', '').split('?')[0]
 }
 
+// Account routes such as sign-in and password recovery are handled before workspace routes.
+// Returning null here lets App continue to the normal public-page or signed-in-workspace checks.
 function getAuthRoute(): AuthRoute | null {
   const route = getHashRoute()
   if (route === 'contact' || route === 'contact-sales' || route === 'request-demo') {
@@ -138,6 +140,7 @@ function AuthMessage({ error, success }: { error?: string; success?: string }) {
   return <div className={`auth-message ${error ? 'error' : 'success'}`}>{error || success}</div>
 }
 
+// Edge Function errors may carry an HTTP response body; prefer its JSON message, fall back to text, then use the SDK error.
 async function getEdgeFunctionErrorMessage(error: unknown) {
   const fallback = error instanceof Error ? error.message : 'Unable to complete the request.'
   const response = (error as { context?: Response } | null)?.context
@@ -455,6 +458,9 @@ const futureModuleRoutes: { route: AppRoute; label: string; permission: Permissi
   { route: 'roles-permissions', label: 'Roles & Permissions', permission: 'view_roles_permissions' },
 ]
 
+// Read only the page name from the URL hash. For example, '#report-incident?draft=123' selects
+// the incident form here; the form reads the draft ID from the query string separately.
+// Unknown workspace hashes fall back to the dashboard.
 function getAppRoute(): AppRoute {
   const route = getHashRoute()
   return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
@@ -517,6 +523,9 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   useEffect(() => {
     const handleHashChange = () => setRoute(getAppRoute())
     window.addEventListener('hashchange', handleHashChange)
+    // A valid sign-in does not by itself identify the user's organization or app role.
+    // Load the profile first, then use its organization ID to fetch membership and organization details.
+    // The membership role is used below to build the workspace's permission-aware navigation.
     const loadMembership = async () => {
       const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id, account_status').eq('id', session.user.id).maybeSingle()
       if (profileError) setError(profileError.message)
@@ -709,6 +718,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} scope="own" canExport={canAccess('export_reports')} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
           {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} scope="organization" canExport={canAccess('export_reports')} />}
+          {/* Navigation exists for these modules, but each route currently shows a placeholder instead of a working feature workflow. */}
           {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
           {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
@@ -1064,6 +1074,8 @@ function siteCodeSeed(name: string) {
   return slug || 'site'
 }
 
+// Administrators edit organization reference lists here, including departments, sites, shifts, and incident categories.
+// Other pages read these saved settings to populate their filters and forms.
 function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: string; userId: string }) {
   const [settings, setSettings] = useState<CompanySettingsState>({ working_hours: '{}', departments: '[]', operational_sites: '[]', emergency_contacts: '[]', incident_categories: '[]', risk_categories: '[]', severity_levels: '[]', inspection_templates: '[]' })
   const [shiftSettings, setShiftSettings] = useState<CompanyShiftSetting[]>(defaultShiftTemplates)
@@ -1313,6 +1325,8 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
     setMessage('Shift saved.')
   }
 
+  // Validate the edited values, save them as structured settings, and create database site rows for any newly added sites.
+  // Notify other screens afterward so dashboard filters and emergency-contact displays can refresh without a full reload.
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
@@ -1466,6 +1480,7 @@ function exportFileName(format: ExportFormat, date: Date) {
 }
 
 function downloadExport(blob: Blob, fileName: string) {
+  // A temporary object URL lets the browser download an in-memory file; release it after starting the download.
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -1477,6 +1492,7 @@ function downloadExport(blob: Blob, fileName: string) {
 function exportCsv(rows: ExportUserRow[], generatedAt: Date) {
   const headers = ['User ID', 'Name', 'Employee ID', 'Department', 'Job Title', 'Role', 'Status', 'Action']
   const values = rows.map((row) => [row.userId, row.name, row.employeeId, row.department, row.jobTitle, row.role, row.status, row.action])
+  // Quote every field and double embedded quotes so commas and line breaks remain part of a single CSV cell.
   const csvValue = (value: string) => `"${value.replaceAll('"', '""')}"`
   const csv = [headers, ...values].map((row) => row.map((value) => csvValue(String(value ?? ''))).join(',')).join('\n')
   downloadExport(new Blob([csv], { type: 'text/csv;charset=utf-8' }), exportFileName('csv', generatedAt))
@@ -1615,27 +1631,31 @@ type CustomRoleRecord = {
 }
 
 function ProfileWorkspace({ userId, organizationId, email }: { userId: string; organizationId: string; email: string }) {
-  const [profile, setProfile] = useState<Record<string, string>>({ full_name: '', employee_id: '', department: '', job_title: '', phone: '', emergency_contact: '', site_location: '', supervisor: '', certification_status: '' })
+  const [identity, setIdentity] = useState({ full_name: '', employee_id: '', department: '' })
+  const [profile, setProfile] = useState({ phone: '', emergency_contact: '' })
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadProfile = async () => {
-      const { data, error: profileError } = await supabase.from('profiles').select('full_name, employee_id, department, job_title, phone, emergency_contact, site_location, supervisor, certification_status').eq('id', userId).single()
+      const { data, error: profileError } = await supabase.from('profiles').select('full_name, employee_id, department, phone, emergency_contact').eq('id', userId).single()
       if (profileError) setError(profileError.message)
-      else if (data) setProfile(Object.fromEntries(Object.entries(data).map(([key, value]) => [key, value || ''])))
+      else if (data) {
+        setIdentity({ full_name: data.full_name || '', employee_id: data.employee_id || '', department: data.department || '' })
+        setProfile({ phone: data.phone || '', emergency_contact: data.emergency_contact || '' })
+      }
       setLoading(false)
     }
     void loadProfile()
   }, [userId])
 
-  const updateField = (field: string, value: string) => setProfile((current) => ({ ...current, [field]: value }))
+  const updateField = (field: keyof typeof profile, value: string) => setProfile((current) => ({ ...current, [field]: value }))
   const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
     setMessage('')
-    const { error: updateError } = await supabase.from('profiles').update(profile).eq('id', userId).eq('organization_id', organizationId)
+    const { error: updateError } = await supabase.from('profiles').update({ phone: profile.phone, emergency_contact: profile.emergency_contact }).eq('id', userId).eq('organization_id', organizationId)
     if (updateError) setError(updateError.message)
     else {
       await recordActivity(organizationId, userId, 'Profile updated')
@@ -1650,16 +1670,12 @@ function ProfileWorkspace({ userId, organizationId, email }: { userId: string; o
       <h2>My Profile</h2>
       <p>Maintain the identity and contact information used across your organization.</p>
       <form className="workspace-form" onSubmit={saveProfile}>
-        <label>Full name<input value={profile.full_name} onChange={(event) => updateField('full_name', event.target.value)} required /></label>
-        <label>Work email<input value={email} disabled /></label>
-        <label>Employee ID<input value={profile.employee_id} onChange={(event) => updateField('employee_id', event.target.value)} /></label>
-        <label>Department<input value={profile.department} onChange={(event) => updateField('department', event.target.value)} /></label>
-        <label>Job title<input value={profile.job_title} onChange={(event) => updateField('job_title', event.target.value)} /></label>
+        <label>Full name<input value={identity.full_name} disabled /><small className="profile-managed-note">Managed by your administrator.</small></label>
+        <label>Work email<input value={email} disabled /><small className="profile-managed-note">Managed by your administrator.</small></label>
+        <label>Employee ID<input value={identity.employee_id} disabled /><small className="profile-managed-note">Managed by your administrator.</small></label>
+        <label>Department<input value={identity.department} disabled /><small className="profile-managed-note">Managed by your administrator.</small></label>
         <label>Phone number<input value={profile.phone} onChange={(event) => updateField('phone', event.target.value)} /></label>
         <label>Emergency contact<input value={profile.emergency_contact} onChange={(event) => updateField('emergency_contact', event.target.value)} /></label>
-        <label>Site location<input value={profile.site_location} onChange={(event) => updateField('site_location', event.target.value)} /></label>
-        <label>Supervisor<input value={profile.supervisor} onChange={(event) => updateField('supervisor', event.target.value)} /></label>
-        <label>Certification status<input value={profile.certification_status} onChange={(event) => updateField('certification_status', event.target.value)} /></label>
         <AuthMessage error={error} success={message} />
         <button className="button button-green auth-submit">Save profile</button>
       </form>
@@ -1702,6 +1718,8 @@ const roleDescriptions: Record<string, string> = {
   'Maintenance Engineer': 'Review operational records and maintenance-related actions.',
 }
 
+// Show the platform's built-in roles beside custom roles created for this organization.
+// Built-in roles are view-only here; choosing an editable custom role opens the separate role editor.
 function RolesPermissionsWorkspace({ organizationId, canManage }: { organizationId: string; canManage: boolean }) {
   const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
   const [selectedRole, setSelectedRole] = useState<RoleSummary | null>(null)
@@ -1876,6 +1894,8 @@ function RoleManagementSection({ organizationId, focusRoleName, canManage = true
     if (role) handleEditRole(role)
   }, [customRoles, focusRoleName])
 
+  // One form handles both creating and updating a custom role, then reloads the list after the database write succeeds.
+  // Required baseline permissions are included each time so every saved role retains the app's minimum access set.
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setMessage('')
@@ -2028,6 +2048,7 @@ function RoleManagementSection({ organizationId, focusRoleName, canManage = true
   )
 }
 
+// This workspace brings together organization user listings, invitations, role and status edits, and user-register exports.
 function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEditUsers, canSuspendUsers, canDeactivateUsers, canManageUserRoles, canManageRolesPermissions }: { organizationId: string; currentUserId: string; canInviteUsers: boolean; canEditUsers: boolean; canSuspendUsers: boolean; canDeactivateUsers: boolean; canManageUserRoles: boolean; canManageRolesPermissions: boolean }) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [query, setQuery] = useState('')
@@ -2110,6 +2131,8 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
     })))
   }
 
+  // Profiles hold details such as names and account status, while memberships hold each user's organization role.
+  // Load both records and join them by user ID so the table can show one combined row per user.
   const loadUsers = async () => {
     setLoading(true)
     const [{ data: profiles, error: profileError }, { data: memberships, error: membershipError }] = await Promise.all([
@@ -2202,6 +2225,7 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
     setMessage(`Custom role "${createdName}" created and selected.`)
   }
 
+  // Ask the server-side invitation function to send the invite; after success, clear the form and reload the user list.
   const inviteUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!canInviteUsers) {
@@ -2341,6 +2365,8 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
     setMessage(`Department "${name}" created and selected.`)
   }
 
+  // Save role changes through the role-update database function; account status is updated on the profile record instead.
+  // Change the displayed row only after its database operation succeeds, so the UI does not show an unsaved value.
   const updateUser = async (user: ManagedUser, field: 'role' | 'account_status', value: string) => {
     setError('')
     setMessage('')
@@ -2817,6 +2843,8 @@ export default function App() {
     window.location.hash = '#dashboard'
     return <div className="protected-state">Opening your workspace...</div>
   }
+  // These routes show organization-specific pages, so require a signed-in session first.
+  // Public pages and account routes are handled elsewhere; ProtectedApp then loads organization access.
   const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>

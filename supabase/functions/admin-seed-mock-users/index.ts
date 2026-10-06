@@ -62,6 +62,7 @@ Deno.serve(async (request: Request) => {
   if (!supabaseUrl || !anonKey || !serviceRoleKey) return errorResponse('Mock-user service is not configured', 500)
   if (!authorization) return errorResponse('Authentication is required', 401)
 
+  // Use the caller's token for organization, profile, settings, and administrator checks so RLS applies.
   const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } })
   const { data: { user: requester }, error: authError } = await userClient.auth.getUser()
   if (authError || !requester) return errorResponse('Invalid authentication token', 401)
@@ -80,6 +81,8 @@ Deno.serve(async (request: Request) => {
     return errorResponse('Exactly 20 users and the StarNet Tech organization are required', 400)
   }
 
+  // This client bypasses RLS. Tenant and administrator checks below stay on userClient; reserve this client
+  // for Auth administration and the controlled writes needed to create the approved mock batch.
   const adminClient = createClient(supabaseUrl, serviceRoleKey)
   const { data: organization, error: organizationError } = await userClient
     .from('organizations')
@@ -191,7 +194,7 @@ Deno.serve(async (request: Request) => {
     for (const membership of memberships ?? []) existingRoles.set(membership.user_id, membership.role)
   }
 
-  const alreadyExisting: Array<Record<string, string>> = []
+  const alreadyExisting: Array<{ id: string } & MockUserInput & { employeeId: string }> = []
   for (const user of users) {
     const existingAuth = existingAuthUsers.get(user.email)
     if (!existingAuth) continue

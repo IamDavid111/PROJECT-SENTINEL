@@ -49,12 +49,14 @@ function fieldError(message?: string) {
   return message ? <span className="incident-field-error" role="alert">{message}</span> : null
 }
 
+// The browser collects date and time separately; the database field stores one timezone-aware timestamp.
 function combineOccurrenceDateTime(values: IncidentFormValues) {
   if (!values.occurrenceDate || !values.occurrenceTime) return undefined
   const date = new Date(`${values.occurrenceDate}T${values.occurrenceTime}`)
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
 
+// Save only incident-domain values plus the current wizard stage, leaving browser-only date/time fields out of the payload.
 function toDraftInput(values: IncidentFormValues, draftStage: number): IncidentDraftInput {
   return {
     reportType: values.reportType,
@@ -90,6 +92,8 @@ function toDraftInput(values: IncidentFormValues, draftStage: number): IncidentD
   }
 }
 
+// One editor handles both new reports and drafts reopened from My Reports.
+// It keeps the staged form data together while the user saves a draft, adds evidence, or submits the report.
 export function IncidentReportForm({ supabase, reportType, initialTitle, initialCategory, initialEnvironmentalImpact, draftId: existingDraftId, initialIncident }: { supabase: SupabaseClient; reportType: IncidentReportType; initialTitle?: string; initialCategory?: string; initialEnvironmentalImpact?: boolean; draftId?: string; initialIncident?: IncidentDetail }) {
   const organization = useIncidentOrganization(supabase)
   const existingDraft = useIncident(supabase, existingDraftId || null)
@@ -240,6 +244,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   const isSubmitting = submitIncident.isPending || submitNewIncident.isPending
   const isBusy = isSaving || isSubmitting
 
+  // A new form creates a manual draft; reopening one updates that same draft and preserves its reference for later edits.
   const saveDraft = async () => {
     setSubmitError('')
     setSubmitMessage('')
@@ -250,6 +255,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       setDraftReference(saved.referenceNumber)
       setDraftType('manual')
       setSubmitMessage(`Draft ${saved.referenceNumber} saved as a manual draft. You can continue it later.`)
+      window.setTimeout(() => { window.location.hash = '#my-reports' }, 1500)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Unable to save the draft.')
     }
@@ -274,6 +280,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       return
     }
 
+    // Unsaved reports can queue for later sync, but a manual server draft is submitted only while online.
     if (!navigator.onLine) {
       if (draftId && draftType === 'manual') {
         setSubmitError('Manual drafts can only be submitted while online. Your draft remains unchanged.')
@@ -349,7 +356,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           <h2>Report an incident</h2>
           <p>Progressive form — drafts are auto-saved and can be submitted offline; they sync when connectivity returns.</p>
         </div>
-        <div className="incident-form-header-actions"><a className="button button-outline button-small" href="#my-reports">My Reports</a><button className="button button-outline button-small" type="button" disabled={isBusy} onClick={() => void saveDraft()}>{isSaving ? 'Saving...' : 'Save as draft'}</button></div>
+        <div className="incident-form-header-actions"><a className="button button-outline button-small" href="#my-reports">My Reports</a></div>
       </div>
       <div className="incident-stage-progress"><div className="incident-stage-bar"><span style={{ width: `${((activeStage + 1) / stages.length) * 100}%` }} /></div><div className="incident-stage-labels">{stages.map((stage, index) => <button type="button" className={index === activeStage ? 'active' : index < activeStage ? 'complete' : ''} key={stage} onClick={() => index <= activeStage && setActiveStage(index)}>{index + 1}. {stage}</button>)}</div></div>
       <div className="incident-wizard-layout">
@@ -397,6 +404,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
           {activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : (
             <>
               <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(2)}>Back</button>
+              <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => void saveDraft()}>{isSaving ? 'Saving...' : 'Save as draft'}</button>
               <button className="button button-green button-large" type="submit" disabled={isBusy}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>
             </>
           )}

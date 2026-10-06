@@ -22,6 +22,7 @@ import { incidentQueryKeys } from './incidentQueryKeys'
 import { syncQueuedIncidentSubmissions } from './incidentOfflineQueue'
 import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentSubmissionInput, IncidentSummary } from './incidentTypes'
 
+// Resolve the signed-in user first, then load the organization context needed by incident queries.
 export function useIncidentOrganization(client: SupabaseClient) {
   const session = useQuery({
     queryKey: ['incident-auth-session'],
@@ -45,6 +46,7 @@ export function useIncidentOrganization(client: SupabaseClient) {
 export function useIncidentOfflineSync(client: SupabaseClient) {
   const queryClient = useQueryClient()
 
+  // Try queued submissions when the app starts and again when the browser reports that it is online.
   useEffect(() => {
     let active = true
     const sync = async () => {
@@ -72,6 +74,7 @@ export function useIncidentOfflineSync(client: SupabaseClient) {
 export function useIncidents(client: SupabaseClient, filters: IncidentListFilters = {}, scope: IncidentListScope = 'organization') {
   const organization = useIncidentOrganization(client)
   const queryClient = useQueryClient()
+  // Refresh only this organization's incident lists and dashboard when another workflow announces a record change.
   useEffect(() => {
     const organizationId = organization.data?.organizationId
     if (!organizationId) return
@@ -106,6 +109,7 @@ export function useIncident(client: SupabaseClient, incidentId: string | null) {
   })
 }
 
+// A new draft should appear in report lists as soon as the server confirms it was saved.
 export function useCreateIncidentDraft(client: SupabaseClient) {
   const queryClient = useQueryClient()
   return useMutation<IncidentSummary, Error, IncidentDraftInput>({
@@ -114,6 +118,7 @@ export function useCreateIncidentDraft(client: SupabaseClient) {
   })
 }
 
+// Refresh both list and detail queries so reopened drafts show their latest fields and saved stage.
 export function useUpdateIncidentDraft(client: SupabaseClient) {
   const queryClient = useQueryClient()
   return useMutation<IncidentSummary, Error, { incidentId: string; input: IncidentDraftInput }>({
@@ -125,6 +130,7 @@ export function useUpdateIncidentDraft(client: SupabaseClient) {
   })
 }
 
+// Submission changes the incident status and dashboard counts, so refresh its lists, detail, and organization dashboard.
 export function useSubmitIncident(client: SupabaseClient) {
   const queryClient = useQueryClient()
   return useMutation<IncidentSummary, Error, { incidentId: string; input: IncidentSubmissionInput }>({
@@ -137,6 +143,7 @@ export function useSubmitIncident(client: SupabaseClient) {
   })
 }
 
+// A newly submitted report refreshes incident lists and dashboard counts after the database returns its record.
 export function useSubmitNewIncident(client: SupabaseClient) {
   const queryClient = useQueryClient()
   return useMutation<IncidentSummary, Error, IncidentSubmissionInput>({
@@ -158,6 +165,7 @@ export function useIncidentEvidence(client: SupabaseClient, incidentId: string |
   })
 }
 
+// Refresh the evidence list and incident detail after an upload; the dashboard also shows recent activity.
 export function useUploadIncidentEvidence(client: SupabaseClient) {
   const queryClient = useQueryClient()
   return useMutation<IncidentEvidence, Error, { incidentId: string; file: File }>({
@@ -170,6 +178,7 @@ export function useUploadIncidentEvidence(client: SupabaseClient) {
   })
 }
 
+// A delete refreshes evidence and detail data so removed files disappear from both views.
 export function useDeleteIncidentEvidence(client: SupabaseClient) {
   const queryClient = useQueryClient()
   return useMutation<void, Error, { evidenceId: string; organizationId: string; incidentId: string }>({

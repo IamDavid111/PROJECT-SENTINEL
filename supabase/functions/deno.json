@@ -5,6 +5,8 @@
     "noImplicitAny": true
   },
   "imports": {
-    "@supabase/supabase-js": "npm:@supabase/supabase-js@2"
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
+    "zod": "npm:zod@4.5.4",
+    "@tanstack/react-query": "npm:@tanstack/react-query@5.102.8"
   }
 }

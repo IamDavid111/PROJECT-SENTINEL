@@ -332,6 +332,7 @@ Deno.serve(async (request: Request) => {
   if (!url || !anonKey) return respond({ error: 'Incident seed service is not configured' }, 500)
   if (!authorization) return respond({ error: 'Authentication is required' }, 401)
 
+  // Keep reads and administrator checks scoped to the caller's JWT instead of using service-role access.
   const client = createClient(url, anonKey, { global: { headers: { Authorization: authorization } } })
   const { data: { user }, error: authError } = await client.auth.getUser()
   if (authError || !user) return respond({ error: 'Invalid authentication token' }, 401)
@@ -424,6 +425,7 @@ Deno.serve(async (request: Request) => {
     return respond({ error: 'Settings preflight rejected the batch before database writes', invalidRows: settingsPreflightErrors.slice(0, 10), invalidRowCount: settingsPreflightErrors.length }, 400)
   }
 
+  // The database RPC repeats caller and organization authorization; endpoint preflight is not the security boundary.
   const { data, error } = await client.rpc('seed_starnet_mock_incident_batch', { p_rows: rows })
   if (error) return respond({ error: error.message }, 400)
   return respond({
