@@ -7,6 +7,7 @@ import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, 
 
 import { useIncidentOrganization, useIncidents } from './useIncidentData'
 import { incidentStatuses, type IncidentListFilters, type IncidentListScope, type IncidentStatus, type IncidentSummary } from './incidentTypes'
+import { IncidentClosureForm } from './IncidentClosure'
 
 const pageSize = 10
 
@@ -169,7 +170,7 @@ async function exportWord(rows: IncidentExportRow[], generatedAt: Date, administ
 
 // The own view lists the current user's reports; the organization view lists incidents across the organization.
 // Both reuse this page's filters, table, and links for reopening drafts or viewing submitted incidents.
-export function MyReportsPage({ supabase, canExport = false, scope = 'organization' }: { supabase: SupabaseClient; canExport?: boolean; scope?: IncidentListScope }) {
+export function MyReportsPage({ supabase, canExport = false, canViewAll = false, canClose = false, scope = 'organization' }: { supabase: SupabaseClient; canExport?: boolean; canViewAll?: boolean; canClose?: boolean; scope?: IncidentListScope }) {
   const organization = useIncidentOrganization(supabase)
   const [sites, setSites] = useState<Array<{ id: string; name: string }>>([])
   const [settings, setSettings] = useState<Record<string, unknown>>({})
@@ -178,8 +179,10 @@ export function MyReportsPage({ supabase, canExport = false, scope = 'organizati
   const [exportMessage, setExportMessage] = useState('')
   const [exportError, setExportError] = useState('')
   const [administrator, setAdministrator] = useState('Authenticated user')
+  const [selectedScope, setSelectedScope] = useState(scope)
+  const [closingIncident, setClosingIncident] = useState<IncidentSummary | null>(null)
   const [filters, setFilters] = useState<IncidentListFilters>({ status: 'all', incidentCategory: 'all', severity: 'all', siteId: 'all', department: 'all', page: 1, pageSize })
-  const incidents = useIncidents(supabase, filters, scope)
+  const incidents = useIncidents(supabase, filters, canViewAll ? selectedScope : 'own')
 
   useEffect(() => {
     if (!organization.data?.organizationId) return
@@ -234,10 +237,12 @@ export function MyReportsPage({ supabase, canExport = false, scope = 'organizati
       </div>
       {exportError && <div className="auth-message error" role="alert">{exportError}</div>}
       {exportMessage && <div className="auth-message success" role="status">{exportMessage}</div>}
+      {closingIncident && canClose && <IncidentClosureForm key={closingIncident.id} client={supabase} incident={closingIncident} onDismiss={() => setClosingIncident(null)} />}
       <div className="reports-toolbar">
+        {canViewAll && <label>Reports view<select value={selectedScope} onChange={(event) => { setSelectedScope(event.target.value === 'own' ? 'own' : 'organization'); setFilters((current) => ({ ...current, page: 1 })); setClosingIncident(null) }}><option value="own">My reported incidents</option><option value="organization">All organization incidents</option></select></label>}
         <label>Search<input value={filters.search || ''} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Search reference, title, reporter, site..." /></label>
         <label>Severity<select value={filters.severity || 'all'} onChange={(event) => updateFilter('severity', event.target.value)}><option value="all">All configured severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select></label>
-        <label>Status<select value={filters.status || 'all'} onChange={(event) => updateFilter('status', event.target.value)}><option value="all">All status</option>{incidentStatuses.map((status) => <option value={status} key={status}>{label(status)}</option>)}</select></label>
+        <label>Status<select value={filters.status || 'all'} onChange={(event) => updateFilter('status', event.target.value)}><option value="all">All status</option><option value="open">All open reported incidents</option>{incidentStatuses.map((status) => <option value={status} key={status}>{label(status)}</option>)}</select></label>
         <label>Site<select value={filters.siteId || 'all'} onChange={(event) => updateFilter('siteId', event.target.value)}><option value="all">All configured sites</option>{sites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select></label>
         <label>Department<select value={filters.department || 'all'} onChange={(event) => updateFilter('department', event.target.value)}><option value="all">All configured departments</option>{departments.map((department) => <option value={department} key={department}>{department}</option>)}</select></label>
         <label>Category<select value={filters.incidentCategory || 'all'} onChange={(event) => updateFilter('incidentCategory', event.target.value)}><option value="all">All configured categories</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select></label>
@@ -245,7 +250,7 @@ export function MyReportsPage({ supabase, canExport = false, scope = 'organizati
       </div>
       {incidents.isLoading ? <div className="workspace-empty">Loading incidents...</div> : incidents.isError ? <div className="auth-message error" role="alert">Unable to load incidents. Please try again.</div> : incidents.data?.items.length ? <>
         <div className="reports-table-wrap"><table className="reports-table"><thead><tr><th>Reference</th><th>Incident</th><th>Category</th><th>Severity</th><th>Status</th><th>Site</th><th>Department</th><th>Assignee</th><th>Occurred</th><th>Submission status</th></tr></thead><tbody>
-          {incidents.data.items.map((incident) => <tr key={incident.id}><td><a href={incidentHref(incident.id, incident.status)} className="report-reference">{incident.referenceNumber}</a></td><td><a href={incidentHref(incident.id, incident.status)}>{incident.title}</a><small className="report-subline">Reported by {incident.createdBy}</small></td><td>{incident.incidentCategory || label(incident.reportType)}</td><td>{incident.severity || incident.potentialSeverity || 'Not set'}</td><td><StatusBadge status={incident.status} /></td><td>{sites.find((site) => site.id === incident.siteId)?.name || 'Not set'}</td><td>{incident.department || 'Not set'}</td><td>Unassigned</td><td>{formatDate(incident.occurredAt)}</td><td>{formatDateTime(incident.reportedAt)}</td></tr>)}
+          {incidents.data.items.map((incident) => <tr key={incident.id}><td><a href={incidentHref(incident.id, incident.status)} className="report-reference">{incident.referenceNumber}</a></td><td><a href={incidentHref(incident.id, incident.status)}>{incident.title}</a><small className="report-subline">Reported by {incident.createdBy}</small></td><td>{incident.incidentCategory || label(incident.reportType)}</td><td>{incident.severity || incident.potentialSeverity || 'Not set'}</td><td><StatusBadge status={incident.status} />{canClose && <button type="button" className="button button-outline button-small" disabled={Boolean(closingIncident) || incident.status === 'draft' || incident.status === 'closed'} onClick={() => setClosingIncident(incident)}>{incident.status === 'closed' ? 'Closed' : incident.status === 'draft' ? 'Not submitted' : 'Close incident'}</button>}</td><td>{sites.find((site) => site.id === incident.siteId)?.name || 'Not set'}</td><td>{incident.department || 'Not set'}</td><td>Unassigned</td><td>{formatDate(incident.occurredAt)}</td><td>{formatDateTime(incident.reportedAt)}</td></tr>)}
         </tbody></table></div>
         <div className="reports-pagination"><span>Page {filters.page || 1} of {totalPages} · {incidents.data.total} incidents</span><div><button className="button button-outline button-small" type="button" disabled={(filters.page || 1) <= 1} onClick={() => setFilters((current) => ({ ...current, page: (current.page || 1) - 1 }))}>Previous</button><button className="button button-outline button-small" type="button" disabled={(filters.page || 1) >= totalPages} onClick={() => setFilters((current) => ({ ...current, page: (current.page || 1) + 1 }))}>Next</button></div></div>
       </> : <div className="workspace-empty"><strong>No incident reports found.</strong><span>Start by reporting your first incident.</span><a className="button button-green button-small" href="#report-incident">Report incident</a></div>}

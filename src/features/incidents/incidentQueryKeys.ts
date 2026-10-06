@@ -1,6 +1,6 @@
 import type { IncidentListFilters, IncidentListScope } from './incidentTypes'
 
-// Keep organization, view scope, filters, and record IDs in the cache key so different incident views do not share stale results.
+// Hooks append the authenticated user ID to these prefixes because RLS results differ within an organization.
 // The common 'all' prefix also lets mutations invalidate every incident query at once.
 export const incidentQueryKeys = {
   all: ['incidents'] as const,

@@ -102,7 +102,7 @@ export const incidentPersonSchema = z.object({
 // Defaults give list queries stable filter values, and the final check rejects a reversed date range.
 export const incidentListFiltersSchema = z.object({
   search: z.string().trim().max(120).optional(),
-  status: z.enum([...incidentStatuses, 'all'] as const).optional().default('all'),
+  status: z.enum([...incidentStatuses, 'all', 'open'] as const).optional().default('all'),
   reportType: z.enum([...incidentReportTypes, 'all'] as const).optional().default('all'),
   incidentCategory: z.string().trim().max(120).optional().default('all'),
   severity: z.string().trim().max(80).optional().default('all'),
