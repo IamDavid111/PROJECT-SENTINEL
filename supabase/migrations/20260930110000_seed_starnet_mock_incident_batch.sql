@@ -69,6 +69,7 @@ begin
   requested_count := jsonb_array_length(p_rows);
   if requested_count <> 1000 then raise exception 'Exactly 1000 incident rows are required, received %', requested_count; end if;
 
+  -- Treat reruns as all-or-none: return counts for a complete batch, but reject partial batches rather than extending them.
   select count(*) into existing_count
   from public.incidents
   where organization_id = target_organization_id

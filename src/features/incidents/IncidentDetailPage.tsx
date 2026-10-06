@@ -48,6 +48,8 @@ function DetailItem({
   );
 }
 
+// This screen brings together the incident record, its activity history, and its evidence files.
+// Evidence actions are available here; investigation and corrective-action workflows are future modules, not part of this page yet.
 export function IncidentDetailPage({
   supabase,
   incidentId,

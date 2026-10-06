@@ -34,6 +34,8 @@ as $$
   );
 $$;
 
+-- This final membership helper requires the membership and profile to name the same organization.
+-- It excludes pending profiles, but does not itself require every other account status to be active.
 create or replace function public.is_org_member(target_organization_id uuid)
 returns boolean
 language sql

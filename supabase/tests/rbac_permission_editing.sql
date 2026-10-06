@@ -1,3 +1,4 @@
+-- Requires an existing Super Administrator fixture; the transaction rolls back the test custom role and permission edits.
 begin;
 
 select set_config(

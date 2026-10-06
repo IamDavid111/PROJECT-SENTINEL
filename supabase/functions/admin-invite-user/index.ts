@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { sendInviteEmail } from '../_shared/inviteEmail.ts'
 
 const INVITE_EXPIRY_HOURS = 24
@@ -28,7 +29,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function recordActivity(client: ReturnType<typeof createClient>, organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
+async function recordActivity(client: SupabaseClient<any, any, any, any, any>, organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
   await client.from('activity_logs').insert({ organization_id: organizationId, user_id: userId, activity, metadata })
 }
 
@@ -49,6 +50,7 @@ Deno.serve(async (request: Request) => {
     const authorization = request.headers.get('Authorization')
     if (!authorization) throw new Error('Authentication is required')
 
+    // Forward the caller's token so membership and organization-setting reads use that user's access.
     const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } })
     const { data: { user: requester }, error: requesterError } = await userClient.auth.getUser()
     if (requesterError || !requester) throw new Error('Invalid authentication token')
@@ -114,6 +116,7 @@ Deno.serve(async (request: Request) => {
     }
 
     stage = 'invitation_record_check'
+    // This client bypasses RLS. Use it only after the caller, role, department, and custom-role checks above.
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
     const { data: existingInvitation } = await adminClient
       .from('admin_invitations')
@@ -142,6 +145,8 @@ Deno.serve(async (request: Request) => {
       .maybeSingle()
     if (organizationError) throw new Error(organizationError.message)
 
+    // Auth and database writes below are separate operations, not one transaction; later error branches
+    // attempt cleanup by revoking invitation records and deleting Auth users or profiles created earlier.
     stage = 'auth_invitation'
     const requestOrigin = request.headers.get('origin')
     // The route must stay out of the URL fragment. Supabase's implicit flow

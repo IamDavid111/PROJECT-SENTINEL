@@ -1,3 +1,4 @@
+-- The transaction targets only the fixed organization, batch prefix, and exact mock signature, then removes linked records.
 begin;
 
 create temporary table starnet_cleanup_targets on commit drop as
@@ -60,6 +61,7 @@ begin
 end;
 $guard$;
 
+-- Remove only storage objects referenced by evidence rows in the selected batch, not unrelated bucket contents.
 delete from storage.objects o
 using starnet_cleanup_evidence_paths p
 where o.bucket_id = 'incident-evidence'

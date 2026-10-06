@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const previewSql = path.join(projectRoot, 'supabase', 'seed', 'preview_starnet_mock_incident_cleanup.sql')
 const cleanupSql = path.join(projectRoot, 'supabase', 'seed', 'cleanup_starnet_mock_incidents.sql')
+// Preview is the default; --execute proceeds only after the linked-project identity and mock-marker checks pass.
 const execute = process.argv.includes('--execute')
 
 function parseCliJson(text) {
@@ -32,6 +33,7 @@ function parseCliJson(text) {
 }
 
 function runQuery(sqlFile) {
+  // The CLI targets whichever Supabase project is currently linked in this workspace.
   const command = `npm exec supabase -- db query --linked --output json --file "${sqlFile}"`
   const result = spawnSync(command, [], {
     cwd: projectRoot,

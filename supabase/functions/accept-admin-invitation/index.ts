@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -6,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function recordActivity(client: ReturnType<typeof createClient>, organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
+async function recordActivity(client: SupabaseClient<any, any, any, any, any>, organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
   await client.from('activity_logs').insert({ organization_id: organizationId, user_id: userId, activity, metadata })
 }
 
@@ -20,10 +21,13 @@ Deno.serve(async (request: Request) => {
     const authorization = request.headers.get('Authorization')
     if (!authorization) throw new Error('Authentication is required')
 
+    // Verify the request as the signed-in invitee before looking up any invitation data.
     const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } })
     const { data: { user }, error: userError } = await userClient.auth.getUser()
     if (userError || !user || !user.email) throw new Error('Invalid authentication token')
 
+    // Invitation records are not directly readable by normal clients, so this server-side client loads the pending invite.
+    // The actual acceptance is still delegated to a caller-authenticated RPC, which checks the invite again in SQL.
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
     const normalizedEmail = user.email.trim().toLowerCase()
     const { data: pendingInvitation, error: invitationError } = await adminClient
@@ -80,6 +84,7 @@ Deno.serve(async (request: Request) => {
     const fullName = requestBody.fullName?.trim() || ''
     if (!fullName) throw new Error('Full name is required')
 
+    // Let the database perform the authoritative state change after rechecking identity, expiry, and eligibility.
     const { data: acceptance, error: acceptError } = await userClient.rpc('complete_admin_invitation', {
       p_full_name: fullName,
       p_employee_id: null,

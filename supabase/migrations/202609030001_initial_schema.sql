@@ -127,6 +127,7 @@ create trigger company_settings_set_updated_at
 before update on public.company_settings
 for each row execute function public.set_updated_at();
 
+-- These helpers let row policies compare the signed-in user's membership with the row's organization.
 create or replace function public.is_org_member(target_organization_id uuid)
 returns boolean
 language sql
@@ -281,6 +282,8 @@ create policy company_settings_manage_admin on public.company_settings
 for all to authenticated using (public.has_org_role(organization_id, array['Super Administrator', 'Organization Administrator']::public.membership_role[]))
 with check (public.has_org_role(organization_id, array['Super Administrator', 'Organization Administrator']::public.membership_role[]));
 
+-- Organization assets are private; their first storage folder is the organization UUID used by these policies.
+-- Members can read these objects, while organization administrators can upload, update, or delete them.
 insert into storage.buckets (id, name, public)
 values ('organization-assets', 'organization-assets', false)
 on conflict (id) do nothing;

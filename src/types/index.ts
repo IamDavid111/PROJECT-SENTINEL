@@ -1,3 +1,5 @@
+// Names of built-in roles used by application logic. User Management can display a friendlier label,
+// then map that label back to the corresponding backend role name when handling user roles.
 export type Role =
   | 'Super Administrator'
   | 'Organization Administrator'
@@ -35,25 +37,6 @@ export type Organization = {
   contactEmail: string
   contactPhone: string
   logoUrl?: string
-}
-
-export type UserProfile = {
-  id: string
-  fullName: string
-  email: string
-  employeeId?: string
-  department?: string
-  jobTitle?: string
-  phone?: string
-  emergencyContact?: string
-  siteLocation?: string
-  supervisor?: string
-  certificationStatus?: string
-  role: Role
-  employmentType?: string
-  accountStatus: UserAccountStatus
-  organizationId: string
-  photoUrl?: string
 }
 
 export type ActivityLogItem = {

@@ -1,3 +1,6 @@
+-- This elevated RPC derives the organization and owner from the authenticated user's active profile,
+-- rather than trusting tenant or owner IDs supplied in the draft payload. Updates are limited to that
+-- user's own draft in the same organization while it is still in draft status.
 create or replace function public.save_incident_draft(
   p_incident_id uuid default null,
   p_input jsonb default '{}'::jsonb,
@@ -32,6 +35,8 @@ begin
     raise exception 'Your account is not active in an organization.';
   end if;
 
+  -- Offline retries are deduplicated by organization and client submission ID; this key is tenant-scoped,
+  -- not restricted to a particular creator.
   if p_incident_id is null and p_client_submission_id is not null then
     select * into saved_incident
     from public.incidents

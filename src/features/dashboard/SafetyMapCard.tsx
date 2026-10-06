@@ -10,6 +10,7 @@ export function SafetyMapCard({ sites }: { sites: SafetySite[] }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const token = import.meta.env.VITE_MAPBOX_PUBLIC_TOKEN
 
+  // Mapbox creates its canvas and markers outside React; create them only with a token and site data, then remove them on cleanup.
   useEffect(() => {
     if (!token || !containerRef.current || !sites.length) return
     mapboxgl.accessToken = token
