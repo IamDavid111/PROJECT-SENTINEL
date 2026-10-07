@@ -22,6 +22,8 @@ import { DashboardPage } from './features/dashboard/DashboardPage'
 import { IncidentReportForm } from './features/incidents/IncidentReportForm'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
 import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
+import { ActionsWorkspace } from './features/qhse/ActionsWorkspace'
+import { InspectionWorkspace } from './features/qhse/InspectionWorkspace'
 import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/OrganizationSetupPage'
 import { useIncidentOfflineSync } from './features/incidents/useIncidentData'
 
@@ -427,12 +429,14 @@ function DemoRequestPage() {
   )
 }
 
-type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
+type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'assigned-actions' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
 type Permission = PermissionKey
 
 const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; permission: Permission }[] = [
   { route: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'view_dashboard' },
   { route: 'report-incident', label: 'Report Incident', icon: Siren, permission: 'report_incident' },
+  { route: 'inspections', label: 'Log Inspection', icon: ClipboardCheck, permission: 'create_inspection' },
+  { route: 'corrective-actions', label: 'Actions', icon: ListChecks, permission: 'create_corrective_action' },
   { route: 'ai-assistant', label: 'AI Safety Assistant', icon: Sparkles, permission: 'use_ai_assistant' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: BarChart3, permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
@@ -445,13 +449,12 @@ const secondaryNavigation: { route: AppRoute; label: string; permission: Permiss
   { route: 'administration', label: 'Administration', permission: 'access_administration' },
   { route: 'settings', label: 'Settings', permission: 'manage_settings' },
   { route: 'my-reports', label: 'My Reports', permission: 'view_own_reports' },
+  { route: 'assigned-actions', label: 'Assigned Actions', permission: 'view_own_reports' },
 ]
 
 const futureModuleRoutes: { route: AppRoute; label: string; permission: PermissionKey }[] = [
   { route: 'incidents', label: 'Incident Management', permission: 'view_all_incidents' },
   { route: 'incident-detail', label: 'Incident Detail', permission: 'view_all_incidents' },
-  { route: 'corrective-actions', label: 'Corrective Actions', permission: 'view_dashboard' },
-  { route: 'inspections', label: 'Safety Inspections', permission: 'view_dashboard' },
   { route: 'audits', label: 'Audit Management', permission: 'view_dashboard' },
   { route: 'reports', label: 'Reports', permission: 'view_reports' },
   { route: 'users', label: 'User Management', permission: 'view_users' },
@@ -463,7 +466,15 @@ const futureModuleRoutes: { route: AppRoute; label: string; permission: Permissi
 // Unknown workspace hashes fall back to the dashboard.
 function getAppRoute(): AppRoute {
   const route = getHashRoute()
-  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'assigned-actions' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+}
+
+function hasRoutePermission(role: string | null, customPermissions: readonly string[], permission: PermissionKey, targetRoute: AppRoute) {
+  if (targetRoute === 'inspections') return Boolean(role && hasPermission(role, permission, customPermissions)
+    && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role))
+  if (targetRoute === 'corrective-actions') return Boolean(role && hasPermission(role, permission, customPermissions)
+    && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role))
+  return Boolean(role && hasPermission(role, permission, customPermissions))
 }
 
 const administrationEntries: { title: string; description: string; href: string; action: string }[] = [
@@ -582,9 +593,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   }, [loadingGateComplete, proceedToWorkspace])
 
   const canAccess = (permission: PermissionKey) => role ? hasPermission(role, permission, customRolePermissions) : false
+  const canCreateInspections = canAccess('create_inspection') && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role || '')
+  const canManageActions = canAccess('create_corrective_action') && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role || '')
   const legacyFeatureRole = role && BUILT_IN_BACKEND_ROLES.includes(role as typeof BUILT_IN_BACKEND_ROLES[number]) ? role as Role : 'Field Worker'
-  const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
-  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? role === 'Super Administrator' : canAccess(item.permission))
+  const visiblePrimaryNavigation = primaryNavigation.filter((item) => hasRoutePermission(role, customRolePermissions, item.permission, item.route))
+  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? role === 'Super Administrator' : hasRoutePermission(role, customRolePermissions, item.permission, item.route))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
 
   useEffect(() => {
@@ -594,11 +607,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       return
     }
 
-    if (!loading && (!currentNavigation || !canAccess(currentNavigation.permission))) {
+    if (!loading && (!currentNavigation || !hasRoutePermission(role, customRolePermissions, currentNavigation.permission, currentNavigation.route))) {
       const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
       if (route !== fallback) window.location.hash = `#${fallback}`
     }
-  }, [canManageCompanySettings, currentNavigation, loading, route, visiblePrimaryNavigation])
+  }, [canManageCompanySettings, customRolePermissions, currentNavigation, loading, role, route, visiblePrimaryNavigation])
 
   useEffect(() => {
     if (!organizationId || !role) return
@@ -643,7 +656,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   return (
     <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}>
       <aside className="workspace-sidebar">
-        <a className="brand workspace-brand" href="#dashboard" onClick={() => handleNavClick('dashboard')}>
+        <a className="brand workspace-brand" href="#dashboard" onClick={() => handleNavClick('dashboard')}>   
           <BrandMark />
           <span className="brand-copy"><strong>SentinelQHSE<sup>™</sup></strong><small>SAFETY INTELLIGENCE</small></span>
         </a>
@@ -713,14 +726,20 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           </div>
         </header>
         <section className="workspace-content">
-          {route === 'dashboard' && <DashboardPage organizationId={organizationId} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canAccess('create_inspection')} canCreateCorrectiveAction={canAccess('create_corrective_action')} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
+          {route === 'dashboard' && <DashboardPage organizationId={organizationId} currentUserId={session.user.id} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canCreateInspections} canCreateCorrectiveAction={canManageActions} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
           {route === 'report-incident' && canAccess('report_incident') && <IncidentReportForm key={`report-incident-${navResetKey}`} supabase={supabase} reportType="incident" draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} />}
           {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} scope="own" canExport={canAccess('export_reports')} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
           {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} scope="organization" canExport={canAccess('export_reports')} />}
+
+          {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage />}
+          {route === 'assigned-actions' && canAccess('view_own_reports') && <ActionsWorkspace supabase={supabase} canManage={canManageActions} assignedOnly />}
+          {route === 'inspections' && canCreateInspections && <InspectionWorkspace supabase={supabase} />}
+
           {/* Navigation exists for these modules, but each route currently shows a placeholder instead of a working feature workflow. */}
           {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
           {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
+
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
           {route === 'reports' && canAccess('view_reports') && <WorkspacePlaceholder title="Reports" description="Reporting and exports will connect to validated operational records in the reporting module." action="Module coming next" />}
           {route === 'ai-assistant' && canAccess('use_ai_assistant') && <WorkspacePlaceholder title="AI Safety Assistant" description="AI analysis will appear here once sufficient QHSE data and the AI service are connected." action="Review available data" />}

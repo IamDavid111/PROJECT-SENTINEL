@@ -119,6 +119,7 @@ export async function getDashboardSnapshot(
   client: SupabaseClient,
   organizationId: string,
   filters: DashboardFilters,
+  currentUserId: string,
 ): Promise<DashboardSnapshot> {
   const days = dateRangeDays[filters.dateRange]
   const since = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString() : null
@@ -192,6 +193,14 @@ export async function getDashboardSnapshot(
   ])
   const incidentQueryError = [totalResult, submittedResult, reviewResult, closedResult, nearMissResult].find((result) => result.error)?.error
   if (incidentQueryError) throw new Error('Unable to load incident dashboard metrics.')
+
+  const { data: operationsMetrics, error: operationsMetricsError } = await client.rpc('get_inspection_action_metrics', {
+    p_since: since,
+    p_site_id: selectedSiteId,
+  })
+  if (operationsMetricsError) throw new Error('Unable to load inspection and action dashboard metrics.')
+  const metricsRow = Array.isArray(operationsMetrics) ? operationsMetrics[0] : null
+
   const incidentRows: DashboardIncidentRow[] = []
   // Chart distributions need every matching row, so fetch them in bounded pages instead of one unbounded request.
   const incidentPageSize = 500
@@ -208,12 +217,23 @@ export async function getDashboardSnapshot(
     'under-review-incidents': reviewResult.count || 0,
     'resolved-incidents': closedResult.count || 0,
     'near-misses': nearMissResult.count || 0,
+    'inspections-completed': Number(metricsRow?.inspections_completed || 0),
+    'open-actions': Number(metricsRow?.open_corrective_actions || 0),
+    'overdue-actions': Number(metricsRow?.overdue_actions || 0),
   }
   // Only keys present in incidentMetricValues have live counts; all other metric cards remain explicitly unavailable.
   const metrics = unavailableMetrics().map((metric) => {
     const value = incidentMetricValues[metric.key]
     if (value === undefined) return metric
-    return { ...metric, value: String(value), detail: 'Organization incident data', available: true, tone: metric.key === 'open-incidents' ? 'orange' as const : 'green' as const }
+    const detail = metric.key === 'inspections-completed'
+      ? 'Organization inspections in selected date range'
+      : metric.key === 'open-actions'
+        ? 'Open corrective actions not yet due'
+        : metric.key === 'overdue-actions'
+          ? 'Open actions past due'
+          : 'Organization incident data'
+    const tone = metric.key === 'open-incidents' || metric.key === 'overdue-actions' ? 'orange' as const : 'green' as const
+    return { ...metric, value: String(value), detail, available: true, tone }
   })
   const siteNames = new Map((organizationSites || []).map((site) => [site.id, site.name]))
   const recentIncidents = incidentRows.slice(0, 5).map((incident) => ({
@@ -251,6 +271,7 @@ export async function getDashboardSnapshot(
 
   const filteredData = (data || []).filter((item) => {
     const metadata = (item.metadata || {}) as Record<string, unknown>
+    if (metadata.entity_type === 'action') return metadata.recipient_id === currentUserId
     const matches = (filter: string, key: string) => filter === 'all' || (key === 'incidentType' ? normalizeIncidentCategoryName(metadataText(metadata, key)) === normalizeIncidentCategoryName(filter) : metadataText(metadata, key) === filter)
     return matches(filters.site, 'site')
       && matches(filters.department, 'department')
