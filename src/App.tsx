@@ -656,7 +656,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   return (
     <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}>
       <aside className="workspace-sidebar">
-        <a className="brand workspace-brand" href="#dashboard" onClick={() => handleNavClick('dashboard')}>
+        <a className="brand workspace-brand" href="#dashboard" onClick={() => handleNavClick('dashboard')}>   
           <BrandMark />
           <span className="brand-copy"><strong>SentinelQHSE<sup>™</sup></strong><small>SAFETY INTELLIGENCE</small></span>
         </a>
