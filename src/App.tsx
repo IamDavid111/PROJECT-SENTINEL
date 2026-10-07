@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowLeft, ArrowRight, BarChart3, Bell, BookOpen, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BarChart3, Bell, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -380,14 +380,11 @@ const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; per
   { route: 'report-incident', label: 'Report Incident', icon: Siren, permission: 'report_incident' },
   // Retain the route key so existing assistant bookmarks continue to work.
   { route: 'ai-assistant', label: 'Safety Intelligence', icon: Sparkles, permission: 'use_ai_assistant' },
-  // Visibility follows the view_knowledge_documents grant; the knowledge service and RLS enforce access.
-  { route: 'knowledge', label: 'QHSE Knowledge', icon: BookOpen, permission: 'view_knowledge_documents' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: BarChart3, permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
 ]
 
 const secondaryNavigation: { route: AppRoute; label: string; permission: PermissionKey }[] = [
-  { route: 'incidents', label: 'Incident Management', permission: 'view_all_incidents' },
   { route: 'profile', label: 'User Profile', permission: 'view_profile' },
   { route: 'preferences', label: 'Notification Preferences', permission: 'view_profile' },
   { route: 'activity-log', label: 'Activity Log', permission: 'view_activity' },
@@ -535,6 +532,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
   const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? canManageCompanySettings && canAccess(item.permission) : canAccess(item.permission))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
+    || (route === 'knowledge' ? { label: 'QHSE Knowledge', permission: 'view_knowledge_documents' as PermissionKey } : undefined)
   const currentRouteAuthorized = route === 'incident-detail'
     ? canAccess('view_own_reports') || canAccess('view_all_incidents')
     : Boolean(currentNavigation && canAccess(currentNavigation.permission))
@@ -677,7 +675,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'reports' && canAccess('view_reports') && <WorkspacePlaceholder title="Reports" description="Reporting and exports will connect to validated operational records in the reporting module." action="Module coming next" />}
           {route === 'ai-assistant' && canAccess('use_ai_assistant') && (
             closureAccess.isPending ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
-              : !closureAccess.isError && <SafetyIntelligencePage client={supabase} scope={{
+              : !closureAccess.isError && <SafetyIntelligencePage client={supabase} canViewKnowledge={canAccess('view_knowledge_documents')} scope={{
                 organizationId, userId: session.user.id,
                 visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',
                 siteAssignmentEnforced: false,

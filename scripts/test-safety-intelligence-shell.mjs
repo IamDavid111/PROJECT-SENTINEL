@@ -16,22 +16,26 @@ const secondary = app.split('const secondaryNavigation:')[1].split('const future
 const labels = [...primary.matchAll(/label: '([^']+)'/g)].map((match) => match[1])
 assert.deepEqual(labels, ['Dashboard', 'Report Incident', 'Safety Intelligence', 'Executive Analytics', 'HSE Marketplace'])
 assert.match(primary, /route: 'ai-assistant', label: 'Safety Intelligence', icon: Sparkles, permission: 'use_ai_assistant'/)
+assert(!primary.includes("label: 'QHSE Knowledge'"))
 const accountLabels = [...secondary.matchAll(/label: '([^']+)'/g)].map((match) => match[1])
 assert.equal(accountLabels[accountLabels.indexOf('Administration') + 1], 'Settings')
 assert(!primary.includes("route: 'settings'"))
 assert(secondary.includes("route: 'settings', label: 'Settings', permission: 'manage_settings'"))
 assert(app.includes("const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? canManageCompanySettings && canAccess(item.permission) : canAccess(item.permission))"))
-assert(secondary.includes("route: 'incidents'"))
+assert(!secondary.includes("route: 'incidents'"))
 assert(app.includes("requestedRoute === 'ai-assistant'") && app.includes("route === 'ai-assistant'"))
 assert(app.includes("canManageCompanySettings && canAccess(item.permission)"))
 assert(app.includes("{canAccess('use_ai_assistant') && <a"))
 assert(app.includes("route === 'ai-assistant' && canAccess('use_ai_assistant')"))
 assert(app.includes("title=\"Safety Intelligence\" aria-label=\"Safety Intelligence\""))
 assert(app.includes("'Operations / Safety Intelligence'"))
+assert(app.includes("route === 'knowledge' ? { label: 'QHSE Knowledge'"))
+assert(app.includes("route === 'knowledge' && canAccess('view_knowledge_documents')"))
 
 let query
 let calls = 0
 let days = 90
+let activeTab = null
 let requestedDays
 let planningExpanded = false
 class TestServiceError extends Error { requestId = 'test-request-reference' }
@@ -48,9 +52,13 @@ function load(path) {
       if (name === './safetyIntelligenceService') return { SafetyIntelligenceError: TestServiceError }
       if (name === '../ai/SafetyAssistant') return { SafetyAssistant: () => createElement('section', null,
         createElement('h2', null, 'AI Safety Assistant'), createElement('textarea', { 'aria-label': 'Your question' })) }
+      if (name === '../knowledge/KnowledgePage') return { KnowledgePage: () => createElement('section', null,
+        createElement('h2', null, 'QHSE Documents')) }
       if (name === 'react') return { ...require(name), useState: (initial) => typeof initial === 'boolean'
         ? [planningExpanded, (value) => { planningExpanded = typeof value === 'function' ? value(planningExpanded) : value }]
-        : [days, (value) => { days = value }] }
+        : initial === null
+          ? [activeTab, (value) => { activeTab = typeof value === 'function' ? value(activeTab) : value }]
+          : [days, (value) => { days = value }] }
       if (name.startsWith('.')) {
         const target = resolve(dirname(path), name)
         return load(target.endsWith('.ts') ? target : existsSync(`${target}.ts`) ? `${target}.ts` : `${target}.tsx`)
@@ -64,13 +72,18 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const Page = load(resolve(root, 'src/features/safety-intelligence/SafetyIntelligencePage.tsx')).SafetyIntelligencePage
 const { calculateSafetySnapshot } = load(resolve(root, 'supabase/functions/_shared/safetyIntelligenceCalculations.ts'))
 const { dataset, scope, asOf, incident, org } = load(resolve(root, 'supabase/functions/safety-intelligence/fixtures_test.ts'))
-const props = { client: {}, scope }
+const props = { client: {}, scope, canViewKnowledge: true }
 const data = calculateSafetySnapshot(dataset(), scope, { days: 90 }, asOf)
 const render = (state) => {
   query = { isPending: false, isError: false, isFetching: false, refetch: () => { calls++; return Promise.resolve() }, ...state }
   return renderToStaticMarkup(createElement(Page, props))
 }
-let html = render({ isPending: true, isFetching: true })
+activeTab = null
+let html = render({ data })
+assert(html.includes('AI Safety Intelligence') && html.includes('AI Safety Assistant') && html.includes('QHSE Knowledge'))
+assert(!html.includes('safety-intelligence-section') && !html.includes('QHSE Documents') && !html.includes('<textarea'))
+activeTab = 'intelligence'
+html = render({ isPending: true, isFetching: true })
 assert(html.includes('Loading authorized operational data') && html.includes('disabled=""'))
 html = render({ isError: true, error: new TestServiceError('Service unavailable.'), data })
 assert(html.includes('role="alert"') && html.includes('test-request-reference'))
@@ -84,16 +97,43 @@ html = render({ data: calculateSafetySnapshot(dataset(Array.from({ length: 12 },
 assert(html.includes('My reports') && html.includes('Authorized operational data is connected'))
 html = render({ data: { ...data, coverage: [{ source: 'incidents', complete: false }] } })
 assert(html.includes('retrieval is incomplete'))
-assert(html.includes('AI Safety Intelligence') && html.includes('AI Safety Assistant') && html.includes('<textarea'))
+assert(html.includes('AI Safety Intelligence') && !html.includes('<textarea'))
 assert(!html.includes('confidence'))
-// Confirm Refresh is wired, not merely a button-shaped label.
-const tree = Page(props)
-const visit = (node) => {
+activeTab = 'assistant'
+html = render({ data })
+assert(html.includes('AI Safety Assistant') && html.includes('<textarea'))
+assert(!html.includes('safety-intelligence-section') && !html.includes('QHSE Documents'))
+activeTab = 'knowledge'
+html = render({ data })
+assert(html.includes('QHSE Documents') && !html.includes('safety-intelligence-section') && !html.includes('<textarea'))
+html = renderToStaticMarkup(createElement(Page, { ...props, canViewKnowledge: false }))
+assert(!html.includes('QHSE Knowledge') && !html.includes('QHSE Documents'))
+activeTab = null
+const tabButtons = []
+const collectTabs = (node) => {
   if (!node || typeof node !== 'object') return
-  if (node.type === 'button') node.props.onClick()
-  for (const child of [node.props?.children].flat(Infinity)) visit(child)
+  if (node.type === 'button' && node.props['aria-pressed'] !== undefined) tabButtons.push(node)
+  for (const child of [node.props?.children].flat(Infinity)) collectTabs(child)
 }
-visit(tree)
+collectTabs(Page(props))
+tabButtons[0].props.onClick()
+assert.equal(activeTab, 'intelligence')
+tabButtons[1].props.onClick()
+assert.equal(activeTab, 'assistant')
+tabButtons[2].props.onClick()
+assert.equal(activeTab, 'knowledge')
+// Confirm Refresh is wired, not merely a button-shaped label.
+activeTab = 'intelligence'
+const tree = Page(props)
+const findRefresh = (node) => {
+  if (!node || typeof node !== 'object') return
+  if (node.type === 'button' && Array.isArray(node.props.children) && node.props.children.includes('Refresh')) return node
+  for (const child of [node.props?.children].flat(Infinity)) {
+    const found = findRefresh(child)
+    if (found) return found
+  }
+}
+findRefresh(tree).props.onClick()
 assert.equal(calls, 1)
 assert.equal(days, 90)
 assert.equal(requestedDays, 90)

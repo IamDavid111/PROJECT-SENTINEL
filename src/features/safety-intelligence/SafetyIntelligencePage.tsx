@@ -7,26 +7,35 @@ import { SafetyKpiCards } from './SafetyKpiCards'
 import { SafetyLocations } from './SafetyLocations'
 import { SafetyPlanningOutlook } from './SafetyPlanningOutlook'
 import { SafetyAssistant } from '../ai/SafetyAssistant'
-import { RefreshCw, ShieldCheck, BarChart3, MessageSquare } from 'lucide-react'
+import { BookOpen, RefreshCw, ShieldCheck, BarChart3, MessageSquare } from 'lucide-react'
+import { KnowledgePage } from '../knowledge/KnowledgePage'
 
-export function SafetyIntelligencePage({ client, scope }: { client: SupabaseClient; scope: SafetyScope }) {
+type SafetyTab = 'intelligence' | 'assistant' | 'knowledge' | null
+
+export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false }: {
+  client: SupabaseClient
+  scope: SafetyScope
+  canViewKnowledge?: boolean
+}) {
   // Changing the window selects a separate authorized snapshot/cache entry, not locally filtered demo values.
   const [days, setDays] = useState<30 | 90>(90)
+  const [activeTab, setActiveTab] = useState<SafetyTab>(null)
   const snapshot = useSafetyIntelligence(client, scope, { days })
   const data = snapshot.data
   // Never display cached successful data after a failed permission/retrieval refresh.
   return <div className="safety-intelligence-page">
     <nav className="safety-section-links" aria-label="Safety Intelligence sections">
-      <a href="#safety-intelligence-overview" onClick={(event) => {
-        event.preventDefault()
-        document.getElementById('safety-intelligence-overview')?.scrollIntoView({ behavior: 'smooth' })
-      }}><BarChart3 size={16} aria-hidden="true" />AI Safety Intelligence</a>
-      <a href="#safety-intelligence-assistant" onClick={(event) => {
-        event.preventDefault()
-        document.getElementById('safety-intelligence-assistant')?.scrollIntoView({ behavior: 'smooth' })
-      }}><MessageSquare size={16} aria-hidden="true" />AI Safety Assistant</a>
+      <button type="button" aria-pressed={activeTab === 'intelligence'} onClick={() => setActiveTab('intelligence')}>
+        <BarChart3 size={16} aria-hidden="true" />AI Safety Intelligence
+      </button>
+      <button type="button" aria-pressed={activeTab === 'assistant'} onClick={() => setActiveTab('assistant')}>
+        <MessageSquare size={16} aria-hidden="true" />AI Safety Assistant
+      </button>
+      {canViewKnowledge && <button type="button" aria-pressed={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')}>
+        <BookOpen size={16} aria-hidden="true" />QHSE Knowledge
+      </button>}
     </nav>
-    <section className="safety-intelligence-section" id="safety-intelligence-overview" aria-labelledby="safety-intelligence-title">
+    {activeTab === 'intelligence' && <section className="safety-intelligence-section" id="safety-intelligence-overview" aria-labelledby="safety-intelligence-title">
       <div className="safety-section-heading">
         <div><div className="eyebrow">OPERATIONAL INTELLIGENCE</div>
           <h2 id="safety-intelligence-title">AI Safety Intelligence</h2>
@@ -67,8 +76,11 @@ export function SafetyIntelligencePage({ client, scope }: { client: SupabaseClie
         <SafetyLocations snapshot={data} />
         <SafetyPlanningOutlook snapshot={data} />
         </>}
-    </section>
-    <SafetyAssistant key={`${scope.organizationId}:${scope.userId}`} client={client} scope={scope}
-      snapshot={!snapshot.isError ? data : undefined} />
+    </section>}
+    {activeTab === 'assistant' && <SafetyAssistant key={`${scope.organizationId}:${scope.userId}`} client={client} scope={scope}
+      snapshot={!snapshot.isError ? data : undefined} />}
+    {activeTab === 'knowledge' && canViewKnowledge && <KnowledgePage key={`${scope.organizationId}:${scope.userId}`} client={client} scope={{
+      organizationId: scope.organizationId, userId: scope.userId,
+    }} />}
   </div>
 }
