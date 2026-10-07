@@ -6,12 +6,8 @@ import type { DashboardFilters } from './dashboardTypes'
 
 export const dashboardQueryKeys = {
   all: ['dashboard'] as const,
-HEAD
+  // Each organization/user/filter combination is cached separately so snapshots cannot cross users or filters.
   snapshot: (organizationId: string, currentUserId: string, filters: DashboardFilters) => ['dashboard', organizationId, currentUserId, filters] as const,
-
-  // Each organization/filter combination is cached separately so changing filters cannot reuse the wrong snapshot.
-  snapshot: (organizationId: string, filters: DashboardFilters) => ['dashboard', organizationId, filters] as const,
-main
 }
 
 export function useDashboardData(client: SupabaseClient, organizationId: string, filters: DashboardFilters, currentUserId: string) {
