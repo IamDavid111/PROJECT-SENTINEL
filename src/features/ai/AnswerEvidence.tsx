@@ -5,6 +5,7 @@ import type { SafetyScope } from '../../../supabase/functions/_shared/safetyInte
 import { safetySnapshotSchema } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
 import type { MessageEvidence } from '../../../supabase/functions/_shared/aiEvidence'
 import { resolveAccessibleSources } from './aiEvidenceService'
+import { resolveCitations } from '../../../supabase/functions/knowledge-search/citations'
 
 export function AnswerEvidence({ client, scope, evidence }: {
   client: SupabaseClient; scope: SafetyScope; evidence: MessageEvidence
@@ -35,7 +36,35 @@ export function AnswerEvidence({ client, scope, evidence }: {
         </li>)}</ul> : <p>No currently accessible supporting records to display.</p>}
     {checked && checked.length < evidence.sourceIds.length && <p>Some sources are unavailable or no longer accessible. Their titles and metadata are hidden.</p>}
     {!evidence.sourceIds.length && <p>No record citation was supplied. Aggregate observations are separate from record examples.</p>}
+    <KnowledgeEvidence client={client} scope={scope} evidence={evidence} />
   </section>
+}
+
+// Saved knowledge citations are only chunk IDs; details are re-resolved with the user's session,
+// so documents they can no longer read (or that are no longer current) are never displayed.
+function KnowledgeEvidence({ client, scope, evidence }: {
+  client: SupabaseClient; scope: SafetyScope; evidence: MessageEvidence
+}) {
+  const ids = evidence.knowledgeSourceIds
+  const citations = useQuery({
+    queryKey: ['ai-evidence', scope.userId, scope.organizationId, evidence.request_id, 'knowledge', ids],
+    queryFn: () => resolveCitations(client, ids),
+    enabled: ids.length > 0, staleTime: 0, gcTime: 0, retry: false, refetchOnMount: 'always',
+  })
+  if (!ids.length) return <p>No approved QHSE knowledge document was cited for this answer.</p>
+  return <>
+    <h5>Cited QHSE knowledge</h5>
+    {citations.isFetching ? <p role="status">Rechecking document permissions...</p>
+      : citations.isError ? <p role="alert">Unable to verify cited documents. Their details are hidden.</p>
+        : citations.data?.length ? <ul>{[...citations.data].sort((a, b) => a.documentTitle.localeCompare(b.documentTitle) || a.location.chunkOrder - b.location.chunkOrder).map((item) => <li key={item.chunkId}>
+          {/* "Excerpt N" = stored chunk position; the source has no stored section/page numbers. */}
+          <a href={item.reference}>{item.documentTitle}           (v{item.versionNumber}) · Excerpt {item.location.chunkOrder + 1}</a>
+                    <small> · {item.documentType} · Effective: {item.effectiveDate ?? 'Not recorded'}</small>
+          <blockquote>{item.excerpt.length > 300 ? `${item.excerpt.slice(0, 300)}…` : item.excerpt}</blockquote>
+        </li>)}</ul> : null}
+    {citations.data && citations.data.length < ids.length
+      && <p>Some cited documents are no longer current or accessible. Their details are hidden.</p>}
+  </>
 }
 
 export function AnswerSections({ evidence }: { evidence: MessageEvidence }) {

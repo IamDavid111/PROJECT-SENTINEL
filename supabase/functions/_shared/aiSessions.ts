@@ -19,12 +19,21 @@ export const aiTurnRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(4_000),
   sessionId: z.uuid().optional(),
   // Only the registered feature may opt into grounding; identities/instructions remain forbidden.
-  feature: z.literal('safety_copilot').optional(),
+  feature: z.enum(['safety_copilot', 'qhse_knowledge']).optional(),
   days: z.union([z.literal(30), z.literal(90)]).optional(),
   siteId: z.uuid().optional(),
+  department: z.string().trim().min(1).max(120).optional(),
+  documentIds: z.array(z.uuid()).min(1).max(50).optional(),
 }).strict().superRefine((value, context) => {
   if (value.feature === 'safety_copilot' && !value.sessionId) {
     context.addIssue({ code: 'custom', message: 'Safety Copilot requires a conversation session.', path: ['sessionId'] })
+  }
+  // Knowledge answers are stateless: saved history could otherwise replay excerpts after access is revoked.
+  if (value.feature === 'qhse_knowledge' && (value.sessionId || value.days !== undefined)) {
+    context.addIssue({ code: 'custom', message: 'Knowledge questions do not use sessions or day windows.', path: ['feature'] })
+  }
+  if (value.feature !== 'qhse_knowledge' && (value.department !== undefined || value.documentIds !== undefined)) {
+    context.addIssue({ code: 'custom', message: 'Knowledge filters require QHSE knowledge.', path: ['feature'] })
   }
   if (!value.feature && (value.days !== undefined || value.siteId !== undefined)) {
     context.addIssue({ code: 'custom', message: 'Operational filters require Safety Copilot.', path: ['feature'] })

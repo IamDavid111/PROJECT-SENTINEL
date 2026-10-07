@@ -90,6 +90,221 @@ fixtures. It does not require existing customer accounts and rolls back all test
 npx supabase test db --local
 ```
 
+## QHSE Knowledge Management
+
+The Knowledge page uses the authenticated `knowledge-service` endpoint and private
+`qhse-knowledge` storage. Supported originals are PDF, Word (`.doc`, `.docx`),
+Excel (`.xlsx`) and plain text (`.txt`), up to 100 MB. Legacy Excel `.xls` is not supported.
+Role grants in Roles & Permissions govern viewing, management, approval and
+confidential/restricted access; the service and RLS enforce these permissions.
+
+The document list, metadata search, type and status filters use the latest visible
+approved version as the current controlled document. If there is no visible approval,
+they use the latest visible version. Newer drafts, pending reviews and rejections
+appear separately and never replace the approved metadata. Version history retains
+each version and its own status. A new version's form starts from the latest visible
+metadata. Small files display bytes rather than rounding to zero KB.
+
+Focused checks:
+
+```powershell
+npx deno test --no-lock --sloppy-imports --config supabase\functions\deno.json supabase\functions\knowledge-service scripts\test-knowledge-ui.ts
+npx supabase test db supabase\tests\qhse_knowledge_documents.sql supabase\tests\qhse_knowledge_permissions.sql supabase\tests\profile_self_update.sql --local
+```
+
+Migration `202609300031` was recovered from the hosted invitation function, not
+filled with an empty placeholder. Its original SQL was absent from the hosted ledger.
+The restored SQL qualifies auth-user columns to avoid ambiguous email-confirmation
+lookups. `202610050001` enforces administrator-managed profile identity fields while
+leaving phone and emergency-contact self-updates available.
+
+### Lifecycle and future AI eligibility
+
+Apply `supabase/migrations/202610070001_qhse_knowledge_lifecycle.sql` before deploying
+the updated document service. Status/lifecycle columns are not client-writable.
+Authenticated lifecycle RPCs enforce manage/approve grants, validated transitions,
+upload completion and archive state. Submission, approval and rejection evidence is
+server-derived; existing historical records are not backfilled with invented evidence.
+Lifecycle changes are atomically audited in the existing `activity_logs` table.
+
+- Draft -> Submitted (`pending_review`) -> Approved or Rejected.
+- Archive freezes the document while preserving its version history. Restore does not
+  change approval, effective or expiry dates.
+- Expiration is computed, not a destructive status rewrite: the expiry date is the last
+  valid day in UTC. A review date alone does not expire an approval.
+- `knowledge_ai_index_candidates` is a service-only, live eligibility view for future
+  indexing. `current_ai_knowledge_versions()` is a caller-authorized metadata boundary
+  for future AI reads; neither implements indexing, embeddings or retrieval content.
+- Only uploaded, approved, active, effective and unexpired versions qualify. An absent
+  effective date defaults to the UTC approval date. The highest-numbered effective
+  approval controls the document. Future-effective approvals wait; rejected/submitted
+  replacements do not displace approvals. Expired or inaccessible replacements must
+  not resurrect older approvals.
+- AI metadata reads enforce organization, scope and confidentiality even for governance
+  users. Future indexes must recheck this live boundary on every retrieval, rather than
+  trusting cached approval state. Raw management metadata/download APIs are for human
+  governance and must not be used as AI retrieval sources.
+
+Run the lifecycle regression with:
+
+```powershell
+npx supabase test db supabase\tests\qhse_knowledge_lifecycle.sql supabase\tests\qhse_knowledge_documents.sql supabase\tests\qhse_knowledge_permissions.sql --local
+```
+
+### Document text extraction
+
+Apply lifecycle migration `202610070001` followed by
+`202610070002_qhse_document_extraction.sql` before deploying `knowledge-extraction`.
+The server-only endpoint accepts `{ "action": "extract", "versionId": "<uuid>" }`
+or `{ "action": "status", "versionId": "<uuid>" }` with an authenticated user token.
+It requires document management and actual scope/confidentiality access, and processes
+only the live approved eligibility boundary. Original paths, bytes and extracted text
+are never returned to the browser.
+
+Supported extraction: UTF-8 TXT, DOCX (Mammoth), XLSX (the existing ExcelJS version)
+and text-based PDF (PDF.js). Legacy DOC, scanned/image-only PDFs, corrupt/encrypted
+files and unreadable encodings fail explicitly. No OCR, formula execution or invented
+text is used. This batch does not implement chunking, embeddings or an AI index.
+DOCX uses Mammoth's pure-JavaScript browser bundle with ArrayBuffer input to avoid
+the heavier Node compatibility load that triggered local Edge CPU-limit failures.
+
+Extraction limits are deliberately lower than the 100 MB original-upload limit:
+10 MB source, 2 MB extracted UTF-8 text, 500 PDF pages, 100,000 spreadsheet cells,
+2,000 Office ZIP entries and 50 MB declared expanded Office data. PDF and Word parsers
+are isolated in the extraction function's dependency configuration.
+
+`knowledge_extractions` stores the immutable version relationship, processing attempt,
+requester, timestamps, source SHA-256, extractor version, result and safe error category.
+Claims prevent concurrent work; failed or five-minute-stale attempts can be retried.
+Completion rejects stale workers and rechecks document eligibility and requester
+authorization. Crashed workers remain visibly processing until retried after the lease.
+Start/finish events reuse `activity_logs` without copying extracted text or private paths.
+The service-only `knowledge_chunking_candidates` view rechecks live eligibility so
+archiving, expiration and replacement cannot leave historical text available for normal
+future processing. Historical extraction rows remain stored.
+Extraction is explicitly invoked per approved version; approval does not silently
+start a background worker. No frontend extraction controls are added in this batch.
+
+```powershell
+npx deno test --no-lock --allow-read --allow-env --allow-sys --config supabase\functions\knowledge-extraction\deno.json supabase\functions\knowledge-extraction
+```
+
+The real-file smoke test `scripts/test-knowledge-extraction-local.ts` is restricted to
+`http://127.0.0.1:54321`. With the local extraction function served and
+`LOCAL_SUPABASE_URL`, `LOCAL_ANON_KEY` and `LOCAL_SERVICE_KEY` set from local CLI status,
+run it with Deno using the extraction function's configuration and local network access.
+It creates temporary local users/organizations, uploads and approves a real DOCX,
+observes processing/success, verifies actual text and an unchanged source version,
+checks unauthorized/draft/rejected requests, and confirms a corrupt approved document
+produces a safe persisted failure. It removes its files and database fixtures afterwards.
+
+Keep one `supabase functions serve knowledge-extraction` process running throughout
+repeat tests. Stop/start replaces the Edge container and can temporarily make its
+Docker hostname unavailable to Kong. Wait for the endpoint to return the application's
+401 authentication response before testing; the smoke script checks this before
+creating fixtures. If Docker DNS is still failing after the container is ready, verify
+the gateway can resolve `supabase_edge_runtime_Project_SENTI`, then restart only the
+local Kong gateway to clear resolver state. Do not reset the database or add fixed IPs
+or retries around extraction POSTs to hide infrastructure errors.
+
+Local extraction reliability is not certified: local Docker Edge workers enforce a
+2-second hard CPU limit, and repeated DOCX processing reached it (`oneshot` workers
+also did), so `per_worker` remains unchanged. Hosted Supabase has the same limit but
+runs faster: a real approved DOCX was extracted and chunked on hosted in under one
+second of processing time. Validate DOCX/XLSX/PDF extraction against hosted; use
+local runs for TXT and the database/handler tests. Only if hosted processing also
+hits the limit should parsing move to a separate authenticated processing worker
+that keeps the existing claim/completion authorization checks.
+
+## Phase 3 document chunking
+
+Migration `202610070003` adds private `knowledge_chunks` and the authenticated
+`chunk_knowledge_document(target_version_id)` database RPC. It derives organization,
+document/version identity and filename server-side; requires manage permission plus
+actual document access; and only processes successful extractions of currently
+eligible approved versions. It returns a chunk count, never private text.
+
+The dependency-free `characters-1200-v1` strategy uses contiguous, non-overlapping
+1,200-character slices without trimming or normalization. Concatenating chunks in
+zero-based `chunk_order` exactly reconstructs the extracted text. Citation offsets
+are zero-based, end-exclusive PostgreSQL character offsets (not UTF-16 offsets or
+original-file byte offsets). Filename and version number identify the source;
+page numbers/headings are not invented because extraction does not retain them.
+Fixed character boundaries can split sentences but do not discard text.
+
+Chunk IDs depend on version ID, strategy, exact text fingerprint and order. Repeating
+the same version/text preserves IDs, ordering and timestamps. Changed text creates
+a separate historical set. Composite foreign keys prevent document/organization
+mixing. The service-only `knowledge_current_chunks` processing view rechecks live
+eligibility and current extraction content; archived, expired, superseded and
+in-progress/failed extractions are excluded while historical chunks remain stored.
+Callers must explicitly order by `chunk_order`; SQL views have no implicit ordering.
+Chunking is atomic and audited, with no embeddings, index or RAG retrieval yet.
+
+## Phase 3 vector indexing
+
+Migration `202610070004` enables pgvector and adds service-only
+`knowledge_indexing_runs` and `knowledge_chunk_embeddings` (`vector(1536)`, HNSW
+cosine). `knowledge-extraction` generates embeddings server-side via OpenAI using
+the `OPENAI_API_KEY` secret and optional `OPENAI_EMBEDDING_MODEL` (default
+`text-embedding-3-small`). Authenticated `begin_knowledge_indexing` checks permission
+and eligibility; service-role `finish_knowledge_indexing` rechecks eligibility and
+stores vectors only if they exactly match the current chunk set. Composite foreign
+keys prevent cross-organization links. New versions or changed text produce new
+chunk IDs and are re-indexed; `knowledge_current_embeddings` excludes stale,
+archived, expired and superseded content. Errors are stored as safe codes. The
+`extract` action runs extract → chunk → index; `index` re-indexes. No RAG yet.
+
+## Phase 3 semantic search
+
+Migration `202610070005` adds `search_knowledge(...)`, and the `knowledge-search` Edge
+Function exposes it (`POST { query, siteId?, department?, documentIds?, limit? }`). The query
+is embedded server-side with the same model as indexing. The RPC runs with the caller's JWT:
+organization comes from the caller's profile, scope/confidentiality permission is checked per
+version, and only `knowledge_current_embeddings` (approved, current, unexpired, active) is
+searched. Ranked results carry document, version, chunk order/offsets, filename, text and
+cosine similarity for citations. No answer is generated.
+Each result is `{ rank, similarity, citation, scope }`; `citation` (`knowledge-search/citations.ts`,
+reusable by the AI Assistant) holds document ID/title/type, version ID/number, effective date,
+chunk ID, location (chunk order, character offsets, filename — extraction keeps no pages or
+headings), the exact stored excerpt and an in-app `#knowledge?document=…&version=…` reference
+(no storage paths or signed URLs). Migration `202610070006` adds `get_knowledge_citations(chunk_ids)`
+(also `POST { chunkIds }`), which re-resolves cited chunks under the caller's current permissions
+and silently drops unknown, unauthorized, other-organization or no-longer-current sources.
+Deploy: `supabase functions deploy knowledge-search --import-map supabase/functions/deno.json`.
+Tests: `supabase/tests/qhse_knowledge_search.sql` and
+`npx --yes deno test --no-lock --config supabase\functions\deno.json supabase\functions\knowledge-search`.
+
+**Knowledge answers (RAG).** `ai-service` accepts `{ feature: 'qhse_knowledge', prompt, siteId?, department?, documentIds? }`
+(stateless; no sessions, so saved history cannot replay excerpts after access changes). It embeds the
+question server-side and calls `search_knowledge` with the caller's JWT (≤6 chunks, similarity ≥0.2, ≤10k
+characters). Only those excerpts reach the model. The structured answer may cite only retrieved chunk IDs.
+Every substantive answer must cite a source, and the response carries full citations. With no authorized
+evidence it returns a fixed insufficient-evidence answer without calling the model. The audit stores the
+chunk/version IDs and validated citations, never document text.
+
+**AI Assistant knowledge.** Safety Copilot chat turns also run `search_knowledge` with the caller's JWT
+(≤6 chunks, 1.5k-character excerpts, fitted into the fixed 24k input budget). The prompt is
+`safety-copilot-grounded-v2`. If knowledge access is denied or unavailable, the turn continues without
+knowledge and the answer says so. The model may cite only supplied chunk IDs (`knowledgeSourceIds`).
+Saved chats store the retrieved version IDs as a `knowledge` access proof (migration
+`202610070008`), so a chat locks if the user can no longer read a cited document. Reopened answers
+re-resolve citation details through `get_knowledge_citations`.
+Deploy: `supabase functions deploy ai-service --use-api --import-map supabase/functions/deno.json`.
+
+Approving a version in the Knowledge page now triggers processing automatically:
+approve → `knowledge-extraction` extracts the text → the same request calls
+`chunk_knowledge_document` with the approver's token, so permission and eligibility
+are re-checked. A processing failure never undoes the approval; the approver sees an
+explicit "processing failed" notice, and the extraction request can be retried.
+
+```powershell
+npx supabase test db supabase\tests\qhse_knowledge_chunking.sql --local
+```
+
+The existing extraction-runtime limitation remains independent: chunking requires
+a successful extraction and does not repair DOCX worker startup/CPU failures.
+
 ## Phase 2 shared Safety Intelligence foundation (Batch 3)
 
 The read-only [safety-intelligence endpoint](supabase/functions/safety-intelligence/index.ts)
@@ -819,6 +1034,15 @@ supabase functions deploy admin-invite-user
 ```
 
 Supabase supplies the function secrets. Do not expose or manually add the service-role key to Vite environment variables.
+
+QHSE Knowledge functions (`knowledge-service` needs the shared import map, or the hosted bundler cannot resolve `zod`):
+
+```bash
+supabase functions deploy knowledge-service --import-map supabase/functions/deno.json
+supabase functions deploy knowledge-extraction --use-api --import-map supabase/functions/knowledge-extraction/deno.json
+```
+
+`knowledge-extraction` must use `--use-api` (server-side bundling): local Docker bundling produces a ~36 MB package that hosted rejects (413). Delete any `deno.lock` that local `deno test` runs create in that folder first, or server-side bundling fails.
 
 ## Application routes
 

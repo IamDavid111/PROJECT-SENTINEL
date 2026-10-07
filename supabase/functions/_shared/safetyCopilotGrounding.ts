@@ -13,6 +13,7 @@ export const copilotAnswerSchema = z.object({
   limitations: z.string().trim().min(1).max(3_000),
   metricKeys: z.array(z.enum(copilotMetricKeys)).max(5),
   sourceIds: z.array(z.string().min(1).max(100)).max(12),
+  knowledgeSourceIds: z.array(z.string().min(1).max(100)).max(6),
 }).strict()
 
 // Explicit provider format complements local validation; it does not establish factual correctness.
@@ -24,8 +25,9 @@ export const copilotProviderFormat = {
       interpretation: { type: 'string' }, advice: { type: 'string' }, limitations: { type: 'string' },
       metricKeys: { type: 'array', maxItems: 5, items: { type: 'string', enum: [...copilotMetricKeys] } },
       sourceIds: { type: 'array', maxItems: 12, items: { type: 'string', minLength: 1, maxLength: 100 } },
+      knowledgeSourceIds: { type: 'array', maxItems: 6, items: { type: 'string', minLength: 1, maxLength: 100 } },
     },
-    required: ['interpretation', 'advice', 'limitations', 'metricKeys', 'sourceIds'],
+    required: ['interpretation', 'advice', 'limitations', 'metricKeys', 'sourceIds', 'knowledgeSourceIds'],
   },
 } as const
 
@@ -88,7 +90,7 @@ export async function buildCopilotGrounding(
       ...snapshot.limitations,
       ...guidance.reasons,
       'Record examples/location lists may be bounded; an absent entity is not proof it does not exist.',
-      'No procedure/regulatory/inspection/audit knowledge is supplied. Only authorized operational observations are available.',
+      'Procedure/regulatory/document knowledge is never part of operational data; when available it is supplied only as separately authorized approved QHSE knowledge excerpts.',
     ],
     contextTruncated: snapshot.evidenceTruncated || evidence.length > 20 || locations.length > 12 || planning.locations.length > 12,
   })
@@ -128,22 +130,44 @@ export function groundedHistoryRequestIds(history: unknown) {
   return [...new Set(groundedHistorySchema.parse(history).map((row) => row.request_id))]
 }
 
-export function assembleGroundedInput(history: unknown, audits: unknown, prompt: string, grounding: CopilotGrounding) {
+export function assembleGroundedInput(
+  history: unknown, audits: unknown, prompt: string, grounding: CopilotGrounding, knowledgeContext = '',
+) {
   const proof = new Map(auditHistorySchema.parse(audits).map((row) => [row.request_id, row.response_metadata.grounding_digest]))
   const validatedHistory = groundedHistorySchema.parse(history)
   // Unproven foundation exchanges and changed-source answers are excluded as whole exchanges.
   const currentHistory = validatedHistory.filter((message) => proof.get(message.request_id) === grounding.digest)
-  const conversation = assembleSessionContext(currentHistory, prompt, 24_000 - grounding.serialized.length)
-  return [{ role: 'user' as const, content: grounding.serialized }, ...conversation]
+  // Knowledge excerpts share the fixed 24k budget; history is trimmed first, never the prompt.
+  const conversation = assembleSessionContext(currentHistory, prompt, 24_000 - grounding.serialized.length - knowledgeContext.length)
+  return [
+    { role: 'user' as const, content: grounding.serialized },
+    ...(knowledgeContext ? [{ role: 'user' as const, content: knowledgeContext }] : []),
+    ...conversation,
+  ]
 }
 
-export function validateCopilotAnswer(text: string, grounding: CopilotGrounding) {
+// `knowledge` carries only the chunk IDs actually supplied in this request plus a server status note.
+export function validateCopilotAnswer(
+  text: string, grounding: CopilotGrounding, knowledge: { sourceIds: string[]; note: string } = { sourceIds: [], note: '' },
+) {
   let body: unknown
   try { body = JSON.parse(text) } catch { throw new Error('Invalid structured copilot output.') }
   const answer = copilotAnswerSchema.parse(body)
-  if (new Set(answer.sourceIds).size !== answer.sourceIds.length
-    || new Set(answer.metricKeys).size !== answer.metricKeys.length) throw new Error('Duplicate copilot sources.')
+  // Models sometimes repeat an ID or place a supplied ID in the other list. Duplicates are collapsed and
+  // each ID is routed by exact match against what this request actually supplied; anything else is rejected.
+  answer.metricKeys = [...new Set(answer.metricKeys)]
+  const supplied = new Set(knowledge.sourceIds)
   const evidence = new Map(grounding.context.evidence.map((item) => [item.key, item]))
+  const cited = [...new Set([...answer.sourceIds, ...answer.knowledgeSourceIds])]
+  if (cited.some((key) => !evidence.has(key) && !supplied.has(key))) throw new Error('Unknown copilot citation.')
+  answer.sourceIds = cited.filter((key) => evidence.has(key))
+  answer.knowledgeSourceIds = cited.filter((key) => supplied.has(key))
+  if (answer.sourceIds.length > 12 || answer.knowledgeSourceIds.length > 6) throw new Error('Unknown copilot citation.')
+  // The operational snapshot says procedure libraries are unavailable; that is false once approved knowledge was supplied.
+  const base = supplied.size
+    ? grounding.context.limitations.map((line) => line.replace('procedures, regulatory libraries and ', ''))
+    : grounding.context.limitations
+  const serverLimitations = knowledge.note ? [...base, knowledge.note] : base
   // Source IDs are accepted only from the exact evidence sent in this request, never a raw model URL/label.
   const citations: z.infer<typeof aiSuccessSchema>['citations'] = answer.sourceIds.map((key) => {
     const source = evidence.get(key)
@@ -157,13 +181,13 @@ export function validateCopilotAnswer(text: string, grounding: CopilotGrounding)
     `AI interpretation (advisory):\n${answer.interpretation}`,
     ...(answer.advice ? [`AI recommendations (advisory):\n${answer.advice}`] : []),
     `Data limitations:\n${answer.limitations}`,
-    `Server evidence scope: ${grounding.context.scope.visibility}; ${grounding.context.methodologyVersion}.\n${grounding.context.limitations.join('\n')}`,
+    `Server evidence scope: ${grounding.context.scope.visibility}; ${grounding.context.methodologyVersion}.\n${serverLimitations.join('\n')}`,
   ].join('\n\n')
   if (rendered.length > 32_000) throw new Error('Grounded answer exceeds the response contract.')
   const presentation = answerPresentationSchema.parse({
     observations: answer.metricKeys.map((key) => ({ key, value: JSON.stringify(grounding.context.metrics[key]) })),
     interpretation: answer.interpretation, advice: answer.advice, limitations: answer.limitations,
-    serverLimitations: grounding.context.limitations,
+    serverLimitations,
   })
-  return { text: rendered, citations, presentation }
+  return { text: rendered, citations, presentation, knowledgeSourceIds: answer.knowledgeSourceIds }
 }

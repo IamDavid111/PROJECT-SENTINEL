@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowLeft, ArrowRight, BarChart3, Bell, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BarChart3, Bell, BookOpen, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -26,6 +26,7 @@ import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/
 import { useIncidentClosureAccess, useIncidentOfflineSync } from './features/incidents/useIncidentData'
 import { IncidentClosureSettings } from './features/incidents/IncidentClosure'
 import { SafetyIntelligencePage } from './features/safety-intelligence/SafetyIntelligencePage'
+import { KnowledgePage } from './features/knowledge/KnowledgePage'
 import { hasOrganizationIncidentVisibility } from '../supabase/functions/_shared/safetyIntelligenceContracts'
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
@@ -371,7 +372,7 @@ function DemoRequestPage() {
   )
 }
 
-type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
+type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'ai-assistant' | 'knowledge' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
 type Permission = PermissionKey
 
 const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; permission: Permission }[] = [
@@ -379,6 +380,8 @@ const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; per
   { route: 'report-incident', label: 'Report Incident', icon: Siren, permission: 'report_incident' },
   // Retain the route key so existing assistant bookmarks continue to work.
   { route: 'ai-assistant', label: 'Safety Intelligence', icon: Sparkles, permission: 'use_ai_assistant' },
+  // Visibility follows the view_knowledge_documents grant; the knowledge service and RLS enforce access.
+  { route: 'knowledge', label: 'QHSE Knowledge', icon: BookOpen, permission: 'view_knowledge_documents' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: BarChart3, permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
 ]
@@ -408,7 +411,7 @@ const futureModuleRoutes: { route: AppRoute; label: string; permission: Permissi
 // Unknown workspace hashes fall back to the dashboard.
 function getAppRoute(): AppRoute {
   const route = window.location.hash.replace('#/', '').replace('#', '').split('?')[0]
-  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
+  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'ai-assistant' || route === 'knowledge' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
 }
 
 const administrationEntries: { title: string; description: string; href: string; action: string }[] = [
@@ -639,7 +642,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       <main className="workspace-main">
         <header className="workspace-topbar">
           <div className="workspace-topbar-left">
-            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : 'Operations / Safety Overview'}</span></div>
+            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : route === 'knowledge' ? 'Operations / QHSE Knowledge' : 'Operations / Safety Overview'}</span></div>
             {primaryEmergencyContact && (
               <div className="workspace-emergency-panel">
                 <div className="workspace-emergency-label">FOR EMERGENCY RESPONSE CALL:</div>
@@ -680,6 +683,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
                 siteAssignmentEnforced: false,
               }} />
           )}
+          {route === 'knowledge' && canAccess('view_knowledge_documents') && <KnowledgePage key={`${organizationId}:${session.user.id}`} client={supabase} scope={{ organizationId, userId: session.user.id }} />}
           {route === 'executive-analytics' && canAccess('view_executive_analytics') && <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open analytics foundation" />}
           {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
           {route === 'administration' && canAccess('access_administration') && <AdministrationLandingPage canViewUsers={canAccess('view_users')} canViewRoles={canAccess('view_roles_permissions')} />}
@@ -1629,6 +1633,7 @@ const permissionGroupOrder = [
   { label: 'Roles & Permissions', sourceGroups: ['Roles & Permissions'] },
   { label: 'Reports', sourceGroups: ['Reports'] },
   { label: 'QHSE', sourceGroups: ['QHSE'] },
+  { label: 'QHSE Knowledge', sourceGroups: ['QHSE Knowledge'] },
 ] as const
 
 function groupedPermissions(permissions: readonly string[]) {
@@ -2687,7 +2692,7 @@ export default function App() {
   }
   // These routes show organization-specific pages, so require a signed-in session first.
   // Public pages and account routes are handled elsewhere; ProtectedApp then loads organization access.
-  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
+  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'knowledge' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>
     if (!session) return <SignInPage />

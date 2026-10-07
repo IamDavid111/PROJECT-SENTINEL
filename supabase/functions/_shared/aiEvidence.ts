@@ -18,6 +18,8 @@ export const answerPresentationSchema = z.object({
 // No historical labels/excerpts are returned by the provenance RPC; source details require fresh RLS reads.
 export const messageEvidenceSchema = z.object({
   request_id: z.uuid(), sourceIds: z.array(operationalSourceKeySchema).max(12),
+  // Knowledge chunk IDs are deterministic non-RFC GUIDs; details are re-resolved with the caller's JWT.
+  knowledgeSourceIds: z.array(z.guid()).max(6).default([]),
   asOf: z.iso.datetime().nullable(), methodology: z.string().max(100).nullable(),
   visibility: z.enum(['personal', 'organization']).nullable(),
   presentation: answerPresentationSchema.nullable(),

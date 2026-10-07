@@ -52,7 +52,7 @@ export function SafetyAssistant({ client, scope, snapshot }: {
       <div><div className="eyebrow">SAFETY COPILOT</div><h2 id="safety-assistant-title">AI Safety Assistant</h2>
         <p>Explore the operational records you are authorized to access. Advice is not an official safety decision.</p>
         <details className="assistant-knowledge-notice"><summary><ShieldCheck size={14} aria-hidden="true" />What this assistant can access</summary>
-          <p>No procedure, regulatory, inspection or audit knowledge library is connected.</p>
+          <p>Approved, current QHSE knowledge documents you are permitted to read are searched automatically and cited when used. Drafts, expired, archived and restricted documents are excluded.</p>
           <p>Private, bounded conversation history. Read-only operational evidence; human review required.</p>
         </details></div>
       <button type="button" className="button button-outline button-small" disabled={disabled} onClick={() => void conversation.newChat()}><Plus size={16} aria-hidden="true" />New Chat</button>
@@ -70,7 +70,7 @@ export function SafetyAssistant({ client, scope, snapshot }: {
             : !state.messages.length && <div className="assistant-welcome">
               <span className="assistant-avatar"><Bot size={20} aria-hidden="true" /></span>
               <div className="assistant-welcome-bubble"><h4>How can I help you review safety today?</h4>
-                <p>Ask about reported patterns, incidents or corrective actions you can access. Missing evidence will be acknowledged.</p>
+                <p>Ask about reported patterns, incidents, corrective actions or approved QHSE procedures you can access. Missing evidence will be acknowledged.</p>
                 <small>Choose a suggested prompt or ask your own question.</small></div>
             </div>}
           {state.messages.map((message) => <article key={message.id} className={`assistant-message assistant-message-${message.role}`}>
@@ -91,7 +91,7 @@ export function SafetyAssistant({ client, scope, snapshot }: {
           <label htmlFor="safety-assistant-question">Your question</label>
           <div className="assistant-composer-input"><textarea ref={composer} id="safety-assistant-question" rows={2} maxLength={4_000} value={state.draft}
             disabled={disabled || state.stopped} onChange={(event) => conversation.setDraft(event.target.value)}
-            placeholder="Ask about your authorized operational data..." />
+            placeholder="Ask about your authorized operational data or approved procedures..." />
             <button type="submit" aria-label="Send question" title="Send question" className="button button-primary assistant-send" disabled={disabled || state.stopped || !state.draft.trim()}><Send size={18} aria-hidden="true" /><span className="sr-only">Send</span></button></div>
           <small>{state.draft.length}/4,000 · Human review required</small>
         </form>

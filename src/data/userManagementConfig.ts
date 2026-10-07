@@ -43,7 +43,7 @@ export const USER_FILTER_STATUS_OPTIONS = ['All Statuses', 'Active', 'Pending', 
 
 export const USER_ACTION_OPTIONS = ['Suspend', 'Deactivate'] as const
 
-export type PermissionGroup = 'Dashboard' | 'Incident Management' | 'User Management' | 'Roles & Permissions' | 'Reports' | 'QHSE' | 'Administration' | 'Platform'
+export type PermissionGroup = 'Dashboard' | 'Incident Management' | 'User Management' | 'Roles & Permissions' | 'Reports' | 'QHSE' | 'QHSE Knowledge' | 'Administration' | 'Platform'
 
 export type PermissionDefinition = {
   key: string
@@ -90,6 +90,11 @@ export const USER_MANAGEMENT_PERMISSION_CATALOG = [
   { key: 'view_profile', label: 'View Profile', description: 'Allows access to the user profile area.', group: 'Platform' },
   { key: 'view_activity', label: 'View Activity', description: 'Allows access to organization activity logs where authorized.', group: 'Administration' },
   { key: 'manage_settings', label: 'Manage Settings', description: 'Allows authorized organization settings management.', group: 'Administration' },
+  { key: 'view_knowledge_documents', label: 'View QHSE Documents', description: 'Allows access to approved QHSE knowledge documents within the user\'s scope.', group: 'QHSE Knowledge' },
+  { key: 'manage_knowledge_documents', label: 'Upload & Manage QHSE Documents', description: 'Allows uploading documents, new versions, draft edits, submission, archive and restore.', group: 'QHSE Knowledge' },
+  { key: 'approve_knowledge_documents', label: 'Approve QHSE Documents', description: 'Allows approving or rejecting QHSE document versions submitted for review.', group: 'QHSE Knowledge' },
+  { key: 'view_confidential_knowledge', label: 'View Confidential Documents', description: 'Allows viewing QHSE documents classified as confidential.', group: 'QHSE Knowledge' },
+  { key: 'view_restricted_knowledge', label: 'View Restricted Documents', description: 'Allows viewing QHSE documents classified as restricted.', group: 'QHSE Knowledge' },
 ] as const satisfies readonly PermissionDefinition[]
 
 export type PermissionKey = typeof USER_MANAGEMENT_PERMISSION_CATALOG[number]['key']
@@ -123,6 +128,11 @@ export const USER_MANAGEMENT_ROLE_PERMISSION_MATRIX: Record<UserManagementRole, 
     'view_all_reports',
     'export_reports',
     'manage_settings',
+    'view_knowledge_documents',
+    'manage_knowledge_documents',
+    'approve_knowledge_documents',
+    'view_confidential_knowledge',
+    'view_restricted_knowledge',
   ),
   'QHSE Manager': withBaseline(
     'view_all_incidents',
@@ -134,12 +144,18 @@ export const USER_MANAGEMENT_ROLE_PERMISSION_MATRIX: Record<UserManagementRole, 
     'manage_qhse',
     'manage_corrective_actions',
     'manage_facility_risks',
+    'view_knowledge_documents',
+    'manage_knowledge_documents',
+    'approve_knowledge_documents',
+    'view_confidential_knowledge',
+    'view_restricted_knowledge',
   ),
   'Site Supervisor': withBaseline(
     'view_all_incidents',
     'review_incidents',
     'view_all_reports',
     'manage_corrective_actions',
+    'view_knowledge_documents',
   ),
   'Safety Officer / HSE Officer': withBaseline(
     'view_all_incidents',
@@ -148,17 +164,23 @@ export const USER_MANAGEMENT_ROLE_PERMISSION_MATRIX: Record<UserManagementRole, 
     'view_all_reports',
     'manage_corrective_actions',
     'manage_facility_risks',
+    'view_knowledge_documents',
+    'manage_knowledge_documents',
+    'approve_knowledge_documents',
+    'view_confidential_knowledge',
   ),
-  Worker: withBaseline(),
+  Worker: withBaseline('view_knowledge_documents'),
   'Executive/Management': withBaseline(
     'view_all_incidents',
     'view_all_reports',
+    'view_knowledge_documents',
   ),
-  Contractor: withBaseline(),
+  Contractor: withBaseline('view_knowledge_documents'),
   'Maintenance Engineer': withBaseline(
     'view_all_incidents',
     'view_all_reports',
     'manage_corrective_actions',
+    'view_knowledge_documents',
   ),
 }
 
@@ -173,7 +195,7 @@ const LEGACY_ROLE_PERMISSION_KEYS: Record<string, readonly PermissionKey[]> = {
   Contractor: ['use_ai_assistant', 'create_inspection', 'view_marketplace', 'view_profile'],
   'Executive / Management': ['use_ai_assistant', 'view_executive_analytics', 'view_reports', 'view_profile'],
   'Maintenance Engineer': ['use_ai_assistant', 'create_corrective_action', 'view_marketplace', 'view_profile'],
-  Auditor: ['use_ai_assistant', 'view_executive_analytics', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
+  Auditor: ['view_knowledge_documents', 'use_ai_assistant', 'view_executive_analytics', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
 }
 
 // Build the permission set used by app-side checks from built-in, legacy, and custom role entries.

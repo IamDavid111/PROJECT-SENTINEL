@@ -4,6 +4,12 @@
 # working directory name when running `supabase init`.
 project_id = "Project_SENTI"
 
+[functions.knowledge-extraction]
+enabled = true
+verify_jwt = true
+import_map = "./functions/knowledge-extraction/deno.json"
+entrypoint = "./functions/knowledge-extraction/index.ts"
+
 [api]
 enabled = true
 # Port to use for the API URL.

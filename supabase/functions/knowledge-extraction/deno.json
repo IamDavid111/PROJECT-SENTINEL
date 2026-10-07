@@ -1,0 +1,10 @@
+{
+  "compilerOptions": { "lib": ["deno.window", "dom"], "strict": true },
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
+    "mammoth": "npm:mammoth@1.11.0/mammoth.browser.js",
+    "exceljs": "npm:exceljs@4.4.0",
+    "pdfjs": "npm:pdfjs-dist@4.10.38/legacy/build/pdf.mjs",
+    "pdfjs-worker": "npm:pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs"
+  }
+}

@@ -18,6 +18,7 @@ function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
 }
 const answer = {
+  knowledgeSourceIds: [] as string[],
   interpretation: 'Review the supplied operational observations.',
   advice: 'Human review is required before action.',
   limitations: 'This is bounded operational evidence, not procedural knowledge.',
@@ -53,7 +54,13 @@ Deno.test('Copilot context and rendered metrics equal canonical calculations; ci
   const result = validateCopilotAnswer(JSON.stringify({ ...answer, sourceIds: [evidence.key] }), grounding)
   assert(result.text.includes(`risk: ${JSON.stringify(snapshot.metrics.risk)}`), 'Canonical score changed')
   equal(result.citations, [{ sourceType: 'operational_record', sourceId: evidence.key, label: evidence.label }])
-  assert(result.text.includes('No procedure/regulatory/inspection/audit knowledge'), 'Mandatory unsupported-source notice lost')
+  assert(result.text.includes('Procedure/regulatory/document knowledge is never part of operational data'), 'Mandatory knowledge-separation notice lost')
+  equal(result.knowledgeSourceIds, [])
+  // Knowledge citations must come from the IDs supplied in this request only.
+  let rejected = false
+  try { validateCopilotAnswer(JSON.stringify({ ...answer, sourceIds: [], knowledgeSourceIds: [id(998)] }), grounding, { sourceIds: [id(997)], note: 'n' }) }
+  catch { rejected = true }
+  assert(rejected, 'Unsupplied knowledge citation accepted')
 })
 
 Deno.test('Copilot rejects forged, knowledge, duplicate and trimmed-away citations and malformed answers', async () => {
@@ -64,10 +71,11 @@ Deno.test('Copilot rejects forged, knowledge, duplicate and trimmed-away citatio
     'not JSON', JSON.stringify({ ...answer, limitations: '' }),
     JSON.stringify({ ...answer, sourceIds: [`incidents:${id(999)}`] }),
     JSON.stringify({ ...answer, sourceIds: ['knowledge_document:manual'] }),
-    JSON.stringify({ ...answer, sourceIds: [key, key] }),
-    JSON.stringify({ ...answer, metricKeys: ['risk', 'risk'] }),
     JSON.stringify({ ...answer, sourceIds: [key], url: 'https://invented.invalid' }),
   ]) rejects(() => validateCopilotAnswer(output, grounding))
+  // Repeated IDs collapse rather than fail the turn; they still must be supplied.
+  const collapsed = validateCopilotAnswer(JSON.stringify({ ...answer, sourceIds: [key, key], metricKeys: ['risk', 'risk'] }), grounding)
+  equal(collapsed.citations.length, 1)
   grounding.context.evidence = []
   rejects(() => validateCopilotAnswer(JSON.stringify({ ...answer, sourceIds: [key] }), grounding))
 })
@@ -127,6 +135,14 @@ Deno.test('Copilot bounds operational evidence and complete history together to 
   equal(grounding.context.metrics, snapshotOf(data).metrics)
 })
 
+// A non-RFC GUID chunk, matching stored deterministic chunk IDs.
+const knowledgeRow = {
+  chunk_id: '0a1b2c3d-4e5f-0a1b-0c3d-4e5f0a1b2c3d', document_id: id(720), version_id: id(721), version_number: 3,
+  title: 'Hot Work Procedure', document_type: 'procedure', effective_date: '2026-01-01', source_filename: 'hot-work.docx',
+  chunk_order: 0, start_offset: 0, end_offset: 52, content: 'Hot work requires a fire watch for sixty minutes after.',
+  site_id: null, department: null, similarity: 0.71,
+}
+
 const tableForSource = {
   incidents: 'incidents', actions: 'corrective_actions', investigations: 'investigations',
   causes: 'investigation_root_causes', findings: 'investigation_findings', closures: 'incident_closures',
@@ -137,7 +153,7 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
   for (const scenario of ['success', 'continuation', 'changed', 'other_session', 'session_denied', 'denied',
     'foreign_org', 'foreign_user', 'other_site', 'hidden_parent', 'read_failure', 'proof_failure', 'audit_failure',
     'forged_citation', 'malformed_answer', 'provider_failure', 'timeout', 'quota', 'quota_unavailable',
-    'delivery_revoked', 'delivery_failure', 'delivery_audit_failure'] as const) {
+    'delivery_revoked', 'delivery_failure', 'delivery_audit_failure', 'knowledge', 'knowledge_denied', 'knowledge_forged'] as const) {
     const data = records()
     if (scenario === 'other_site') data.rows.incidents[0].site_id = id(999)
     if (scenario === 'hidden_parent') data.rows.actions.push({
@@ -159,12 +175,19 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
         const table = url.pathname.split('/').at(-1)
         const headers = new Headers(init?.headers)
         const body = init?.body ? JSON.parse(String(init.body)) : undefined
+        if (url.hostname === 'api.openai.com' && url.pathname.endsWith('/embeddings')) {
+          return json({ data: [{ index: 0, embedding: Array(1536).fill(0.01) }] })
+        }
         if (url.hostname === 'api.openai.com') {
           providerCalls++
           equal(body.store, false)
           equal(body.text.format.strict, true)
           assert(!body.tools, 'Write/model SQL tools supplied')
           const context = JSON.parse(body.input[0].content).authorized_operational_context
+          const knowledgeInput = body.input.find((item: { content: string }) => item.content.includes('authorized_knowledge_context'))
+          equal(Boolean(knowledgeInput), scenario !== 'knowledge_denied')
+          if (scenario === 'knowledge') assert(knowledgeInput.content.includes(knowledgeRow.content), 'Authorized knowledge excerpt missing')
+          if (scenario === 'knowledge_denied') assert(!JSON.stringify(body.input).includes(knowledgeRow.content), 'Denied knowledge leaked')
           equal(context.scope.organizationId, org)
           assert(body.input.reduce((sum: number, item: { content: string }) => sum + item.content.length, 0) <= 24_000, 'Provider context unbounded')
           const containsHistory = body.input.some((item: { content: string }) => item.content === 'Earlier verified answer')
@@ -175,6 +198,7 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
           if (scenario === 'timeout') throw new DOMException('Private details', 'TimeoutError')
           return json({ status: 'completed', output: [{ type: 'message', status: 'completed', content: [{ type: 'output_text', text: scenario === 'malformed_answer' ? 'bad JSON' : JSON.stringify({
             ...answer, sourceIds: scenario === 'forged_citation' ? [`incidents:${id(999)}`] : [context.evidence[0].key],
+            knowledgeSourceIds: scenario === 'knowledge' ? [knowledgeRow.chunk_id] : scenario === 'knowledge_forged' ? [id(998)] : [],
           }) }] }] })
         }
         if (table === 'reserve_ai_provider_attempt') {
@@ -209,6 +233,11 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
           role: scenario === 'denied' ? 'Denied custom role' : 'Super Administrator',
         })
         if (table === 'custom_roles') return json({ permissions: [] })
+        if (table === 'search_knowledge') {
+          // The caller JWT is asserted above; the database applies org/RBAC/approval/expiry filtering.
+          if (scenario === 'knowledge_denied') return json({ code: '42501', message: 'denied' }, 403)
+          return json(scenario === 'knowledge' || scenario === 'knowledge_forged' ? [knowledgeRow] : [])
+        }
         if (table === 'can_close_incidents') return json(false)
         if (table === 'can_read_ai_session') {
           equal(body.target_session, sessionId)
@@ -243,15 +272,15 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
       method: 'POST', headers: { Authorization: 'Bearer test-caller', 'Content-Type': 'application/json' },
       body: JSON.stringify({ feature: 'safety_copilot', sessionId, prompt: 'Risk', ...(scenario === 'other_site' ? { siteId: site } : {}) }),
     }), runtime)
-    const success = ['success', 'continuation', 'changed', 'other_site', 'hidden_parent'].includes(scenario)
+    const success = ['success', 'continuation', 'changed', 'other_site', 'hidden_parent', 'knowledge', 'knowledge_denied'].includes(scenario)
     const generated = success || ['delivery_revoked', 'delivery_failure', 'delivery_audit_failure'].includes(scenario)
     equal(response.status, success ? 200 : ['foreign_org', 'foreign_user', 'session_denied', 'other_session', 'denied'].includes(scenario) ? 403
-      : scenario === 'delivery_revoked' ? 403 : scenario === 'quota' ? 429 : scenario === 'timeout' ? 504 : ['forged_citation', 'malformed_answer', 'provider_failure'].includes(scenario) ? 502 : 503)
+      : scenario === 'delivery_revoked' ? 403 : scenario === 'quota' ? 429 : scenario === 'timeout' ? 504 : ['forged_citation', 'knowledge_forged', 'malformed_answer', 'provider_failure'].includes(scenario) ? 502 : 503)
     const result = aiResponseSchema.parse(await response.json())
-    equal(providerCalls, generated || ['forged_citation', 'malformed_answer', 'provider_failure', 'timeout'].includes(scenario) ? 1 : 0)
+    equal(providerCalls, generated || ['forged_citation', 'knowledge_forged', 'malformed_answer', 'provider_failure', 'timeout'].includes(scenario) ? 1 : 0)
     if (scenario.startsWith('foreign_')) continue
     equal(auditWrites[0].feature, 'safety_copilot')
-    equal(auditWrites[0].prompt_version, 'safety-copilot-grounded-v1')
+    equal(auditWrites[0].prompt_version, 'safety-copilot-grounded-v2')
     if (['session_denied', 'other_session', 'denied'].includes(scenario)) continue
     equal(finishes.length, 1)
     equal(finishes[0].p_request_id, auditWrites[0].request_id)
@@ -265,18 +294,30 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
         : scenario === 'delivery_failure' ? 'unavailable' : 'allowed')
     }
     assert(!JSON.stringify(auditWrites).includes('Recorded event'), 'Audit stores raw operational text')
+    assert(!JSON.stringify(auditWrites).includes(knowledgeRow.content), 'Audit stores raw knowledge text')
     if (success) {
       assert(result.ok, 'Success envelope missing')
       equal(result.sessionId, sessionId)
       equal(result.feature, 'safety_copilot')
       assert(result.citations.length > 0 && result.content.authoritative === false, 'Missing advisory citations')
       equal(completion.response_metadata.grounding_digest !== undefined, true)
-      equal(completion.response_metadata.validated_citation_ids, result.citations.map((item) => item.sourceId))
-      const saved = finishes[0].p_completion as { answer_presentation: { observations: Array<{ key: string; value: string }> } }
+      equal(completion.response_metadata.validated_citation_ids, result.citations
+        .filter((item) => item.sourceType === 'operational_record').map((item) => item.sourceId))
+      const knowledgeCited = result.citations.filter((item) => item.sourceType === 'knowledge_document')
+      equal(knowledgeCited.map((item) => item.sourceId), scenario === 'knowledge' ? [knowledgeRow.chunk_id] : [])
+      if (scenario === 'knowledge') {
+        equal(knowledgeCited[0].knowledge?.versionId, knowledgeRow.version_id)
+        equal(completion.response_metadata.validated_knowledge_citation_ids, [knowledgeRow.chunk_id])
+      }
+      equal(completion.response_metadata.knowledge_retrieval, scenario === 'knowledge' ? 'available' : scenario === 'knowledge_denied' ? 'denied' : 'no_match')
+      const saved = finishes[0].p_completion as { answer_presentation: { observations: Array<{ key: string; value: string }>; serverLimitations: string[] } }
       assert(saved.answer_presentation.observations.some((item) => item.key === 'highRisk'), 'Structured facts not persisted with conversation')
+      assert(saved.answer_presentation.serverLimitations.some((item) => item.includes(scenario === 'knowledge_denied' ? 'cannot access the QHSE knowledge'
+        : scenario === 'knowledge' ? 'knowledge excerpts you may access were supplied' : 'No approved, current QHSE knowledge')), 'Knowledge status not disclosed')
       assert(!('answer_presentation' in completion.response_metadata), 'Generated content leaked into long-lived audit')
       const savedAccess = finishes[0].p_completion as { access_sources: Record<string, string[]> }
-      equal(Object.keys(savedAccess.access_sources).length, 8)
+      equal(Object.keys(savedAccess.access_sources).length, scenario === 'knowledge' ? 9 : 8)
+      if (scenario === 'knowledge') equal(savedAccess.access_sources.knowledge, [knowledgeRow.version_id])
       equal(savedAccess.access_sources.incidents, data.rows.incidents
         .filter((row) => scenario !== 'other_site' || row.site_id === site).map((row) => row.id))
       assert(!('access_sources' in completion.response_metadata), 'Private access footprint leaked into audit')
@@ -284,3 +325,16 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
   }
 })
 import { createClient } from '@supabase/supabase-js'
+
+Deno.test('copilot routes a supplied knowledge ID misplaced in sourceIds and strips stale procedure limitation', () => {
+  const k = '11111111-1111-1111-1111-111111111111'
+  const grounding = { context: { evidence: [], metrics: {}, asOf: 'x', scope: { visibility: 'org' }, methodologyVersion: 'm',
+    limitations: ['Inspections, operational audits, procedures, regulatory libraries and trained prediction are unavailable.'] } }
+  const text = JSON.stringify({ interpretation: 'i', advice: '', limitations: 'l', sourceIds: [k], metricKeys: [], knowledgeSourceIds: [] })
+  // deno-lint-ignore no-explicit-any
+  const result = validateCopilotAnswer(text, grounding as any, { sourceIds: [k], note: '' })
+  equal(JSON.stringify(result.knowledgeSourceIds), JSON.stringify([k]))
+  assert(!JSON.stringify(result).includes('procedures, regulatory libraries'), 'stale limitation')
+  // deno-lint-ignore no-explicit-any
+  rejects(() => validateCopilotAnswer(text, grounding as any))
+})

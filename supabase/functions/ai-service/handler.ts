@@ -13,6 +13,11 @@ import {
   assembleGroundedInput, buildCopilotGrounding, copilotProviderFormat,
   validateCopilotAnswer, groundedHistoryRequestIds, type CopilotGrounding,
 } from '../_shared/safetyCopilotGrounding.ts'
+import {
+  assembleKnowledgeInput, INSUFFICIENT_KNOWLEDGE_ANSWER, knowledgeAuditSources, knowledgeCitations,
+  knowledgeProviderFormat, KnowledgeRetrievalError, retrieveKnowledge, validateKnowledgeAnswer, type KnowledgeGrounding,
+  fitKnowledge,
+} from './knowledge.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,7 +27,8 @@ const corsHeaders = {
 
 // One server-selected definition supplies both instructions and the audit version.
 const foundationPrompt = getAiPrompt('ai_service', 'ai-foundation-v1')
-const copilotPrompt = getAiPrompt('safety_copilot', 'safety-copilot-grounded-v1')
+const copilotPrompt = getAiPrompt('safety_copilot', 'safety-copilot-grounded-v2')
+const knowledgePrompt = getAiPrompt('qhse_knowledge', 'qhse-knowledge-grounded-v1')
 
 function copilotValidationFailure(error: unknown) {
   if (error instanceof ZodError) {
@@ -113,7 +119,8 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
     try { body = await request.json() } catch { invalidJson = true }
     const turnRequest = aiTurnRequestSchema.safeParse(body)
     const isCopilot = turnRequest.success && turnRequest.data.feature === 'safety_copilot'
-    const promptDefinition = isCopilot ? copilotPrompt : foundationPrompt
+    const isKnowledge = turnRequest.success && turnRequest.data.feature === 'qhse_knowledge'
+    const promptDefinition = isCopilot ? copilotPrompt : isKnowledge ? knowledgePrompt : foundationPrompt
 
     // Only attribute database audit rows once identity and tenant are trustworthy.
     // Earlier failures have a safe console trace, not a guessed user or organization.
@@ -124,7 +131,11 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
     let assistantText: string | null = null
     let assistantPresentation: ReturnType<typeof validateCopilotAnswer>['presentation'] | null = null
     let grounding: CopilotGrounding | undefined
-    let assistantCitations: ReturnType<typeof validateCopilotAnswer>['citations'] = []
+    let knowledge: KnowledgeGrounding | undefined
+    // Assistant (copilot) knowledge is optional context; `knowledge` above is the stateless RAG feature.
+    let copilotKnowledge: KnowledgeGrounding | undefined
+    let copilotKnowledgeNote = ''
+    let assistantCitations: Array<ReturnType<typeof validateCopilotAnswer>['citations'][number] | ReturnType<typeof knowledgeCitations>[number]> = []
     const groundingMetadata: Record<string, unknown> = {}
     let completedResponseMetadata: Record<string, unknown> = {}
     // Service role is limited to private audits/session completion, never operational retrieval.
@@ -157,7 +168,12 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
         const { data, error } = await auditClient.rpc('finish_ai_session_turn', {
           p_request_id: requestId,
           p_completion: { ...completion, response_metadata: responseMetadata,
-            ...(status === 'succeeded' && grounding ? { access_sources: grounding.accessSources } : {}),
+            ...(status === 'succeeded' && grounding ? { access_sources: {
+              ...grounding.accessSources,
+              // Version IDs (never deleted) let saved chats re-check document readability on reopen.
+              ...(copilotKnowledge?.sources.length
+                ? { knowledge: [...new Set(copilotKnowledge.sources.map((source) => source.citation.versionId))] } : {}),
+            } } : {}),
             ...(status === 'succeeded' && assistantPresentation ? { answer_presentation: assistantPresentation } : {}) },
           p_text: status === 'succeeded' ? assistantText : null,
         })
@@ -257,7 +273,31 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
           if (result.error) return jsonResponse({ error: 'Unable to safely verify conversation evidence' }, 503, 'history_provenance_unavailable')
           proofs = result.data
         }
-        modelInput = assembleGroundedInput(history, proofs, prompt, grounding)
+        // Knowledge is retrieved with the same caller-JWT client, so search_knowledge applies
+        // org/RBAC/scope/approval/expiry in the database. Failure degrades to no knowledge, never to
+        // an unfiltered read; the answer then states that knowledge was unavailable.
+        try {
+          const retrieved = await retrieveKnowledge(operationalClient, runtime.env, runtime.fetch, prompt, {},
+            { excerptCharacters: 1_500, contextCharacters: 4_500 })
+          copilotKnowledge = fitKnowledge(retrieved, 24_000 - grounding.serialized.length - prompt.length)
+          copilotKnowledgeNote = copilotKnowledge.sources.length
+            ? 'Approved, current QHSE knowledge excerpts you may access were supplied; only cited excerpts are listed as knowledge sources.'
+            : 'No approved, current QHSE knowledge you may access matched this question; no document content was supplied.'
+          groundingMetadata.knowledge_retrieval = copilotKnowledge.sources.length ? 'available' : 'no_match'
+        } catch (error) {
+          if (readDeadline.aborted) throw error
+          const denied = error instanceof KnowledgeRetrievalError && error.code === 'knowledge_access_denied'
+          copilotKnowledgeNote = denied
+            ? 'Your account cannot access the QHSE knowledge library; no document content was supplied.'
+            : 'QHSE knowledge retrieval was unavailable for this request; no document content was supplied.'
+          groundingMetadata.knowledge_retrieval = denied ? 'denied' : 'unavailable'
+        }
+        if (copilotKnowledge) Object.assign(groundingMetadata, {
+          embedding_model: copilotKnowledge.model, knowledge_sources: knowledgeAuditSources(copilotKnowledge.sources),
+          validated_knowledge_citation_ids: [],
+        })
+        modelInput = assembleGroundedInput(history, proofs, prompt, grounding,
+          copilotKnowledge ? copilotKnowledge.serialized : '')
         const sourceIds = grounding.context.evidence.map((item) => item.key)
         Object.assign(groundingMetadata, {
           grounding_digest: grounding.digest, methodology_version: snapshot.methodologyVersion,
@@ -280,6 +320,90 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
         return jsonResponse({ error: 'Unable to safely assemble authorized operational context' }, 503, 'invalid_grounding_context')
       }
     }
+
+    if (isKnowledge) {
+      const readDeadline = AbortSignal.timeout(20_000)
+      // Caller token only: permission filtering happens in the database before any excerpt is read.
+      const knowledgeClient = createClient(supabaseUrl, anonKey, {
+        global: {
+          headers: { Authorization: authorization },
+          fetch: (input, init) => runtime.fetch(input, {
+            ...init, signal: init?.signal ? AbortSignal.any([readDeadline, init.signal]) : readDeadline,
+          }),
+        },
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+      try {
+        const { siteId, department, documentIds } = turnRequest.data
+        knowledge = await retrieveKnowledge(knowledgeClient, runtime.env, runtime.fetch, prompt, { siteId, department, documentIds })
+        if (readDeadline.aborted) throw new DOMException('Knowledge deadline reached', 'TimeoutError')
+        modelInput = assembleKnowledgeInput(knowledge, prompt)
+        const sources = knowledgeAuditSources(knowledge.sources)
+        Object.assign(groundingMetadata, {
+          embedding_model: knowledge.model, knowledge_sources: sources,
+          grounding_context_characters: knowledge.serialized.length, grounding_context_truncated: knowledge.truncated,
+          knowledge_insufficient_evidence: knowledge.sources.length === 0, validated_citation_ids: [],
+        })
+        // Record retrieved source IDs (no text) before generation so every model call is traceable.
+        const recorded = await auditClient.from('ai_request_logs').update({
+          retrieved_operational_records: sources.map((source) => source.chunkId), response_metadata: groundingMetadata,
+        }).eq('request_id', requestId).eq('organization_id', accessContext.organizationId)
+          .eq('status', 'pending').select('request_id').abortSignal(readDeadline).maybeSingle()
+        if (recorded.error || !recorded.data) return jsonResponse({ error: 'Unable to safely record knowledge sources' }, 503, 'grounding_audit_unavailable')
+      } catch (error) {
+        if (error instanceof KnowledgeRetrievalError && error.code === 'knowledge_access_denied') {
+          return jsonResponse({ error: 'Knowledge access is not available for this account' }, 403, error.code)
+        }
+        if (readDeadline.aborted || isAiTimeout(error)) return jsonResponse({ error: 'Knowledge retrieval timed out' }, 504, 'grounding_timeout')
+        return jsonResponse({ error: 'Unable to retrieve authorized knowledge' }, 503, 'knowledge_retrieval_unavailable')
+      }
+    }
+
+    const deliverAnswer = async (text: string, usage: unknown) => {
+      const response = aiSuccessSchema.safeParse({
+        contractVersion: '1',
+        requestId,
+        ok: true,
+        feature: promptDefinition.feature,
+        promptVersion: promptDefinition.version,
+        model: openAiModel,
+        ...(sessionId ? { sessionId } : {}),
+        content: { origin: 'ai_generated', authoritative: false, text },
+        citations: assistantCitations,
+      })
+      if (!response.success) {
+        console.error('AI response contract validation failed', { requestId })
+        return jsonResponse({ error: 'AI service returned an invalid response' }, 502, 'invalid_response_contract')
+      }
+      assistantText = text
+      if (!await completeAudit!('succeeded', null, usage)) {
+        return jsonResponse({ error: 'Unable to safely complete the AI request' }, 503)
+      }
+      // Generation is durably complete; delivery failures must not rewrite its successful audit/turn.
+      completeAudit = undefined
+      if (grounding && sessionId) {
+        const deliveryAccess = await userClient.rpc('can_read_ai_session', { target_session: sessionId })
+        const deliveryStatus = deliveryAccess.error || typeof deliveryAccess.data !== 'boolean'
+          ? 'unavailable' : deliveryAccess.data ? 'allowed' : 'denied'
+        const deliveryAudit = await auditClient.from('ai_request_logs').update({
+          response_metadata: { ...completedResponseMetadata, delivery_access_check: deliveryStatus },
+        }).eq('request_id', requestId).eq('organization_id', accessContext.organizationId)
+          .eq('status', 'succeeded').select('request_id').maybeSingle()
+        if (deliveryAudit.error || !deliveryAudit.data) {
+          return jsonResponse({ error: 'Unable to safely record answer delivery access. Reopen the chat; do not resend.' }, 503, 'delivery_audit_unavailable')
+        }
+        if (deliveryAccess.error || typeof deliveryAccess.data !== 'boolean') {
+          return jsonResponse({ error: 'Unable to verify current conversation access. Reopen the chat; do not resend.' }, 503, 'delivery_access_unavailable')
+        }
+        if (!deliveryAccess.data) {
+          return jsonResponse({ error: 'Conversation access changed during generation. Start a new chat.' }, 403)
+        }
+      }
+      return validatedJsonResponse(response.data, 200)
+    }
+
+    // No authorized evidence: answer deterministically without calling the model, so nothing can be fabricated.
+    if (knowledge && knowledge.sources.length === 0) return await deliverAnswer(INSUFFICIENT_KNOWLEDGE_ANSWER, undefined)
 
     // Reserve atomically immediately before network I/O; no retries or bypass for stateless requests.
     const allowance = await auditClient.rpc('reserve_ai_provider_attempt', { p_request_id: requestId })
@@ -305,6 +429,7 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
           // Disable Responses API storage; do not infer this disables all provider retention.
           store: false,
           ...(isCopilot ? { text: { format: copilotProviderFormat } } : {}),
+          ...(isKnowledge ? { text: { format: knowledgeProviderFormat } } : {}),
         }),
         signal: AbortSignal.timeout(30_000),
       })
@@ -365,10 +490,14 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
     }
     if (grounding) {
       try {
-        const answer = validateCopilotAnswer(text, grounding)
+        const answer = validateCopilotAnswer(text, grounding, {
+          sourceIds: copilotKnowledge?.sources.map((source) => source.key) ?? [], note: copilotKnowledgeNote,
+        })
         text = answer.text
-        assistantCitations = answer.citations
-        groundingMetadata.validated_citation_ids = assistantCitations.map((citation) => citation.sourceId)
+        groundingMetadata.validated_citation_ids = answer.citations.map((citation) => citation.sourceId)
+        const cited = answer.knowledgeSourceIds.map((key) => copilotKnowledge!.sources.find((source) => source.key === key)!)
+        assistantCitations = [...answer.citations, ...knowledgeCitations(cited)]
+        groundingMetadata.validated_knowledge_citation_ids = answer.knowledgeSourceIds
         assistantPresentation = answer.presentation
       } catch (error) {
         const validationFailure = copilotValidationFailure(error)
@@ -377,48 +506,25 @@ export async function handleAiRequest(request: Request, runtime: AiRuntime = {
         return jsonResponse({ error: 'AI provider returned invalid grounded evidence' }, 502, 'invalid_copilot_response')
       }
     }
+    if (knowledge) {
+      try {
+        const answer = validateKnowledgeAnswer(text, knowledge)
+        text = answer.text
+        assistantCitations = knowledgeCitations(answer.sources)
+        Object.assign(groundingMetadata, {
+          validated_citation_ids: answer.sources.map((source) => source.key),
+          knowledge_insufficient_evidence: answer.insufficientEvidence,
+        })
+      } catch (error) {
+        groundingMetadata.validation_failure = error instanceof Error && error.message.endsWith('knowledge citation.')
+          ? 'unknown_or_duplicate_citation' : error instanceof Error && error.message === 'Uncited knowledge answer.'
+            ? 'uncited_answer' : 'invalid_structured_answer'
+        console.error('AI provider returned invalid knowledge grounding', { requestId, validationFailure: groundingMetadata.validation_failure })
+        return jsonResponse({ error: 'AI provider returned invalid grounded evidence' }, 502, 'invalid_knowledge_response')
+      }
+    }
 
-    const response = aiSuccessSchema.safeParse({
-      contractVersion: '1',
-      requestId,
-      ok: true,
-      feature: promptDefinition.feature,
-      promptVersion: promptDefinition.version,
-      model: openAiModel,
-      ...(sessionId ? { sessionId } : {}),
-      content: { origin: 'ai_generated', authoritative: false, text },
-      citations: assistantCitations,
-    })
-    if (!response.success) {
-      console.error('AI response contract validation failed', { requestId })
-      return jsonResponse({ error: 'AI service returned an invalid response' }, 502, 'invalid_response_contract')
-    }
-    const usage = isRecord(providerBody) ? providerBody.usage : undefined
-    assistantText = text
-    if (!await completeAudit('succeeded', null, usage)) {
-      return jsonResponse({ error: 'Unable to safely complete the AI request' }, 503)
-    }
-    // Generation is durably complete; delivery failures must not rewrite its successful audit/turn.
-    completeAudit = undefined
-    if (grounding && sessionId) {
-      const deliveryAccess = await userClient.rpc('can_read_ai_session', { target_session: sessionId })
-      const deliveryStatus = deliveryAccess.error || typeof deliveryAccess.data !== 'boolean'
-        ? 'unavailable' : deliveryAccess.data ? 'allowed' : 'denied'
-      const deliveryAudit = await auditClient.from('ai_request_logs').update({
-        response_metadata: { ...completedResponseMetadata, delivery_access_check: deliveryStatus },
-      }).eq('request_id', requestId).eq('organization_id', accessContext.organizationId)
-        .eq('status', 'succeeded').select('request_id').maybeSingle()
-      if (deliveryAudit.error || !deliveryAudit.data) {
-        return jsonResponse({ error: 'Unable to safely record answer delivery access. Reopen the chat; do not resend.' }, 503, 'delivery_audit_unavailable')
-      }
-      if (deliveryAccess.error || typeof deliveryAccess.data !== 'boolean') {
-        return jsonResponse({ error: 'Unable to verify current conversation access. Reopen the chat; do not resend.' }, 503, 'delivery_access_unavailable')
-      }
-      if (!deliveryAccess.data) {
-        return jsonResponse({ error: 'Conversation access changed during generation. Start a new chat.' }, 403)
-      }
-    }
-    return validatedJsonResponse(response.data, 200)
+    return await deliverAnswer(text, isRecord(providerBody) ? providerBody.usage : undefined)
   } catch {
     // Final safety boundary: never return stack traces, caught messages, or a made-up answer.
     return jsonResponse({ error: 'AI service could not complete the request' }, 500, 'unexpected_server_error')

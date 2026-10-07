@@ -22,6 +22,19 @@ export const aiSuccessSchema = traceSchema.extend({
     sourceType: z.enum(['operational_record', 'knowledge_document']),
     sourceId: z.string().min(1),
     label: z.string().min(1),
+    // Server-built from stored knowledge rows (document/version/chunk identity); never model-generated.
+    // Chunk IDs are deterministic (not RFC-variant), so accept any GUID shape here.
+    knowledge: z.object({
+      documentId: z.guid(), documentTitle: z.string().min(1), documentType: z.string().min(1),
+      versionId: z.guid(), versionNumber: z.number().int().positive(), effectiveDate: z.string().nullable(),
+      chunkId: z.guid(),
+      location: z.object({
+        chunkOrder: z.number().int().min(0), startOffset: z.number().int().min(0),
+        endOffset: z.number().int().min(0), sourceFilename: z.string(),
+      }).strict(),
+      excerpt: z.string(),
+      reference: z.string().startsWith('#knowledge?'),
+    }).strict().optional(),
   }).strict()),
 }).strict()
 
