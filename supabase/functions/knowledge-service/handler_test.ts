@@ -250,3 +250,22 @@ Deno.test('lifecycle request contracts reject forged status and approval evidenc
     action: 'update_metadata', versionId: userId, patch: { approval_status: 'approved' },
   }).success, false)
 })
+
+Deno.test('approval failures explain known restrictions without exposing unknown database details', async () => {
+  for (const [message, expected] of [
+    ['Only Super Administrators may approve their own submissions', 'You cannot approve your own submission. Ask another authorized approver to review it. Only Super Administrators can self-approve.'],
+    ['Archived documents cannot receive lifecycle decisions', 'Restore the archived document before submitting or reviewing it.'],
+    ['QHSE document approval permission is required', 'Approval permission is required. Ask your Super Administrator to grant Approve Document Uploads, then refresh.'],
+    ['private database internals', 'Unable to approve the document version.'],
+  ]) {
+    const base = runtime('QHSE Manager')
+    const response = await handleKnowledgeRequest(request({ action: 'approve', versionId: userId }), {
+      env: base.env,
+      fetch: (input, init) => String(input).includes('/rpc/transition_knowledge_version')
+        ? Promise.resolve(json({ code: '42501', message }, 403))
+        : base.fetch(input, init),
+    })
+    assertEquals(response.status, 403)
+    assertEquals((await response.json()).error.message, expected)
+  }
+})

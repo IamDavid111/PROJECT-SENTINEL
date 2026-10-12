@@ -4,7 +4,7 @@ import type { AiAccessContext } from '../ai-service/access.ts'
 import {
   safetyActionSchema, safetyCauseSchema, safetyClosureSchema, safetyFacilitySchema,
   safetyFindingSchema, safetyIncidentSchema, safetyInvestigationSchema, safetySiteSchema,
-  hasOrganizationIncidentVisibility,
+  hasOrganizationIncidentVisibility, safetyCompanySettingsSchema, isExcludedSyntheticSafetyIncident,
   type SafetyCoverage, type SafetyDataset, type SafetyFilters, type SafetyScope,
 } from './safetyIntelligenceContracts.ts'
 
@@ -71,8 +71,8 @@ export async function retrieveSafetyDataset(
     || !Number.isInteger(limits.maxRows) || limits.maxRows < 1) throw new SafetyRetrievalError()
   const org = context.organizationId
   // Only the caller's anon-key/token client is accepted. No privileged client is created here.
-  const [incidents, actions, investigations, causes, findings, closures, sites, facilities] = await Promise.all([
-    readPages(client, org, 'incidents', 'id,organization_id,reference_number,title,report_type,status,reported_at,site_id,facility_id,severity,potential_severity,incident_category', safetyIncidentSchema, 'id', limits, true),
+  const [incidents, actions, investigations, causes, findings, closures, sites, facilities, settingsResult] = await Promise.all([
+    readPages(client, org, 'incidents', 'id,organization_id,reference_number,title,report_type,status,reported_at,site_id,facility_id,department,severity,potential_severity,incident_category,client_submission_id,digital_signature', safetyIncidentSchema, 'id', limits, true),
     readPages(client, org, 'corrective_actions', 'id,organization_id,incident_id,title,status,due_date', safetyActionSchema, 'id', limits),
     readPages(client, org, 'investigations', 'id,organization_id,incident_id,status,completed_at,findings_summary', safetyInvestigationSchema, 'id', limits),
     readPages(client, org, 'investigation_root_causes', 'id,organization_id,investigation_id,root_cause_statement,cause_category', safetyCauseSchema, 'id', limits),
@@ -80,14 +80,21 @@ export async function retrieveSafetyDataset(
     readPages(client, org, 'incident_closures', 'incident_id,organization_id,closed_at,root_cause,corrective_action', safetyClosureSchema, 'incident_id', limits),
     readPages(client, org, 'sites', 'id,organization_id,name', safetySiteSchema, 'id', limits),
     readPages(client, org, 'facilities', 'id,organization_id,site_id,name', safetyFacilitySchema, 'id', limits),
+    client.from('company_settings').select('organization_id,operational_sites,departments,severity_levels,incident_categories')
+      .eq('organization_id', org).maybeSingle(),
   ])
+  if (settingsResult.error) throw new SafetyRetrievalError()
+  const settings = safetyCompanySettingsSchema.nullable().safeParse(settingsResult.data)
+  if (!settings.success || (settings.data && settings.data.organization_id !== org)) throw new SafetyRetrievalError()
   const pages = { incidents, actions, investigations, causes, findings, closures, sites, facilities }
   // An organization-filter/RLS regression must fail, not silently turn foreign records into evidence.
   for (const page of Object.values(pages)) {
     if (page.rows.some((row) => row.organization_id !== org)) throw new SafetyRetrievalError()
   }
-  const visibleIncidents = incidents.rows.filter((row) => row.status !== 'draft'
+  const scopedIncidents = incidents.rows.filter((row) => row.status !== 'draft'
     && (!filters.siteId || row.site_id === filters.siteId))
+  const syntheticCount = scopedIncidents.filter(isExcludedSyntheticSafetyIncident).length
+  const visibleIncidents = scopedIncidents.filter((row) => !isExcludedSyntheticSafetyIncident(row))
   const incidentIds = new Set(visibleIncidents.map((row) => row.id))
   const visibleInvestigations = investigations.rows.filter((row) => incidentIds.has(row.incident_id))
   const investigationIds = new Set(visibleInvestigations.map((row) => row.id))
@@ -107,10 +114,13 @@ export async function retrieveSafetyDataset(
       && (!filters.siteId || row.site_id === filters.siteId)),
   }
   const coverage: SafetyCoverage[] = (Object.keys(pages) as Array<keyof typeof pages>).map((source) => ({
-    source, retrieved: rows[source].length, included: rows[source].length,
+    source, retrieved: source === 'incidents' ? scopedIncidents.length : rows[source].length, included: rows[source].length,
     complete: pages[source].complete,
     access: hasOrganizationIncidentVisibility(context.role, false) ? 'organization' : 'caller_visible',
-    reasons: pages[source].complete ? [] : ['Authorized source exceeded the retrieval limit.'],
+    reasons: [
+      ...(pages[source].complete ? [] : ['Authorized source exceeded the retrieval limit.']),
+      ...(source === 'incidents' && syntheticCount ? [`${syntheticCount} confirmed synthetic incident records are excluded from operational analytics.`] : []),
+    ],
   }))
-  return { rows, coverage }
+  return { rows, coverage, companySettings: settings.data }
 }

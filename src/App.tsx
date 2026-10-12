@@ -30,6 +30,7 @@ import { KnowledgePage } from './features/knowledge/KnowledgePage'
 import { hasOrganizationIncidentVisibility } from '../supabase/functions/_shared/safetyIntelligenceContracts'
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
+const executiveAnalyticsAccessMessage = 'You do not have permission to view Executive Analytics. Please ask your Super Admin to grant you access.'
 
 const featureCards: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: Camera, title: 'Digital incident reporting', text: 'Capture near misses to fatalities in the field with GPS, photo, video and voice evidence — online or offline.' },
@@ -378,7 +379,6 @@ type Permission = PermissionKey
 const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; permission: Permission }[] = [
   { route: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'view_dashboard' },
   { route: 'report-incident', label: 'Report Incident', icon: Siren, permission: 'report_incident' },
-  // Retain the route key so existing assistant bookmarks continue to work.
   { route: 'ai-assistant', label: 'Safety Intelligence', icon: Sparkles, permission: 'use_ai_assistant' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: BarChart3, permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
@@ -440,6 +440,7 @@ function AdministrationLandingPage({ canViewUsers, canViewRoles }: { canViewUser
 function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
   useIncidentOfflineSync(supabase)
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
+  const [analyticsOpen, setAnalyticsOpen] = useState(false)
   const [role, setRole] = useState<string | null>(null)
   const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([])
   const [organizationId, setOrganizationId] = useState('')
@@ -467,7 +468,10 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   }
 
   useEffect(() => {
-    const handleHashChange = () => setRoute(getAppRoute())
+    const handleHashChange = () => {
+      setRoute(getAppRoute())
+      setAnalyticsOpen(false)
+    }
     window.addEventListener('hashchange', handleHashChange)
     // A valid sign-in does not by itself identify the user's organization or app role.
     // Load the profile first, then use its organization ID to fetch membership and organization details.
@@ -544,7 +548,8 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       return
     }
 
-    if (!loading && !(route === 'incidents' && closureAccess.isPending) && !currentRouteAuthorized) {
+    // Analytics has its own denial screen; a direct link must not redirect away from it.
+    if (!loading && route !== 'executive-analytics' && !(route === 'incidents' && closureAccess.isPending) && !currentRouteAuthorized) {
       if (route !== fallbackRoute) window.location.hash = `#${fallbackRoute}`
     }
   }, [canManageCompanySettings, closureAccess.isPending, currentRouteAuthorized, fallbackRoute, loading, route])
@@ -640,7 +645,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       <main className="workspace-main">
         <header className="workspace-topbar">
           <div className="workspace-topbar-left">
-            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : route === 'knowledge' ? 'Operations / QHSE Knowledge' : 'Operations / Safety Overview'}</span></div>
+            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : route === 'executive-analytics' ? 'Operations / Executive Analytics' : route === 'knowledge' ? 'Operations / QHSE Knowledge' : 'Operations / Safety Overview'}</span></div>
             {primaryEmergencyContact && (
               <div className="workspace-emergency-panel">
                 <div className="workspace-emergency-label">FOR EMERGENCY RESPONSE CALL:</div>
@@ -655,7 +660,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           <div className="workspace-actions">
             <label className="global-search"><span className="sr-only">Global search</span><input placeholder="Search workspace" aria-label="Global search" /></label>
             <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications"><Bell size={17} /></a>
-            {canAccess('use_ai_assistant') && <a className="workspace-header-action" href="#ai-assistant" title="Safety Intelligence" aria-label="Safety Intelligence"><Sparkles size={17} /></a>}
+            {canAccess('view_executive_analytics') && <a className="workspace-header-action" href="#executive-analytics" title="Executive Analytics" aria-label="Executive Analytics"><Sparkles size={17} /></a>}
             <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon"><MessageSquare size={17} /></button>
             <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><ThemeToggleIcon dark={isDarkMode} /></button>
             <a className="workspace-user" href="#profile">{profileName}</a>
@@ -682,7 +687,28 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
               }} />
           )}
           {route === 'knowledge' && canAccess('view_knowledge_documents') && <KnowledgePage key={`${organizationId}:${session.user.id}`} client={supabase} scope={{ organizationId, userId: session.user.id }} />}
-          {route === 'executive-analytics' && canAccess('view_executive_analytics') && <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open analytics foundation" />}
+          {/* Keep direct route requests visible so missing access gets an explicit denial; the Edge Function rechecks before data reads. */}
+          {route === 'executive-analytics' && <>
+            <div hidden={analyticsOpen && canAccess('view_executive_analytics')}>
+              <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open Analytics Foundation"
+                onAction={canAccess('view_executive_analytics') ? () => setAnalyticsOpen(true) : undefined}
+                actionDisabled={closureAccess.isPending || closureAccess.isError} />
+            </div>
+            {!canAccess('view_executive_analytics')
+              ? <div className="auth-message error" role="alert">{executiveAnalyticsAccessMessage}</div>
+              : <div hidden={!analyticsOpen}>
+                  <button type="button" className="button button-outline button-small" onClick={() => setAnalyticsOpen(false)}>
+                    <ArrowLeft size={16} aria-hidden="true" />Back to Executive Analytics introduction
+                  </button>
+                  {/* Keep the existing view mounted so returning to the introduction preserves its reporting window and refresh state. */}
+                  {closureAccess.isPending ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
+                    : !closureAccess.isError && <SafetyIntelligencePage view="executive-analytics" canExportAnalytics={canAccess('view_executive_analytics')} client={supabase} scope={{
+                      organizationId, userId: session.user.id,
+                      visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',
+                      siteAssignmentEnforced: false,
+                    }} />}
+                </div>}
+          </>}
           {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
           {route === 'administration' && canAccess('access_administration') && <AdministrationLandingPage canViewUsers={canAccess('view_users')} canViewRoles={canAccess('view_roles_permissions')} />}
           {route === 'users' && canAccess('view_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} canInviteUsers={canAccess('invite_users')} canEditUsers={canAccess('edit_users')} canSuspendUsers={canAccess('suspend_users')} canDeactivateUsers={canAccess('deactivate_users')} canManageUserRoles={canAccess('manage_user_roles')} canManageRolesPermissions={canAccess('manage_roles_permissions')} />}
@@ -720,8 +746,16 @@ function WorkspaceLoadingState({ backgroundImage, canProceed, secondsUntilAuto, 
   return <div className="workspace-loading-backdrop" style={{ backgroundImage: `linear-gradient(90deg, rgba(4, 13, 28, 0.92), rgba(4, 13, 28, 0.62)), url(${backgroundImage})` }}><div className="workspace-loading-state"><div className="workspace-loading-mark"><BrandMark /></div><div className="eyebrow">FIELD SAFETY BRIEF</div><h2>Preparing your SentinelQHSE workspace</h2><p className="workspace-loading-brief">{safetyBriefs[briefIndex]}</p><div className="workspace-loading-steps"><span className="active">Organization access</span><span>Operational settings</span><span>Applying role permissions</span></div><div className="workspace-loading-line"><span /></div><small>{canProceed ? `Dashboard will open automatically in ${secondsUntilAuto || 1} seconds` : 'Loading securely...'}</small>{canProceed && <button className="button button-green workspace-loading-proceed" type="button" onClick={onProceed}>Proceed to Dashboard</button>}</div></div>
 }
 
-function WorkspacePlaceholder({ title, description, action }: { title: string; description: string; action: string }) {
-  return <div className="workspace-panel workspace-placeholder"><div className="eyebrow">MODULE FOUNDATION</div><h2>{title}</h2><p>{description}</p><div className="workspace-placeholder-action"><ArrowRight size={19} aria-hidden="true" /><strong>{action}</strong></div></div>
+function WorkspacePlaceholder({ title, description, action, onAction, actionDisabled = false }: {
+  title: string; description: string; action: string; onAction?: () => void; actionDisabled?: boolean
+}) {
+  // Executive Analytics uses the foundation CTA to open its existing authorized view.
+  const actionContent = <><ArrowRight size={19} aria-hidden="true" /><strong>{action}</strong></>
+  return <div className="workspace-panel workspace-placeholder"><div className="eyebrow">MODULE FOUNDATION</div><h2>{title}</h2><p>{description}</p>
+    {onAction
+      ? <button type="button" className="workspace-placeholder-action" onClick={onAction} disabled={actionDisabled}>{actionContent}</button>
+      : <div className="workspace-placeholder-action">{actionContent}</div>}
+  </div>
 }
 
 async function recordActivity(organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {

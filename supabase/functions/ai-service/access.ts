@@ -60,6 +60,26 @@ export async function requireAiPermission(client: SupabaseClient, context: AiAcc
   }
 }
 
+const executiveAnalyticsDeniedMessage =
+  'You do not have permission to view Executive Analytics. Please ask your Super Admin to grant you access.'
+
+// Executive Analytics is a separate grant; only Super Administrators receive it implicitly.
+export function hasExecutiveAnalyticsPermission(role: string, customPermissions: unknown = []) {
+  if (role === 'Super Administrator') return true
+  return Array.isArray(customPermissions) && customPermissions.includes('view_executive_analytics')
+}
+
+export async function requireExecutiveAnalyticsPermission(client: SupabaseClient, context: AiAccessContext) {
+  if (hasExecutiveAnalyticsPermission(context.role)) return
+  const { data, error } = await client.from('custom_roles').select('permissions')
+    .eq('organization_id', context.organizationId).eq('name', context.role)
+    .eq('is_active', true).maybeSingle()
+  if (error) throw new AiAccessError('Unable to verify Executive Analytics permission', 503)
+  if (!hasExecutiveAnalyticsPermission(context.role, data?.permissions)) {
+    throw new AiAccessError(executiveAnalyticsDeniedMessage, 403)
+  }
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }

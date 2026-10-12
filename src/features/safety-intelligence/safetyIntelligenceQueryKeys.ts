@@ -13,3 +13,10 @@ export const safetyIntelligenceQueryKeys = {
 export function invalidateSafetyIntelligence(client: QueryClient, organizationId: string) {
   return client.invalidateQueries({ queryKey: safetyIntelligenceQueryKeys.organization(organizationId) })
 }
+
+// A permission change must withdraw cached evidence, not retain it during a background refresh.
+export async function resetSafetyIntelligenceAccess(client: QueryClient, scope: SafetyScope) {
+  const queryKey = ['safety-intelligence', scope.organizationId, scope.userId] as const
+  await client.cancelQueries({ queryKey })
+  await client.resetQueries({ queryKey })
+}

@@ -1,19 +1,20 @@
 import { Children, type ReactNode } from 'react'
-import { Sparkles } from 'lucide-react'
+import { Activity, AlertTriangle, CheckCircle2, ClipboardCheck, Clock, ListChecks, MapPin, ShieldCheck, Sparkles, Tags, TrendingUp, type LucideIcon } from 'lucide-react'
 import type { SafetySnapshot } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
 
 // Round for presentation only; the server already assigned the band using the unrounded score.
 const number = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 1 })
 const signed = (value: number) => `${value > 0 ? '+' : ''}${number(value)}`
 
-function Card({ title, value, children, band }: {
+function Card({ title, value, children, band, tone = 'blue', icon: Icon = Sparkles }: {
   title: string; value: ReactNode; children: ReactNode; band?: 'High' | 'Medium' | 'Low' | null;
+  tone?: 'teal' | 'blue' | 'green' | 'amber' | 'red'; icon?: LucideIcon;
 }) {
   const content = Children.toArray(children)
-  return <article className={`dashboard-kpi safety-kpi${band ? ` safety-risk-${band.toLowerCase()}` : ''}`}>
+  return <article className={`dashboard-kpi safety-kpi safety-kpi-${tone}${band ? ` safety-risk-${band.toLowerCase()}` : ''}`}>
     <h3>{title}</h3>
     <strong className="safety-kpi-value">{value}</strong>
-    <Sparkles className="safety-kpi-icon" size={18} aria-hidden="true" />
+    <Icon className="safety-kpi-icon" size={18} aria-hidden="true" />
     <div className="safety-kpi-description">{content.slice(0, 2)}</div>
     {content.length > 2 && <details className="safety-kpi-details"><summary>Evidence and calculation</summary>
       <div>{content.slice(2)}</div></details>}
@@ -27,6 +28,8 @@ function Reasons({ reasons }: { reasons: string[] }) {
 export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
   const { metrics, coverage, dataQuality } = snapshot
   const { risk, highRisk, nearMiss, category, resolution } = metrics
+  const { incidentCounts, outstandingActions } = metrics
+  const allTime = snapshot.filters.days === 'all'
   const hasReports = category.denominator > 0
   const complete = (source: SafetySnapshot['coverage'][number]['source']) => coverage.some((entry) => entry.source === source && entry.complete)
   const riskAvailable = risk.state === 'available' && risk.score !== null && risk.band !== null
@@ -41,12 +44,26 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
   const trendAvailable = nearMiss.state === 'available'
   // A zero baseline has no meaningful percent change; more reporting is not proof of more danger.
   const trend = !trendAvailable ? 'Unavailable'
+    : allTime ? number(nearMiss.currentCount)
     : nearMiss.percentageChange !== null ? `${signed(nearMiss.percentageChange)}%`
       : nearMiss.direction === 'new_reporting' ? 'New reporting' : 'No reports'
   const direction = nearMiss.direction === 'up' || nearMiss.direction === 'new_reporting' ? '↑'
     : nearMiss.direction === 'down' ? '↓' : '→'
   return <div className="safety-kpi-grid" aria-label="Safety Intelligence metrics">
-    <Card title="AI Risk Level" value={riskAvailable && risk.score !== null ? `${number(risk.score)} / 100` : 'Insufficient data'} band={riskAvailable ? risk.band : null}>
+    {(['total', 'open', 'closed'] as const).map((kind) => <Card key={kind}
+      tone={kind === 'total' ? 'blue' : kind === 'open' ? 'amber' : 'green'}
+      icon={kind === 'total' ? Activity : kind === 'open' ? AlertTriangle : CheckCircle2}
+      title={`${kind === 'total' ? 'Total' : kind === 'open' ? 'Open' : 'Closed'} Incidents`}
+      value={incidentCounts ? number(incidentCounts[kind]) : 'Unavailable'}>
+      {incidentCounts?.state === 'incomplete' && <span>Known counts only</span>}
+      <small>{kind === 'total' ? 'Incident reports only; excludes drafts and other report types.'
+        : kind === 'open' ? 'Current nonterminal status of incidents reported in this window.'
+          : 'Currently closed incidents reported in this window; not closures during the window.'}</small>
+      {incidentCounts?.state === 'incomplete' && <small>Known counts only; incomplete reporting coverage.</small>}
+      {!incidentCounts && <small>The deployed snapshot endpoint does not yet provide incident counts.</small>}
+      {incidentCounts && <Reasons reasons={incidentCounts.reasons} />}
+    </Card>)}
+    <Card title="AI Risk Level" icon={ShieldCheck} tone={riskAvailable ? risk.band === 'High' ? 'red' : risk.band === 'Medium' ? 'amber' : 'green' : 'teal'} value={riskAvailable && risk.score !== null ? `${number(risk.score)} / 100` : 'Insufficient data'} band={riskAvailable ? risk.band : null}>
       {riskAvailable && <span>{risk.band} · Deterministic reported-event index</span>}
       {!riskAvailable && <span>{risk.state === 'incomplete' ? 'Incomplete coverage' : 'Deterministic index unavailable'}</span>}
       <small>{risk.sampleSize} classified reports. Not ML or accident probability.</small>
@@ -54,27 +71,26 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
       <small>Point change unavailable: {risk.comparisonReason}</small>
       <Reasons reasons={risk.reasons} />
     </Card>
-    <Card title="High-Risk Incidents" value={highKnown ? number(highRisk.count) : 'Unavailable'}>
-      <span>{snapshot.filters.days}-day reported-event window</span>
+    <Card title="High-Risk Incidents" tone="red" icon={AlertTriangle} value={highKnown ? number(highRisk.count) : 'Unavailable'}>
       {highKnown && <small>{number(highRisk.openCount)} still open</small>}
       {highKnown && highRisk.state === 'incomplete' && <small>Known counts only; incomplete coverage.</small>}
       {!hasReports && <small>No eligible reports in this window.</small>}
       <Reasons reasons={highRisk.reasons} />
     </Card>
-    <Card title="Near-Miss Trend" value={trend}>
-      {trendAvailable && <span>{direction} {nearMiss.direction === 'down' ? 'Reporting decreased' : nearMiss.direction === 'up' || nearMiss.direction === 'new_reporting' ? 'Reporting increased' : 'Reporting unchanged'}</span>}
-      <small>{!trendAvailable && 'Known counts only: '}{nearMiss.currentCount} current / {nearMiss.previousCount} previous comparable month-to-date reports.</small>
-      {trendAvailable && nearMiss.percentageChange === null && <small>Percentage unavailable: previous period had no reports.</small>}
+    <Card title="Near-Miss Trend" tone="teal" icon={TrendingUp} value={trend}>
+      {trendAvailable && <span>{allTime ? 'Submitted near-miss reports' : `${direction} ${nearMiss.direction === 'down' ? 'Reporting decreased' : nearMiss.direction === 'up' || nearMiss.direction === 'new_reporting' ? 'Reporting increased' : 'Reporting unchanged'}`}</span>}
+      <small>{allTime ? 'No comparable previous period exists for the full historical dataset.' : <>{!trendAvailable && 'Known counts only: '}{nearMiss.currentCount} current / {nearMiss.previousCount} previous comparable month-to-date reports.</>}</small>
+      {!allTime && trendAvailable && nearMiss.percentageChange === null && <small>Percentage unavailable: previous period had no reports.</small>}
       <small>Reporting direction does not establish a change in danger.</small>
-      <small>UTC month-to-date: {snapshot.windows.nearMissCurrent.start} to {snapshot.windows.nearMissCurrent.end}; previous: {snapshot.windows.nearMissPrevious.start} to {snapshot.windows.nearMissPrevious.end}. Ends excluded.</small>
+      <small>{allTime ? 'Reporting dates' : 'UTC month-to-date'}: {snapshot.windows.nearMissCurrent.start} to {snapshot.windows.nearMissCurrent.end}{!allTime && <>; previous: {snapshot.windows.nearMissPrevious.start} to {snapshot.windows.nearMissPrevious.end}</>}. Ends excluded.</small>
       <Reasons reasons={nearMiss.reasons} />
     </Card>
-    <Card title="Most Common Reported Category" value={category.state === 'available' && category.label ? category.label : 'Unavailable'}>
+    <Card title="Most Common Reported Category" tone="blue" icon={Tags} value={category.state === 'available' && category.label ? category.label : 'Unavailable'}>
       {category.state === 'available' && category.share !== null && <span>{number(category.share)}% of {category.denominator} reported events</span>}
       <small>{dataQuality.uncategorized} uncategorized reports. Categories are not a verified hazard taxonomy.</small>
       <Reasons reasons={category.reasons} />
     </Card>
-    <Card title="Highest Risk Site" value={locationAvailable ? location?.name : 'Unavailable'}>
+    <Card title="Highest Risk Site" tone="red" icon={MapPin} value={locationAvailable ? location?.name : 'Unavailable'}>
       {locationAvailable && location && <>
         <span>{number(location.highRiskCount)} High/Critical incidents · {number(location.count)} total incidents</span>
         <small>{actionsComplete && !location.invalidActionDueDates
@@ -86,7 +102,7 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
       <small>Ranked by High/Critical count, open Critical, open High, then event count.</small>
       <small>Overdue actions describe the current authorized backlog, including older reports.</small>
     </Card>
-    <Card title="Average Resolution Time" value={resolution.state === 'available' && resolution.averageDays !== null ? `${number(resolution.averageDays)} days` : 'Unavailable'}>
+    <Card title="Average Resolution Time" tone="teal" icon={Clock} value={resolution.state === 'available' && resolution.averageDays !== null ? `${number(resolution.averageDays)} days` : 'Unavailable'}>
       <span>{resolution.sampleSize} valid closures in this window</span>
       <small>{resolution.changeDays !== null && resolution.state === 'available'
         ? `${signed(resolution.changeDays)} days versus previous period (${resolution.previousSampleSize} closures).`
@@ -94,6 +110,20 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
       <small>Reported timestamp to trusted closure timestamp; grouped by closure date.</small>
       <small>{resolution.legacyClosedWithoutEvidence} legacy closures without evidence; {resolution.invalidDurations} invalid durations excluded.</small>
       <Reasons reasons={resolution.reasons} />
+    </Card>
+    <Card title="Corrective Action On-Time Closure" tone="blue" icon={ClipboardCheck} value="Unavailable">
+      <span>Actual corrective-action closure dates are not recorded.</span>
+      <small>Not an overall regulatory compliance score.</small>
+      <small>Requires actions due in the selected UTC reporting window and reliable actual closure dates.
+        Completion and verification dates do not establish closure; no percentage is calculated.</small>
+    </Card>
+    <Card title="Outstanding Actions" tone="amber" icon={ListChecks} value={outstandingActions ? number(outstandingActions.count) : 'Unavailable'}>
+      <span>Current authorized backlog{outstandingActions?.state === 'incomplete' ? ' · Known counts only' : ''}
+        {actionCoverage?.access === 'caller_visible' ? ' · Caller-visible actions only' : ''}</span>
+      <small>Excludes verified and closed actions; pending verification and rejected/rework actions remain outstanding.</small>
+      <small>Snapshot: {snapshot.asOf} (UTC). Includes older linked incidents, regardless of the selected reporting window.</small>
+      {!outstandingActions && <small>The deployed snapshot endpoint does not yet provide action counts.</small>}
+      {outstandingActions && <Reasons reasons={outstandingActions.reasons} />}
     </Card>
   </div>
 }

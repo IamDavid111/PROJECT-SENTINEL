@@ -2,8 +2,9 @@ import { z } from 'zod'
 
 export const safetyMethodologyVersion = 'safety-intelligence-v1' as const
 export const safetyFiltersSchema = z.object({
-  days: z.union([z.literal(30), z.literal(90)]).default(90),
+  days: z.union([z.literal(30), z.literal(90), z.literal('all')]).default(90),
   siteId: z.uuid().optional(),
+  trendDays: z.union([z.literal(30), z.literal(90), z.literal('all')]).optional(),
 }).strict()
 export type SafetyFilters = z.infer<typeof safetyFiltersSchema>
 
@@ -16,6 +17,9 @@ export const safetyIncidentSchema = z.object({
   report_type: z.enum(['incident', 'near_miss', 'unsafe_act', 'unsafe_condition', 'environmental_incident']),
   status, reported_at: text, site_id: uuid.nullable(), facility_id: uuid.nullable(),
   severity: text, potential_severity: text, incident_category: text,
+  department: text.optional(),
+  client_submission_id: text.optional(),
+  digital_signature: text.optional(),
 })
 export const safetyActionSchema = z.object({
   id: uuid, organization_id: uuid, incident_id: uuid, title: z.string(),
@@ -49,6 +53,15 @@ export const safetyRowsSchema = z.object({
 export type SafetyRows = z.infer<typeof safetyRowsSchema>
 export type SafetyIncident = SafetyRows['incidents'][number]
 
+export function isExcludedSyntheticSafetyIncident(row: SafetyIncident) {
+  const batch = row.client_submission_id?.match(/^(MOCK-.+-INCIDENTS-\d{8})-\d{4}$/)?.[1]
+  // The existing seed RPC writes both markers; ordinary submission IDs alone are not provenance.
+  // Only the explicitly approved existing evaluation batch is exempt, in its owning organization.
+  if (row.organization_id === '25ad3a5c-514b-4097-96a6-a712c715d92b'
+    && batch === 'MOCK-STARNET-INCIDENTS-20260929') return false
+  return Boolean(batch && row.digital_signature === `MOCK:${batch}`)
+}
+
 export const safetySourceNames = ['incidents', 'actions', 'investigations', 'causes', 'findings', 'closures', 'sites', 'facilities'] as const
 const sourceNameSchema = z.enum(safetySourceNames)
 export const safetyCoverageSchema = z.object({
@@ -58,7 +71,22 @@ export const safetyCoverageSchema = z.object({
   reasons: z.array(z.string()),
 })
 export type SafetyCoverage = z.infer<typeof safetyCoverageSchema>
-export type SafetyDataset = { rows: SafetyRows; coverage: SafetyCoverage[] }
+const companySettingNamesSchema = z.array(z.union([
+  z.string(),
+  z.object({ name: z.string(), active: z.boolean().optional() }),
+])).transform((entries) => [...new Set(entries.flatMap((entry) => {
+  const name = (typeof entry === 'string' ? entry : entry.name).trim()
+  return name && (typeof entry === 'string' || entry.active !== false) ? [name] : []
+}))])
+export const safetyCompanySettingsSchema = z.object({
+  organization_id: uuid,
+  operational_sites: companySettingNamesSchema,
+  departments: companySettingNamesSchema,
+  severity_levels: companySettingNamesSchema,
+  incident_categories: companySettingNamesSchema,
+})
+export type SafetyCompanySettings = z.infer<typeof safetyCompanySettingsSchema>
+export type SafetyDataset = { rows: SafetyRows; coverage: SafetyCoverage[]; companySettings?: SafetyCompanySettings | null }
 export const safetyScopeSchema = z.object({
   organizationId: uuid, userId: uuid,
   visibility: z.enum(['organization', 'personal']),
@@ -81,6 +109,28 @@ const evidenceSchema = z.object({
   source: sourceNameSchema, id: uuid, incidentId: uuid.optional(),
   label: z.string().max(200), excerpt: z.string().max(1000),
 })
+export const safetyIncidentTrendSchema = z.object({
+  complete: z.boolean(),
+  reasons: z.array(z.string()),
+  warnings: z.array(z.string()).optional(),
+  settings: z.object({
+    sites: z.array(z.object({ id: uuid, name: z.string() })),
+    departments: z.array(z.string()),
+    severities: z.array(z.string()),
+    categories: z.array(z.string()),
+  }),
+  records: z.array(z.object({
+    id: uuid,
+    reportType: safetyIncidentSchema.shape.report_type,
+    reportedAt: z.iso.datetime().nullable(),
+    closedAt: z.iso.datetime().nullable(),
+    siteId: uuid.nullable(),
+    department: text,
+    severity: text,
+    category: text,
+  })),
+})
+export type SafetyIncidentTrend = z.infer<typeof safetyIncidentTrendSchema>
 export const safetySnapshotSchema = z.object({
   methodologyVersion: z.literal(safetyMethodologyVersion),
   origin: z.literal('deterministic'), authoritative: z.literal(false),
@@ -96,11 +146,15 @@ export const safetySnapshotSchema = z.object({
     recent: z.object({ start: z.iso.datetime(), end: z.iso.datetime() }),
   }),
   coverage: z.array(safetyCoverageSchema),
+  incidentTrend: safetyIncidentTrendSchema.optional(),
   dataQuality: z.object({
     missingReportedAt: count, futureReportedAt: count, unclassified: count,
     uncategorized: count, unassignedFacility: count,
   }),
   metrics: z.object({
+    // Additive fields allow the existing six cards to work with an older deployed endpoint.
+    incidentCounts: metricBase.extend({ total: count, open: count, closed: count }).optional(),
+    outstandingActions: metricBase.extend({ count }).optional(),
     risk: metricBase.extend({
       score: z.number().min(0).max(100).nullable(), band: band.nullable(), sampleSize: count,
       changePoints: z.null(), comparisonReason: z.literal('Historical open-state observations are unavailable.'),

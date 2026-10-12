@@ -7,7 +7,7 @@ export function SafetyLocations({ snapshot }: { snapshot: SafetySnapshot }) {
   return <section className="safety-locations safety-priority-grid" aria-label="High-Risk Sites & Recommendations">
     <div className="safety-priority-panel">
       <h3 id="safety-locations-title"><MapPin size={18} aria-hidden="true" />Top three high-risk sites</h3>
-      <p>Actual authorized High/Critical reports · Last {snapshot.filters.days} days</p>
+      <p>Actual authorized High/Critical reports · {snapshot.filters.days === 'all' ? 'All Time' : `Last ${snapshot.filters.days} days`}</p>
       {snapshot.dataQuality.unassignedFacility > 0 && <p>{snapshot.dataQuality.unassignedFacility} reports lack an available site assignment and are excluded from site rankings.</p>}
       {guidance.state !== 'available' ? <p role="status">{guidance.reasons.join(' ')}</p>
         : <ol className="safety-ranked-list">{guidance.locations.map(({ location, evidence }, index) =>

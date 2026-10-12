@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { AiAccessError, authenticateOrganization, requireAiPermission } from '../ai-service/access.ts'
+import { AiAccessError, authenticateOrganization, requireExecutiveAnalyticsPermission } from '../ai-service/access.ts'
 import { isAiTimeout } from '../ai-service/failures.ts'
 import { safetyFiltersSchema, safetyResponseSchema } from '../_shared/safetyIntelligenceContracts.ts'
 import { resolveSafetyScope, retrieveSafetyDataset, SafetyRetrievalError } from '../_shared/safetyIntelligenceRetrieval.ts'
@@ -50,11 +50,11 @@ export async function handleSafetyRequest(request: Request, runtime: SafetyRunti
       auth: { persistSession: false, autoRefreshToken: false },
     })
     const context = await authenticateOrganization(client)
-    await requireAiPermission(client, context)
+    await requireExecutiveAnalyticsPermission(client, context)
     let body: unknown
     try { body = await request.json() } catch { return fail(400, 'invalid_request', 'A valid JSON request body is required.') }
     const filters = safetyFiltersSchema.safeParse(body)
-    if (!filters.success) return fail(400, 'invalid_request', 'Use a 30/90-day window and an optional site ID only.')
+    if (!filters.success) return fail(400, 'invalid_request', 'Use a 30/90/all reporting period, an optional site ID, and an optional 30/90/all trend period only.')
     const scope = await resolveSafetyScope(client, context, filters.data)
     const asOf = runtime.now()
     const dataset = await retrieveSafetyDataset(client, context, filters.data)

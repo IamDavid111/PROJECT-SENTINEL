@@ -34,7 +34,9 @@ export function buildSafetyPlanningIndicators(snapshot: SafetySnapshot): SafetyP
       ]
       const incomplete = reasons.length > 0
       const sparse = location.indicatorSampleSize < 10
-      if (sparse) reasons.push('At least 10 classified reports in the 90-day evidence window are required.')
+      if (sparse) reasons.push(snapshot.filters.days === 'all'
+        ? 'At least 10 classified reports in the available history are required.'
+        : 'At least 10 classified reports in the 90-day evidence window are required.')
       const priority = location.backlogOpenCritical || location.overdueCriticalActions ? 'High'
         : location.backlogOpenHigh || location.recentHighRiskCount || location.overdueActions ? 'Medium' : null
       const state = incomplete ? 'incomplete' : sparse ? 'insufficient' : 'available'
@@ -48,7 +50,7 @@ export function buildSafetyPlanningIndicators(snapshot: SafetySnapshot): SafetyP
         advice: 'Review the existing overdue actions with their responsible owners and confirm control and verification requirements. This does not complete or verify actions.',
       })
       if (location.recentHighRiskCount) drivers.push({
-        observation: `${location.recentHighRiskCount} High/Critical reports in the latest 14-day reporting window.`,
+        observation: `${location.recentHighRiskCount} High/Critical reports ${snapshot.filters.days === 'all' ? 'in the available reporting history' : 'in the latest 14-day reporting window'}.`,
         advice: 'Review these recent reports for supported operational lessons and any recorded preventive follow-up; do not assume a shared root cause.',
       })
       if (!drivers.length) drivers.push({

@@ -53,7 +53,20 @@ function throwDatabaseError(error: unknown, fallback: string): asserts error is 
     : code === '23514' || code === '23503' || code === '22023' ? 400
     : code === 'PGRST116' ? 404
     : 503
-  throw new KnowledgeServiceError(fallback, status)
+  const message = typeof error === 'object' && error !== null && 'message' in error
+    ? String(error.message) : ''
+  const actionableReasons: Record<string, string> = {
+    'Only Super Administrators may approve their own submissions': 'You cannot approve your own submission. Ask another authorized approver to review it. Only Super Administrators can self-approve.',
+    'Another approver must review this submission': 'Another authorized approver must review your submission.',
+    'Authorized knowledge lifecycle access is required': 'You do not have access to this document decision. Ask your Super Administrator to grant Approve Document Uploads, then refresh.',
+    'QHSE document approval permission is required': 'Approval permission is required. Ask your Super Administrator to grant Approve Document Uploads, then refresh.',
+    'Archived documents cannot receive lifecycle decisions': 'Restore the archived document before submitting or reviewing it.',
+    'Archived documents cannot receive approval decisions': 'Restore the archived document before reviewing it.',
+    'The registered file must be uploaded before review': 'The upload has not been verified. Complete the document upload before reviewing it.',
+    'Invalid knowledge document version transition': 'This version is no longer awaiting this decision. Refresh to see its current status.',
+    'A rejection requires a reason of 1 to 2000 characters': 'Enter a rejection reason between 1 and 2,000 characters.',
+  }
+  throw new KnowledgeServiceError(actionableReasons[message] ?? fallback, status)
 }
 
 async function loadCapabilities(caller: SupabaseClient): Promise<KnowledgeCapabilities> {
@@ -142,7 +155,7 @@ export async function handleKnowledgeRequest(
     const required = requiredKnowledgePermission(body.action)
     if (required && !capabilities[required]) {
       throw new KnowledgeServiceError(required === 'canApprove'
-        ? 'You are not authorized to approve QHSE documents.'
+        ? 'You are not authorized to approve QHSE documents. Ask your Super Administrator to grant Approve Document Uploads, then refresh.'
         : 'You are not authorized to manage QHSE documents.', 403)
     }
 

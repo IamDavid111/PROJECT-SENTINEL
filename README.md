@@ -127,6 +127,16 @@ upload completion and archive state. Submission, approval and rejection evidence
 server-derived; existing historical records are not backfilled with invented evidence.
 Lifecycle changes are atomically audited in the existing `activity_logs` table.
 
+`202610110003` allows active Super Administrators to approve their own submissions,
+even when another approver exists. Other users cannot self-approve, including sole
+approvers. **Approve Document Uploads** reuses the separate
+`approve_knowledge_documents` permission; upload/manage rights alone do not grant it.
+Grant/revoke it in Roles & Permissions, and assign the configured custom role to
+individual users through User Management. No duplicate permission key or user
+override system is introduced. Approval/rejection audit events include document/version,
+actual submitter, decision actor, server timestamp and self-approval flag. Recognized
+approval failures return actionable messages; unknown database details stay private.
+
 - Draft -> Submitted (`pending_review`) -> Approved or Rejected.
 - Archive freezes the document while preserving its version history. Restore does not
   change approval, effective or expiry dates.
@@ -384,22 +394,115 @@ Use the existing dependency map when deploying:
 npx supabase functions deploy safety-intelligence --project-ref YOUR_PROJECT_REF --use-api --import-map supabase\functions\deno.json
 ```
 
-### Safety Intelligence shell (Batch 4)
+### Safety Intelligence and Executive Analytics
 
-The existing `#ai-assistant` URL now opens **Safety Intelligence**, preserving bookmarks and
-the Sparkles icon/position. The page has two sections: **AI Safety Intelligence** and
-**AI Safety Assistant**. Settings is under ACCOUNT immediately after Administration, retaining its
-Super Administrator access requirement and existing route. Incident Management remains in the account navigation.
-Primary items and the intelligence header shortcut remain permission-filtered.
+The `#executive-analytics` route displays the deterministic operational intelligence view, including
+its KPI cards, locations and planning outlook. It uses `view_executive_analytics`: Super Administrators
+receive it by default, while other users can receive it through a custom role assigned to their
+membership. The page checks the permission in the UI and the safety-intelligence Edge Function checks
+it again before retrieving operational data. Direct route or function requests do not bypass that check.
+Unauthorized direct analytics links remain on the explicit permission-denial screen, without redirecting.
+The Executive Analytics grant-authority migration restricts adding/removing this custom-role permission,
+assigning/revoking an analytics role, and issuing analytics invitations to active Super Administrators.
+Table triggers cover direct writes as well as existing RPCs; unrelated role permissions remain editable.
+The migration and updated Edge Functions must be deployed before these protections apply to hosted users.
+Analytics subscribes to RLS-protected role, membership and profile changes through Supabase Realtime.
+On an access event, it cancels in-flight requests, withdraws cached snapshots for that user and
+reauthorizes through the existing endpoint. Delivery requires a connected client; offline browsers
+cannot guarantee immediate withdrawal, and downloaded reports cannot be recalled.
+On 2026-10-11 both analytics migrations were applied to the linked hosted project, and
+`safety-intelligence` plus `admin-invite-user` were deployed and verified ACTIVE. A read-only
+hosted audit found zero custom-role analytics grants/assigned users, so no historical grants
+were revoked. Future grant provenance still depends on the existing audit records.
+Executive Analytics initially shows its foundation card and button. The button reveals the existing
+analytics content; a Back button returns to the introduction without resetting the reporting window
+or refresh state. The `#ai-assistant` route remains available for the AI Safety Assistant
+and QHSE Knowledge sections under their existing permissions.
 
 The [page shell](src/features/safety-intelligence/SafetyIntelligencePage.tsx) uses the shared
-snapshot hook and existing light/dark panels. It shows loading, retryable errors, empty and incomplete
+snapshot hook and existing light/dark panels. Executive Analytics shows loading, retryable errors, empty and incomplete
 coverage states, organization/personal scope and the UTC snapshot timestamp. It does not show stale
 successful results after a failed refresh. Refresh is read-only and makes no provider calls.
 An unavailable snapshot endpoint produces a genuine service error rather than demo results.
-Batch 4 introduced no KPI cards, chat controls, generated recommendations or placeholder metrics.
+The Executive Analytics view does not add generated recommendations or placeholder metrics.
+
+Executive Analytics provides **Export Report → PDF / Word document (.docx) / Print** in the open
+analytics view. Each export refreshes the existing permission-protected snapshot and updates the
+displayed data, verifies its user/organization/site/window scope, and reads the organization name
+through caller RLS. PDF and DOCX are genuine files generated with the existing jsPDF/docx libraries.
+Print opens an isolated report frame with print-specific styling, not the application shell.
+Reports reuse all eleven actual KPI cards, site evidence/recommendations and all priority planning
+sites (including expandable rows), with coverage limitations, UTC timestamps and selected-period
+boundaries. Unavailable metrics remain unavailable; failed authorization or retrieval produces no download.
+Browser print headers/footers and printer selection remain browser-controlled.
+PDF uses the existing built-in font for supported text. Multilingual content automatically uses the
+existing html2canvas browser-rendering dependency, with installed browser fonts and explicit size/error
+checks. Fallback PDFs contain images rather than searchable/selectable text; Word retains editable text.
+No font or package is downloaded for report rendering. A script still requires a font installed in
+the user's browser environment; physical print/font fidelity needs manual verification.
+
+Final targeted verification includes the build/type-check, calculation/API tests, 42 database
+permission/isolation assertions, cache-withdrawal tests and browser export tests. The signed-in
+local frontend was also checked against hosted Supabase for the introduction/Open/Back flow,
+30/90-day reports, real count cross-check, PDF/DOCX downloads and isolated print invocation.
+Print invocation was intercepted during automation; physical printing was not performed.
+The build separates PDF/Word/Excel vendor libraries without changing their implementation.
+The entry bundle decreased from about 2.93 MB to 1.21 MB, but the entry and existing large
+Excel/Mapbox bundles still trigger the unchanged 500 kB warning; it is not suppressed.
+
+Deferred by user decision: add a server-maintained actual corrective-action closure timestamp
+and select it in the shared retrieval contract. Preserve trustworthy historical evidence only;
+do not backfill from completion/verification/update dates. Then implement and test due-period
+eligibility, on-time closure at UTC due-day boundaries and zero eligible actions as
+**Insufficient data**. Until then the on-time-closure card remains **Unavailable**.
 
 ### Six KPI cards (Batch 5)
+
+Executive Analytics includes an Incident Trend chart directly after its KPI cards. Its existing
+permission-protected snapshot supplies authorized incident and actual closure dates plus company
+settings. One grouping function supports browser-local months, Monday-start weeks, sites,
+departments, actual severity and incident categories. Incidents/near misses use `reported_at`;
+Closed includes every closed report classification by `incident_closures.closed_at`, independently
+of its reporting date. Existing KPI windows/calculations remain unchanged. Missing or invalid dates
+exclude only the corresponding series contribution, with an explicit warning; they do not block
+other eligible reports. Incomplete retrieval or unavailable settings still prevent chart counts.
+Existing local record-update events refresh analytics immediately; while the page is active,
+the authorized snapshot also refreshes every minute to pick up changes from other users.
+Missing/inactive grouping values are explicitly
+disclosed rather than assigned replacement categories. The updated `safety-intelligence` endpoint
+must be deployed for trend data to appear.
+
+Incident Trend and the Operational Intelligence header share 30-day, 90-day and All Time
+controls. All Time includes eligible historical reporting and closure cohorts across KPIs,
+sites, charts, planning evidence and exports; the snapshot cutoff, draft exclusion, closure
+criteria and organization authorization remain enforced. It has no preceding comparison
+period, so the near-miss card shows the historical total rather than an invented trend.
+The existing 30/90-day calculations, month-to-date near-miss comparisons and current action
+backlog definitions are preserved. All Time windows describe the earliest retrieved
+reporting/closure timestamp, not an arbitrary lookback or a fabricated date.
+
+Operational analytics excludes confirmed synthetic seed records using the existing paired
+`client_submission_id` mock-batch format and matching `digital_signature` marker.
+The explicitly approved existing StarNet evaluation batch is exempt only in the organization
+identified by its existing seed migration; other organizations/batches retain their exclusions.
+This exception does not authorize access or change tenant predicates. Linked actions/evidence are intersected with eligible
+incident IDs. Coverage discloses retrieved versus included records and synthetic exclusions.
+Records are not deleted or rewritten. Unmarked historical data cannot be certified as genuine
+solely from database ownership; any additional synthetic sources require verified provenance.
+
+Executive Analytics now also shows Total, Open and Closed Incidents, counting distinct `incident`
+reports by `reported_at` in the selected UTC half-open 30/90-day window or All Time history. Drafts and other report
+types are excluded; Open/Closed describe current status within that reporting cohort, not historical
+status or closure-date cohorts. Missing reporting dates or truncated retrieval disclose incomplete counts.
+Outstanding Actions counts distinct authorized linked actions in the current backlog, regardless of
+the reporting window; verified and closed are terminal, while pending verification/rework remains open.
+Caller-visible and incomplete action coverage are explicitly disclosed.
+
+Corrective Action On-Time Closure is unavailable: actions have `due_date`, `completion_date` and
+`verification_date`, but no reliable actual closure date. Completion is submission for verification,
+and verification can approve or reject work. Neither is substituted for closure, so no compliance
+percentage is produced. New count fields are additive; older deployed snapshots retain the existing
+cards and show the added counts as unavailable until the endpoint is updated.
 
 [SafetyKpiCards](src/features/safety-intelligence/SafetyKpiCards.tsx) displays only shared snapshot
 results: deterministic risk index, high-risk count/open count, comparable month-to-date near-miss

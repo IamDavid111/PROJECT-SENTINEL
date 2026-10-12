@@ -21,6 +21,10 @@ export function incident(n: number, overrides: Partial<SafetyIncident> = {}): Sa
 }
 export function dataset(incidents: SafetyIncident[] = []): SafetyDataset {
   return {
+    companySettings: {
+      organization_id: org, operational_sites: ['Fixture Site'], departments: ['Fixture Department'],
+      severity_levels: ['Low', 'Medium', 'High', 'Critical'], incident_categories: ['Equipment'],
+    },
     rows: {
       incidents, actions: [], investigations: [], causes: [], findings: [], closures: [],
       sites: [{ id: site, organization_id: org, name: 'Fixture Site' }],

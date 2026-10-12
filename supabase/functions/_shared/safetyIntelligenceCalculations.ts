@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import {
-  safetySnapshotSchema, safetyMethodologyVersion,
+  safetySnapshotSchema, safetyMethodologyVersion, isExcludedSyntheticSafetyIncident,
   type SafetyDataset, type SafetyFilters, type SafetyIncident, type SafetyScope, type SafetySnapshot,
 } from './safetyIntelligenceContracts.ts'
 
@@ -33,19 +33,26 @@ export function calculateSafetySnapshot(
   dataset: SafetyDataset, scope: SafetyScope, filters: SafetyFilters, asOf: Date, generatedAt = asOf,
 ): SafetySnapshot {
   if (!Number.isFinite(asOf.getTime()) || !Number.isFinite(generatedAt.getTime())) throw new Error('Invalid snapshot timestamp.')
+  if (scope.siteId !== filters.siteId) throw new Error('Snapshot site filter mismatch.')
   const end = asOf.getTime()
-  const start = end - filters.days * day
-  const previousStart = start - filters.days * day
-  const indicatorStart = end - 90 * day
-  const recentStart = end - 14 * day
+  const allTime = filters.days === 'all'
+  const historyDates = allTime ? [
+    ...dataset.rows.incidents.filter((row) => row.status !== 'draft' && !isExcludedSyntheticSafetyIncident(row)
+      && (!scope.siteId || row.site_id === scope.siteId)).map((row) => timestamp(row.reported_at)),
+    ...dataset.rows.closures.map((row) => timestamp(row.closed_at)),
+  ].filter((time): time is number => time !== null && time < end) : []
+  const start = filters.days === 'all' ? Math.min(end, ...historyDates) : end - filters.days * day
+  const previousStart = filters.days === 'all' ? start : start - filters.days * day
+  const indicatorStart = allTime ? start : end - 90 * day
+  const recentStart = allTime ? start : end - 14 * day
   const currentMonth = Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1)
   const previousMonth = Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - 1, 1)
   const previousMonthEnd = Math.min(previousMonth + end - currentMonth, currentMonth)
   const windows = {
     reporting: { start: iso(start), end: iso(end) },
     previousResolution: { start: iso(previousStart), end: iso(start) },
-    nearMissCurrent: { start: iso(currentMonth), end: iso(end) },
-    nearMissPrevious: { start: iso(previousMonth), end: iso(previousMonthEnd) },
+    nearMissCurrent: { start: iso(allTime ? start : currentMonth), end: iso(end) },
+    nearMissPrevious: { start: iso(allTime ? start : previousMonth), end: iso(allTime ? start : previousMonthEnd) },
     indicator: { start: iso(indicatorStart), end: iso(end) },
     recent: { start: iso(recentStart), end: iso(end) },
   }
@@ -54,7 +61,8 @@ export function calculateSafetySnapshot(
   for (const collection of Object.values(rows)) {
     if (collection.some((row) => row.organization_id !== scope.organizationId)) throw new Error('Snapshot scope mismatch.')
   }
-  const incidents = rows.incidents.filter((row) => row.status !== 'draft'
+  if (dataset.companySettings && dataset.companySettings.organization_id !== scope.organizationId) throw new Error('Snapshot settings scope mismatch.')
+  const incidents = rows.incidents.filter((row) => row.status !== 'draft' && !isExcludedSyntheticSafetyIncident(row)
     && (!scope.siteId || row.site_id === scope.siteId))
   const observed = incidents.filter((row) => {
     const reported = timestamp(row.reported_at)
@@ -77,6 +85,17 @@ export function calculateSafetySnapshot(
     ...(futureReportedAt ? ['Reports at or after the snapshot cutoff are excluded.'] : []),
   ]
   const uncertainReporting = !sourceComplete('incidents') || missingReportedAt > 0
+  const selectedIncidents = [...new Map(selected.filter((row) => row.report_type === 'incident')
+    .map((row) => [row.id, row])).values()]
+  // Outstanding means unfinished under the existing workflow, including work awaiting verification.
+  // It is a current backlog, not actions attached only to newly reported incidents.
+  const outstandingActions = [...new Map(actions.map((row) => [row.id, row])).values()]
+    .filter((row) => row.status !== 'verified' && row.status !== 'closed')
+  const actionReasons = [
+    ...(!sourceComplete('incidents', 'actions') ? ['Incident or action retrieval is incomplete; known counts only.'] : []),
+    ...(coverage.some((entry) => entry.source === 'actions' && entry.access === 'caller_visible')
+      ? ['Caller-visible actions only; this is not a complete organization total.'] : []),
+  ]
   const riskReasons = [
     ...reportReasons,
     ...(unclassified ? ['Some eligible severities require explicit mapping.'] : []),
@@ -89,11 +108,11 @@ export function calculateSafetySnapshot(
     ? (70 * highRisk.length + 30 * openHighRisk.length) / selected.length : null
   const riskBand = score === null ? null : score < 30 ? 'Low' : score < 60 ? 'Medium' : 'High'
 
-  const nearMissCurrent = incidents.filter((row) => row.report_type === 'near_miss' && between(row.reported_at, currentMonth, end)).length
-  const nearMissPrevious = incidents.filter((row) => row.report_type === 'near_miss' && between(row.reported_at, previousMonth, previousMonthEnd)).length
-  const percentageChange = !uncertainReporting && nearMissPrevious
+  const nearMissCurrent = incidents.filter((row) => row.report_type === 'near_miss' && between(row.reported_at, allTime ? start : currentMonth, end)).length
+  const nearMissPrevious = allTime ? 0 : incidents.filter((row) => row.report_type === 'near_miss' && between(row.reported_at, previousMonth, previousMonthEnd)).length
+  const percentageChange = !allTime && !uncertainReporting && nearMissPrevious
     ? 100 * (nearMissCurrent - nearMissPrevious) / nearMissPrevious : null
-  const direction = nearMissPrevious === 0
+  const direction = allTime ? nearMissCurrent ? 'unchanged' : 'no_reports' : nearMissPrevious === 0
     ? nearMissCurrent ? 'new_reporting' : 'no_reports'
     : nearMissCurrent > nearMissPrevious ? 'up' : nearMissCurrent < nearMissPrevious ? 'down' : 'unchanged'
   const categories = new Map<string, number>()
@@ -203,15 +222,72 @@ export function calculateSafetySnapshot(
   for (const row of rows.closures.filter((row) => relevant.has(row.incident_id))) {
     addEvidence('closures', row.incident_id, row.incident_id, 'Human-authored closure evidence', `${row.root_cause}\n${row.corrective_action}`)
   }
+  const companySettings = dataset.companySettings
+  const closureDates = new Map(rows.closures.map((closure) => [closure.incident_id, timestamp(closure.closed_at)]))
+  const missingClosureDates = incidents.filter((row) => {
+    if (row.status !== 'closed') return false
+    const closedAt = closureDates.get(row.id)
+    const reportedAt = timestamp(row.reported_at)
+    return closedAt == null || (reportedAt !== null && closedAt < reportedAt)
+  }).length
+  const trendReasons = [
+    ...(!sourceComplete('incidents', 'closures', 'sites') ? ['Incident, closure or site retrieval is incomplete.'] : []),
+    ...(!companySettings ? ['Company settings are unavailable.'] : []),
+  ]
+  const missingTrendReportingDates = incidents.filter((row) =>
+    (row.report_type === 'incident' || row.report_type === 'near_miss') && timestamp(row.reported_at) === null).length
+  const trendWarnings = [
+    ...coverage.filter((source) => source.source === 'incidents').flatMap((source) =>
+      source.reasons.filter((reason) => reason.includes('confirmed synthetic incident records'))),
+    ...(missingClosureDates ? [`${missingClosureDates} closed records have missing or invalid actual closure dates and are excluded from Closed. Valid reporting dates still count toward Incidents or Near Misses.`] : []),
+    ...(missingTrendReportingDates ? [`${missingTrendReportingDates} incident or near-miss records have missing or invalid reporting dates and are excluded from their reporting-date series.`] : []),
+  ]
+  const trendPeriod = filters.trendDays ?? filters.days
+  const trendStart = trendPeriod === 'all' ? -Infinity : end - trendPeriod * day
+  const trendRecords = incidents.flatMap((row) => {
+    const reportedTime = timestamp(row.reported_at)
+    const closureTime = row.status === 'closed' ? closureDates.get(row.id) : null
+    const reportedAt = (row.report_type === 'incident' || row.report_type === 'near_miss')
+      && reportedTime !== null && reportedTime >= trendStart && reportedTime < end ? iso(reportedTime) : null
+    const closedAt = closureTime != null && closureTime >= trendStart && closureTime < end
+      && (reportedTime === null || closureTime >= reportedTime) ? iso(closureTime) : null
+    return reportedAt || closedAt ? [{
+      id: row.id, reportType: row.report_type, reportedAt, closedAt,
+      siteId: row.site_id, department: row.department ?? null, severity: row.severity, category: row.incident_category,
+    }] : []
+  })
   return safetySnapshotSchema.parse({
     methodologyVersion: safetyMethodologyVersion, origin: 'deterministic', authoritative: false,
     generatedAt: generatedAt.toISOString(), asOf: asOf.toISOString(), timezone: 'UTC', scope, filters, windows, coverage,
+    incidentTrend: {
+      complete: trendReasons.length === 0,
+      reasons: trendReasons,
+      warnings: trendWarnings,
+      records: trendRecords,
+      settings: {
+        sites: companySettings ? rows.sites.filter((site) => companySettings.operational_sites.some((name) =>
+          name.toLowerCase() === site.name.trim().toLowerCase())).map((site) => ({ id: site.id, name: site.name })) : [],
+        departments: companySettings?.departments ?? [],
+        severities: companySettings?.severity_levels ?? [],
+        categories: companySettings?.incident_categories ?? [],
+      },
+    },
     dataQuality: {
       missingReportedAt, futureReportedAt, unclassified, uncategorized,
       // Retain the response field for compatibility; facility means the incident form's site.
       unassignedFacility: selected.filter((row) => !row.site_id || !rows.sites.some((site) => site.id === row.site_id)).length,
     },
     metrics: {
+      incidentCounts: {
+        state: uncertainReporting ? 'incomplete' : 'available', reasons: reportReasons,
+        total: selectedIncidents.length,
+        open: selectedIncidents.filter(isOpen).length,
+        closed: selectedIncidents.filter((row) => row.status === 'closed').length,
+      },
+      outstandingActions: {
+        state: sourceComplete('incidents', 'actions') ? 'available' : 'incomplete',
+        reasons: actionReasons, count: outstandingActions.length,
+      },
       risk: { state: riskState, reasons: riskReasons, score, band: riskBand, sampleSize: selected.length - unclassified, changePoints: null, comparisonReason: 'Historical open-state observations are unavailable.' },
       highRisk: { state: uncertainReporting || unclassified ? 'incomplete' : 'available', reasons: [...reportReasons, ...(unclassified ? ['Unknown severity reports are excluded from known high-risk counts.'] : [])], count: highRisk.length, openCount: openHighRisk.length },
       nearMiss: { state: uncertainReporting ? 'incomplete' : 'available', reasons: reportReasons, currentCount: nearMissCurrent, previousCount: nearMissPrevious, percentageChange, direction },

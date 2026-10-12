@@ -92,7 +92,7 @@ export const USER_MANAGEMENT_PERMISSION_CATALOG = [
   { key: 'manage_settings', label: 'Manage Settings', description: 'Allows authorized organization settings management.', group: 'Administration' },
   { key: 'view_knowledge_documents', label: 'View QHSE Documents', description: 'Allows access to approved QHSE knowledge documents within the user\'s scope.', group: 'QHSE Knowledge' },
   { key: 'manage_knowledge_documents', label: 'Upload & Manage QHSE Documents', description: 'Allows uploading documents, new versions, draft edits, submission, archive and restore.', group: 'QHSE Knowledge' },
-  { key: 'approve_knowledge_documents', label: 'Approve QHSE Documents', description: 'Allows approving or rejecting QHSE document versions submitted for review.', group: 'QHSE Knowledge' },
+  { key: 'approve_knowledge_documents', label: 'Approve Document Uploads', description: 'Allows approving or rejecting submitted QHSE documents independently of upload rights. Only Super Administrators can approve their own submissions.', group: 'QHSE Knowledge' },
   { key: 'view_confidential_knowledge', label: 'View Confidential Documents', description: 'Allows viewing QHSE documents classified as confidential.', group: 'QHSE Knowledge' },
   { key: 'view_restricted_knowledge', label: 'View Restricted Documents', description: 'Allows viewing QHSE documents classified as restricted.', group: 'QHSE Knowledge' },
 ] as const satisfies readonly PermissionDefinition[]
@@ -186,16 +186,17 @@ export const USER_MANAGEMENT_ROLE_PERMISSION_MATRIX: Record<UserManagementRole, 
 
 export const SUPER_ADMINISTRATOR_PERMISSION_KEYS: readonly PermissionKey[] = USER_MANAGEMENT_PERMISSION_CATALOG.map((permission) => permission.key)
 
+// Executive Analytics is intentionally absent from legacy role defaults; Super Administrators retain all catalog permissions.
 const LEGACY_ROLE_PERMISSION_KEYS: Record<string, readonly PermissionKey[]> = {
-  'Organization Administrator': ['use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'view_profile', 'view_activity', 'manage_settings'],
-  'QHSE Manager': ['use_ai_assistant', 'view_executive_analytics', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
+  'Organization Administrator': ['use_ai_assistant', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'view_profile', 'view_activity', 'manage_settings'],
+  'QHSE Manager': ['use_ai_assistant', 'view_marketplace', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
   'Site Supervisor': ['use_ai_assistant', 'create_inspection', 'create_corrective_action', 'view_profile'],
   'Safety Officer / HSE Officer': ['use_ai_assistant', 'create_inspection', 'create_corrective_action', 'start_audit', 'view_profile'],
   'Field Worker': ['use_ai_assistant', 'view_profile'],
   Contractor: ['use_ai_assistant', 'create_inspection', 'view_marketplace', 'view_profile'],
-  'Executive / Management': ['use_ai_assistant', 'view_executive_analytics', 'view_reports', 'view_profile'],
+  'Executive / Management': ['use_ai_assistant', 'view_reports', 'view_profile'],
   'Maintenance Engineer': ['use_ai_assistant', 'create_corrective_action', 'view_marketplace', 'view_profile'],
-  Auditor: ['view_knowledge_documents', 'use_ai_assistant', 'view_executive_analytics', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
+  Auditor: ['view_knowledge_documents', 'use_ai_assistant', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
 }
 
 // Build the permission set used by app-side checks from built-in, legacy, and custom role entries.

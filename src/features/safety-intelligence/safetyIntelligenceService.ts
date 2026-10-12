@@ -31,6 +31,7 @@ export async function getSafetySnapshot(client: SupabaseClient, filters: SafetyF
   if (!result.data.ok) throw new SafetyIntelligenceError(result.data.requestId, result.data.error.code, result.data.error.message)
   if (error) throw new Error('Safety intelligence returned an inconsistent response.')
   if (result.data.snapshot.filters.days !== requested.days
+    || result.data.snapshot.filters.trendDays !== requested.trendDays
     || result.data.snapshot.filters.siteId !== requested.siteId
     || result.data.snapshot.scope.siteId !== requested.siteId) {
     throw new Error('Safety intelligence returned a mismatched reporting scope.')

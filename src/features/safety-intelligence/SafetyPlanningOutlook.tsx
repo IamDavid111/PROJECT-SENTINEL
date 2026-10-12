@@ -4,11 +4,11 @@ import { useState } from 'react'
 import { TriangleAlert, ChevronDown, ChevronUp } from 'lucide-react'
 import { initialPriorityLocationCount, priorityPlanningLocations } from './safetyPlanningView'
 
-export function SafetyPlanningOutlook({ snapshot }: { snapshot: SafetySnapshot }) {
+export function SafetyPlanningOutlook({ snapshot, report = false }: { snapshot: SafetySnapshot; report?: boolean }) {
   const outlook = buildSafetyPlanningIndicators(snapshot)
   const [expanded, setExpanded] = useState(false)
   const priorities = priorityPlanningLocations(outlook)
-  const visible = expanded ? priorities : priorities.slice(0, initialPriorityLocationCount)
+  const visible = report || expanded ? priorities : priorities.slice(0, initialPriorityLocationCount)
   return <section className="safety-locations" aria-labelledby="safety-planning-title">
     <div className="safety-panel-heading">
       <h3 id="safety-planning-title"><TriangleAlert size={18} aria-hidden="true" />14-Day Safety Planning Indicators</h3>
@@ -22,10 +22,10 @@ export function SafetyPlanningOutlook({ snapshot }: { snapshot: SafetySnapshot }
     <details className="safety-methodology"><summary>Methodology and coverage</summary>
       <p>Planning period: {outlook.asOf} to {outlook.planningEnd} (UTC).
         {' '}Evidence window: {snapshot.windows.indicator.start} to {snapshot.windows.indicator.end}.
-        {' '}Uses 90-day history, latest 14-day reports and the current open/action backlog, regardless of the KPI window.</p>
+        {' '}{snapshot.filters.days === 'all' ? 'Uses all available reporting history and the current open/action backlog.' : 'Uses 90-day history, latest 14-day reports and the current open/action backlog, regardless of the KPI window.'}</p>
       <p>High: open Critical report or overdue unfinished action linked to a Critical report.
         {' '}Medium: otherwise, open High report, recent High/Critical report or overdue unfinished action.
-        {' '}Low: none of those drivers, with complete evidence and at least 10 classified reports in 90 days.</p>
+        {' '}Low: none of those drivers, with complete evidence and at least 10 classified reports {snapshot.filters.days === 'all' ? 'in the available history' : 'in 90 days'}.</p>
       <p>Verified/closed actions are terminal. Date-only due dates become overdue after their UTC day ends.
         {' '}Missing history, classifications, dates or action access prevents a complete indicator. Low is not a safety assurance.</p>
     </details>
@@ -45,7 +45,7 @@ export function SafetyPlanningOutlook({ snapshot }: { snapshot: SafetySnapshot }
           <td><ul>{item.drivers.map((driver) => <li key={driver.observation}>{driver.advice}</li>)}</ul></td>
         </tr>
       })}</tbody></table></div>}
-    {priorities.length > initialPriorityLocationCount && <button type="button" className="button button-outline button-small safety-show-more" aria-expanded={expanded}
+    {!report && priorities.length > initialPriorityLocationCount && <button type="button" className="button button-outline button-small safety-show-more" aria-expanded={expanded}
       onClick={() => setExpanded((value) => !value)}>
       {expanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
       {expanded ? 'Show fewer sites' : `Show ${priorities.length - initialPriorityLocationCount} more priority sites`}

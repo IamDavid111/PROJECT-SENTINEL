@@ -18,7 +18,7 @@ values
   ('da000000-0000-4000-8000-000000000003', 'db000000-0000-4000-8000-000000000002', 'Lifecycle Other Manager', 'active');
 insert into public.memberships(user_id, organization_id, role)
 values
-  ('da000000-0000-4000-8000-000000000001', 'db000000-0000-4000-8000-000000000001', 'QHSE Manager'),
+  ('da000000-0000-4000-8000-000000000001', 'db000000-0000-4000-8000-000000000001', 'Super Administrator'),
   ('da000000-0000-4000-8000-000000000002', 'db000000-0000-4000-8000-000000000001', 'Field Worker'),
   ('da000000-0000-4000-8000-000000000003', 'db000000-0000-4000-8000-000000000002', 'QHSE Manager');
 
@@ -176,7 +176,7 @@ select extensions.is(
   0, 'governance review permission does not bypass AI confidentiality'
 );
 reset role;
-update public.memberships set role='QHSE Manager'
+update public.memberships set role='Super Administrator'
 where user_id='da000000-0000-4000-8000-000000000001';
 set local role service_role;
 select extensions.is(
