@@ -87,13 +87,20 @@ Deno.serve(async (request: Request) => {
     if (!builtInInviteRoles.has(normalizedRole)) {
       const { data: customRole, error: roleError } = await userClient
         .from('custom_roles')
-        .select('name')
+        .select('name, permissions')
         .eq('organization_id', organizationId)
         .eq('name', normalizedRole)
         .eq('is_active', true)
         .maybeSingle()
       if (roleError) throw new Error(roleError.message)
       if (!customRole) throw new Error('The selected role is not active in this organization')
+      if (Array.isArray(customRole.permissions) && customRole.permissions.includes('view_executive_analytics')
+        && membership.role !== 'Super Administrator') {
+        throw new Error('Only your Super Admin can grant Executive Analytics through invitations')
+      }
+    }
+    if (normalizedRole === 'Super Administrator' && membership.role !== 'Super Administrator') {
+      throw new Error('Only your Super Admin can grant Executive Analytics through invitations')
     }
 
     stage = 'department_validation'
@@ -252,7 +259,7 @@ Deno.serve(async (request: Request) => {
     console.error(JSON.stringify({ event: 'admin_invite_failed', stage, requesterId, organizationId: requestedOrganizationId, message }))
     const status = /already has a SentinelQHSE account|already registered in SentinelQHSE|pending invitation already exists/i.test(message) ? 409
       : /Authentication|token/i.test(message) ? 401
-      : /Only organization administrators/i.test(message) ? 403
+      : /Only organization administrators|Only your Super Admin/i.test(message) ? 403
       : 400
     return new Response(JSON.stringify({ error: message, stage }), {
       status,

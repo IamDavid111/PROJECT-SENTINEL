@@ -4,4 +4,18 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          // Keep each reporting library's initialization dependencies together.
+          groups: [
+            { name: 'export-pdf', test: /[\\/]node_modules[\\/]jspdf(?:-autotable)?[\\/]/ },
+            { name: 'export-word', test: /[\\/]node_modules[\\/]docx[\\/]/ },
+            { name: 'export-excel', test: /[\\/]node_modules[\\/]exceljs[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
 })

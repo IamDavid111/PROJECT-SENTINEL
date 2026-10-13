@@ -25,9 +25,14 @@ import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
 import { ActionsWorkspace } from './features/qhse/ActionsWorkspace'
 import { InspectionWorkspace } from './features/qhse/InspectionWorkspace'
 import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/OrganizationSetupPage'
-import { useIncidentOfflineSync } from './features/incidents/useIncidentData'
+import { useIncidentClosureAccess, useIncidentOfflineSync } from './features/incidents/useIncidentData'
+import { IncidentClosureSettings } from './features/incidents/IncidentClosure'
+import { SafetyIntelligencePage } from './features/safety-intelligence/SafetyIntelligencePage'
+import { KnowledgePage } from './features/knowledge/KnowledgePage'
+import { hasOrganizationIncidentVisibility } from '../supabase/functions/_shared/safetyIntelligenceContracts'
 
 const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
+const executiveAnalyticsAccessMessage = 'You do not have permission to view Executive Analytics. Please ask your Super Admin to grant you access.'
 
 const featureCards: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: Camera, title: 'Digital incident reporting', text: 'Capture near misses to fatalities in the field with GPS, photo, video and voice evidence — online or offline.' },
@@ -429,15 +434,15 @@ function DemoRequestPage() {
   )
 }
 
-type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'assigned-actions' | 'ai-assistant' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
+type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'assigned-actions' | 'ai-assistant' | 'knowledge' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
 type Permission = PermissionKey
 
 const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; permission: Permission }[] = [
   { route: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'view_dashboard' },
   { route: 'report-incident', label: 'Report Incident', icon: Siren, permission: 'report_incident' },
-  { route: 'inspections', label: 'Log Inspection', icon: ClipboardCheck, permission: 'create_inspection' },
+{ route: 'inspections', label: 'Log Inspection', icon: ClipboardCheck, permission: 'create_inspection' },
   { route: 'corrective-actions', label: 'Actions', icon: ListChecks, permission: 'create_corrective_action' },
-  { route: 'ai-assistant', label: 'AI Safety Assistant', icon: Sparkles, permission: 'use_ai_assistant' },
+  { route: 'ai-assistant', label: 'Safety Intelligence', icon: Sparkles, permission: 'use_ai_assistant' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: BarChart3, permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
 ]
@@ -466,15 +471,7 @@ const futureModuleRoutes: { route: AppRoute; label: string; permission: Permissi
 // Unknown workspace hashes fall back to the dashboard.
 function getAppRoute(): AppRoute {
   const route = getHashRoute()
-  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'assigned-actions' || route === 'ai-assistant' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
-}
-
-function hasRoutePermission(role: string | null, customPermissions: readonly string[], permission: PermissionKey, targetRoute: AppRoute) {
-  if (targetRoute === 'inspections') return Boolean(role && hasPermission(role, permission, customPermissions)
-    && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role))
-  if (targetRoute === 'corrective-actions') return Boolean(role && hasPermission(role, permission, customPermissions)
-    && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role))
-  return Boolean(role && hasPermission(role, permission, customPermissions))
+  return route === 'report-incident' || route === 'incident-detail' || route === 'my-reports' || route === 'assigned-actions' || route === 'ai-assistant' || route === 'knowledge' || route === 'executive-analytics' || route === 'marketplace' || route === 'incidents' || route === 'corrective-actions' || route === 'inspections' || route === 'audits' || route === 'reports' || route === 'administration' || route === 'users' || route === 'roles-permissions' || route === 'profile' || route === 'preferences' || route === 'activity-log' || route === 'settings' ? route : 'dashboard'
 }
 
 const administrationEntries: { title: string; description: string; href: string; action: string }[] = [
@@ -506,9 +503,11 @@ function AdministrationLandingPage({ canViewUsers, canViewRoles }: { canViewUser
 function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
   useIncidentOfflineSync(supabase)
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
+  const [analyticsOpen, setAnalyticsOpen] = useState(false)
   const [role, setRole] = useState<string | null>(null)
   const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([])
   const [organizationId, setOrganizationId] = useState('')
+  const closureAccess = useIncidentClosureAccess(supabase, organizationId, session.user.id)
   const [profileName, setProfileName] = useState(session.user.email || 'User')
   const [organizationName, setOrganizationName] = useState('Organization workspace')
   const [loading, setLoading] = useState(true)
@@ -532,7 +531,10 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   }
 
   useEffect(() => {
-    const handleHashChange = () => setRoute(getAppRoute())
+    const handleHashChange = () => {
+      setRoute(getAppRoute())
+      setAnalyticsOpen(false)
+    }
     window.addEventListener('hashchange', handleHashChange)
     // A valid sign-in does not by itself identify the user's organization or app role.
     // Load the profile first, then use its organization ID to fetch membership and organization details.
@@ -592,26 +594,37 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     }
   }, [loadingGateComplete, proceedToWorkspace])
 
-  const canAccess = (permission: PermissionKey) => role ? hasPermission(role, permission, customRolePermissions) : false
-  const canCreateInspections = canAccess('create_inspection') && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role || '')
-  const canManageActions = canAccess('create_corrective_action') && ['Super Administrator', 'Organization Administrator', 'Safety Officer / HSE Officer'].includes(role || '')
+// Closure authority comes from the database's user delegation, not a frontend role checkbox.
+  // Inspections and corrective actions are gated purely on their catalog permissions, matching the
+  // database gates (has_inspection_action_permission / can_create_corrective_action).
+  const canAccess = (permission: PermissionKey) => {
+    if (permission === 'close_incidents') return closureAccess.data === true
+    if (permission === 'view_all_incidents' && closureAccess.data === true) return true
+    return role ? hasPermission(role, permission, customRolePermissions) : false
+  }
+  const canCreateInspections = canAccess('create_inspection')
+  const canManageActions = canAccess('create_corrective_action')
   const legacyFeatureRole = role && BUILT_IN_BACKEND_ROLES.includes(role as typeof BUILT_IN_BACKEND_ROLES[number]) ? role as Role : 'Field Worker'
-  const visiblePrimaryNavigation = primaryNavigation.filter((item) => hasRoutePermission(role, customRolePermissions, item.permission, item.route))
-  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? role === 'Super Administrator' : hasRoutePermission(role, customRolePermissions, item.permission, item.route))
+  const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
+  const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? canManageCompanySettings && canAccess(item.permission) : canAccess(item.permission))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
+    || (route === 'knowledge' ? { label: 'QHSE Knowledge', permission: 'view_knowledge_documents' as PermissionKey } : undefined)
+  const currentRouteAuthorized = route === 'incident-detail'
+    ? canAccess('view_own_reports') || canAccess('view_all_incidents')
+    : Boolean(currentNavigation && canAccess(currentNavigation.permission))
+  const fallbackRoute = visiblePrimaryNavigation[0]?.route || 'dashboard'
 
   useEffect(() => {
     if (!loading && route === 'settings' && !canManageCompanySettings) {
-      const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
-      if (route !== fallback) window.location.hash = `#${fallback}`
+      if (route !== fallbackRoute) window.location.hash = `#${fallbackRoute}`
       return
     }
 
-    if (!loading && (!currentNavigation || !hasRoutePermission(role, customRolePermissions, currentNavigation.permission, currentNavigation.route))) {
-      const fallback = visiblePrimaryNavigation[0]?.route || 'dashboard'
-      if (route !== fallback) window.location.hash = `#${fallback}`
+// Analytics has its own denial screen; a direct link must not redirect away from it.
+    if (!loading && route !== 'executive-analytics' && !(route === 'incidents' && closureAccess.isPending) && !currentRouteAuthorized) {
+      if (route !== fallbackRoute) window.location.hash = `#${fallbackRoute}`
     }
-  }, [canManageCompanySettings, customRolePermissions, currentNavigation, loading, role, route, visiblePrimaryNavigation])
+  }, [canManageCompanySettings, closureAccess.isPending, currentRouteAuthorized, fallbackRoute, loading, route])
 
   useEffect(() => {
     if (!organizationId || !role) return
@@ -704,7 +717,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       <main className="workspace-main">
         <header className="workspace-topbar">
           <div className="workspace-topbar-left">
-            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">Operations / Safety Overview</span></div>
+            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : route === 'executive-analytics' ? 'Operations / Executive Analytics' : route === 'knowledge' ? 'Operations / QHSE Knowledge' : 'Operations / Safety Overview'}</span></div>
             {primaryEmergencyContact && (
               <div className="workspace-emergency-panel">
                 <div className="workspace-emergency-label">FOR EMERGENCY RESPONSE CALL:</div>
@@ -719,31 +732,57 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           <div className="workspace-actions">
             <label className="global-search"><span className="sr-only">Global search</span><input placeholder="Search workspace" aria-label="Global search" /></label>
             <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications"><Bell size={17} /></a>
-            <a className="workspace-header-action" href="#ai-assistant" title="AI Safety Assistant" aria-label="AI Safety Assistant"><Sparkles size={17} /></a>
+            {canAccess('view_executive_analytics') && <a className="workspace-header-action" href="#executive-analytics" title="Executive Analytics" aria-label="Executive Analytics"><Sparkles size={17} /></a>}
             <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon"><MessageSquare size={17} /></button>
             <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><ThemeToggleIcon dark={isDarkMode} /></button>
             <a className="workspace-user" href="#profile">{profileName}</a>
           </div>
         </header>
         <section className="workspace-content">
+{closureAccess.isError && <div className="auth-message error" role="alert">{closureAccess.error.message}</div>}
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} currentUserId={session.user.id} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canCreateInspections} canCreateCorrectiveAction={canManageActions} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
           {route === 'report-incident' && canAccess('report_incident') && <IncidentReportForm key={`report-incident-${navResetKey}`} supabase={supabase} reportType="incident" draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} />}
-          {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage supabase={supabase} scope="own" canExport={canAccess('export_reports')} />}
-          {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
-          {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage supabase={supabase} scope="organization" canExport={canAccess('export_reports')} />}
+          {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage key="own" supabase={supabase} scope="own" canViewAll={canAccess('view_all_incidents')} canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
+          {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} canClose={canAccess('close_incidents')} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
+          {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage key="organization" supabase={supabase} scope="organization" canViewAll canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
 
           {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage />}
           {route === 'assigned-actions' && canAccess('view_own_reports') && <ActionsWorkspace supabase={supabase} canManage={canManageActions} assignedOnly />}
           {route === 'inspections' && canCreateInspections && <InspectionWorkspace supabase={supabase} />}
-
           {/* Navigation exists for these modules, but each route currently shows a placeholder instead of a working feature workflow. */}
-          {route === 'corrective-actions' && <WorkspacePlaceholder title="Corrective Actions" description="Corrective Action Management will connect to incident, inspection, and audit findings." action="Module coming next" />}
-          {route === 'inspections' && <WorkspacePlaceholder title="Safety Inspections" description="Inspection performance will become available when the inspection records module is implemented." action="Module coming next" />}
-
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
           {route === 'reports' && canAccess('view_reports') && <WorkspacePlaceholder title="Reports" description="Reporting and exports will connect to validated operational records in the reporting module." action="Module coming next" />}
-          {route === 'ai-assistant' && canAccess('use_ai_assistant') && <WorkspacePlaceholder title="AI Safety Assistant" description="AI analysis will appear here once sufficient QHSE data and the AI service are connected." action="Review available data" />}
-          {route === 'executive-analytics' && canAccess('view_executive_analytics') && <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open analytics foundation" />}
+          {route === 'ai-assistant' && canAccess('use_ai_assistant') && (
+            closureAccess.isPending ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
+              : !closureAccess.isError && <SafetyIntelligencePage client={supabase} canViewKnowledge={canAccess('view_knowledge_documents')} scope={{
+                organizationId, userId: session.user.id,
+                visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',
+                siteAssignmentEnforced: false,
+              }} />
+          )}
+          {route === 'knowledge' && canAccess('view_knowledge_documents') && <KnowledgePage key={`${organizationId}:${session.user.id}`} client={supabase} scope={{ organizationId, userId: session.user.id }} />}
+          {/* Keep direct route requests visible so missing access gets an explicit denial; the Edge Function rechecks before data reads. */}
+          {route === 'executive-analytics' && <>
+            <div hidden={analyticsOpen && canAccess('view_executive_analytics')}>
+              <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open Analytics Foundation"
+                onAction={canAccess('view_executive_analytics') ? () => setAnalyticsOpen(true) : undefined}
+                actionDisabled={closureAccess.isPending || closureAccess.isError} />
+            </div>
+            {!canAccess('view_executive_analytics')
+              ? <div className="auth-message error" role="alert">{executiveAnalyticsAccessMessage}</div>
+              : <div hidden={!analyticsOpen}>
+                  <button type="button" className="button button-outline button-small" onClick={() => setAnalyticsOpen(false)}>
+                    <ArrowLeft size={16} aria-hidden="true" />Back to Executive Analytics introduction
+                  </button>
+                  {/* Keep the existing view mounted so returning to the introduction preserves its reporting window and refresh state. */}
+                  {closureAccess.isPending ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
+                    : !closureAccess.isError && <SafetyIntelligencePage view="executive-analytics" canExportAnalytics={canAccess('view_executive_analytics')} client={supabase} scope={{
+                      organizationId, userId: session.user.id,
+                      visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',
+                      siteAssignmentEnforced: false,
+                    }} />}
+                </div>}
+          </>}
           {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
           {route === 'administration' && canAccess('access_administration') && <AdministrationLandingPage canViewUsers={canAccess('view_users')} canViewRoles={canAccess('view_roles_permissions')} />}
           {route === 'users' && canAccess('view_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} canInviteUsers={canAccess('invite_users')} canEditUsers={canAccess('edit_users')} canSuspendUsers={canAccess('suspend_users')} canDeactivateUsers={canAccess('deactivate_users')} canManageUserRoles={canAccess('manage_user_roles')} canManageRolesPermissions={canAccess('manage_roles_permissions')} />}
@@ -751,7 +790,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'profile' && <ProfileWorkspace userId={session.user.id} organizationId={organizationId} email={session.user.email || ''} />}
           {route === 'preferences' && <NotificationPreferencesWorkspace userId={session.user.id} organizationId={organizationId} />}
           {route === 'activity-log' && canAccess('view_activity') && <ActivityLogWorkspace organizationId={organizationId} />}
-          {route === 'settings' && canManageCompanySettings && <CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} />}
+          {route === 'settings' && canManageCompanySettings && <><IncidentClosureSettings client={supabase} organizationId={organizationId} userId={session.user.id} /><CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} /></>}
         </section>
       </main>
     </div>
@@ -781,8 +820,16 @@ function WorkspaceLoadingState({ backgroundImage, canProceed, secondsUntilAuto, 
   return <div className="workspace-loading-backdrop" style={{ backgroundImage: `linear-gradient(90deg, rgba(4, 13, 28, 0.92), rgba(4, 13, 28, 0.62)), url(${backgroundImage})` }}><div className="workspace-loading-state"><div className="workspace-loading-mark"><BrandMark /></div><div className="eyebrow">FIELD SAFETY BRIEF</div><h2>Preparing your SentinelQHSE workspace</h2><p className="workspace-loading-brief">{safetyBriefs[briefIndex]}</p><div className="workspace-loading-steps"><span className="active">Organization access</span><span>Operational settings</span><span>Applying role permissions</span></div><div className="workspace-loading-line"><span /></div><small>{canProceed ? `Dashboard will open automatically in ${secondsUntilAuto || 1} seconds` : 'Loading securely...'}</small>{canProceed && <button className="button button-green workspace-loading-proceed" type="button" onClick={onProceed}>Proceed to Dashboard</button>}</div></div>
 }
 
-function WorkspacePlaceholder({ title, description, action }: { title: string; description: string; action: string }) {
-  return <div className="workspace-panel workspace-placeholder"><div className="eyebrow">MODULE FOUNDATION</div><h2>{title}</h2><p>{description}</p><div className="workspace-placeholder-action"><ArrowRight size={19} aria-hidden="true" /><strong>{action}</strong></div></div>
+function WorkspacePlaceholder({ title, description, action, onAction, actionDisabled = false }: {
+  title: string; description: string; action: string; onAction?: () => void; actionDisabled?: boolean
+}) {
+  // Executive Analytics uses the foundation CTA to open its existing authorized view.
+  const actionContent = <><ArrowRight size={19} aria-hidden="true" /><strong>{action}</strong></>
+  return <div className="workspace-panel workspace-placeholder"><div className="eyebrow">MODULE FOUNDATION</div><h2>{title}</h2><p>{description}</p>
+    {onAction
+      ? <button type="button" className="workspace-placeholder-action" onClick={onAction} disabled={actionDisabled}>{actionContent}</button>
+      : <div className="workspace-placeholder-action">{actionContent}</div>}
+  </div>
 }
 
 async function recordActivity(organizationId: string, userId: string, activity: string, metadata: Record<string, unknown> = {}) {
@@ -1717,6 +1764,7 @@ const permissionGroupOrder = [
   { label: 'Roles & Permissions', sourceGroups: ['Roles & Permissions'] },
   { label: 'Reports', sourceGroups: ['Reports'] },
   { label: 'QHSE', sourceGroups: ['QHSE'] },
+  { label: 'QHSE Knowledge', sourceGroups: ['QHSE Knowledge'] },
 ] as const
 
 function groupedPermissions(permissions: readonly string[]) {
@@ -2864,7 +2912,7 @@ export default function App() {
   }
   // These routes show organization-specific pages, so require a signed-in session first.
   // Public pages and account routes are handled elsewhere; ProtectedApp then loads organization access.
-  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
+  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'knowledge' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>
     if (!session) return <SignInPage />
