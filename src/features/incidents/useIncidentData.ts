@@ -19,8 +19,21 @@ import {
   type IncidentListResult,
 } from './incidentService'
 import { incidentQueryKeys } from './incidentQueryKeys'
+import { getIncidentClosureAccess } from './incidentClosureService'
+import { invalidateSafetyIntelligence } from '../safety-intelligence/safetyIntelligenceQueryKeys'
 import { syncQueuedIncidentSubmissions } from './incidentOfflineQueue'
 import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentSubmissionInput, IncidentSummary } from './incidentTypes'
+
+export function useIncidentClosureAccess(client: SupabaseClient, organizationId: string, userId: string) {
+  return useQuery({
+    // Delegated access is personal, even when two users belong to the same organization.
+    queryKey: ['incident-closure-access', organizationId, userId],
+    queryFn: () => getIncidentClosureAccess(client, organizationId),
+    enabled: Boolean(organizationId && userId),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  })
+}
 
 // Resolve the signed-in user first, then load the organization context needed by incident queries.
 export function useIncidentOrganization(client: SupabaseClient) {
@@ -56,6 +69,7 @@ export function useIncidentOfflineSync(client: SupabaseClient) {
         if (result.submitted.length) {
           await queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
           await queryClient.invalidateQueries({ queryKey: ['dashboard', result.submitted[0].organizationId] })
+          await invalidateSafetyIntelligence(queryClient, result.submitted[0].organizationId)
         }
       } catch {
         // Keep queued items for a later reconnect attempt.
@@ -83,6 +97,7 @@ export function useIncidents(client: SupabaseClient, filters: IncidentListFilter
       if (detail?.organizationId === organizationId) {
         void queryClient.invalidateQueries({ queryKey: ['incidents', 'list', organizationId] })
         void queryClient.invalidateQueries({ queryKey: ['dashboard', organizationId] })
+        void invalidateSafetyIntelligence(queryClient, organizationId)
       }
     }
     window.addEventListener('incident-records-updated', handleIncidentRecordsUpdated)
@@ -90,7 +105,7 @@ export function useIncidents(client: SupabaseClient, filters: IncidentListFilter
   }, [organization.data?.organizationId, queryClient])
 
   return useQuery<IncidentListResult>({
-    queryKey: incidentQueryKeys.list(organization.data?.organizationId || 'pending', scope, filters),
+    queryKey: [...incidentQueryKeys.list(organization.data?.organizationId || 'pending', scope, filters), organization.data?.userId],
     queryFn: () => getIncidents(client, filters, scope),
     enabled: Boolean(organization.data?.organizationId),
     staleTime: 0,
@@ -102,7 +117,7 @@ export function useIncidents(client: SupabaseClient, filters: IncidentListFilter
 export function useIncident(client: SupabaseClient, incidentId: string | null) {
   const organization = useIncidentOrganization(client)
   return useQuery<IncidentDetail>({
-    queryKey: incidentQueryKeys.detail(organization.data?.organizationId || 'pending', incidentId || 'pending'),
+    queryKey: [...incidentQueryKeys.detail(organization.data?.organizationId || 'pending', incidentId || 'pending'), organization.data?.userId],
     queryFn: () => getIncident(client, incidentId as string),
     enabled: Boolean(organization.data?.organizationId && incidentId),
     staleTime: 30_000,
@@ -126,6 +141,7 @@ export function useUpdateIncidentDraft(client: SupabaseClient) {
     onSuccess: (incident) => {
       queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
       queryClient.invalidateQueries({ queryKey: ['incidents', 'detail', incident.organizationId, incident.id] })
+      void invalidateSafetyIntelligence(queryClient, incident.organizationId)
     },
   })
 }
@@ -139,6 +155,7 @@ export function useSubmitIncident(client: SupabaseClient) {
       queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
       queryClient.invalidateQueries({ queryKey: ['incidents', 'detail', incident.organizationId, incident.id] })
       queryClient.invalidateQueries({ queryKey: ['dashboard', incident.organizationId] })
+      void invalidateSafetyIntelligence(queryClient, incident.organizationId)
     },
   })
 }
@@ -151,6 +168,7 @@ export function useSubmitNewIncident(client: SupabaseClient) {
     onSuccess: (incident) => {
       queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
       queryClient.invalidateQueries({ queryKey: ['dashboard', incident.organizationId] })
+      void invalidateSafetyIntelligence(queryClient, incident.organizationId)
     },
   })
 }
@@ -158,7 +176,7 @@ export function useSubmitNewIncident(client: SupabaseClient) {
 export function useIncidentEvidence(client: SupabaseClient, incidentId: string | null) {
   const organization = useIncidentOrganization(client)
   return useQuery<IncidentEvidence[]>({
-    queryKey: incidentQueryKeys.evidence(organization.data?.organizationId || 'pending', incidentId || 'pending'),
+    queryKey: [...incidentQueryKeys.evidence(organization.data?.organizationId || 'pending', incidentId || 'pending'), organization.data?.userId],
     queryFn: () => getIncidentEvidence(client, incidentId as string),
     enabled: Boolean(organization.data?.organizationId && incidentId),
     staleTime: 30_000,
@@ -199,7 +217,7 @@ export function useDownloadIncidentEvidence(client: SupabaseClient) {
 export function useIncidentActivity(client: SupabaseClient, incidentId: string | null) {
   const organization = useIncidentOrganization(client)
   return useQuery<IncidentActivity[]>({
-    queryKey: incidentQueryKeys.activity(organization.data?.organizationId || 'pending', incidentId || 'pending'),
+    queryKey: [...incidentQueryKeys.activity(organization.data?.organizationId || 'pending', incidentId || 'pending'), organization.data?.userId],
     queryFn: () => getIncidentActivity(client, incidentId as string),
     enabled: Boolean(organization.data?.organizationId && incidentId),
     staleTime: 30_000,

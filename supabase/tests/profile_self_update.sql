@@ -35,7 +35,7 @@ select set_config('request.jwt.claim.sub', 'aaf49808-1c33-4d9c-98e6-2377a87ce619
 select set_config('request.jwt.claims', '{"sub":"aaf49808-1c33-4d9c-98e6-2377a87ce619","role":"authenticated"}', true);
 set local role authenticated;
 
-select extensions.plan(5);
+select extensions.plan(6);
 
 update public.profiles
 set phone = '+2348000000000', emergency_contact = 'Test contact +2348000000001'
@@ -67,6 +67,11 @@ select extensions.throws_ok(
 );
 
 select extensions.hasnt_column('public', 'profiles', 'email', 'email is not a profile update column');
+select extensions.throws_ok(
+  $$select public.complete_admin_invitation('Profile Test User', '')$$,
+  'P0001', 'No pending invitation is available for this account',
+  'invitation lookup resolves email confirmation without ambiguous columns'
+);
 select * from extensions.finish();
 
 rollback;

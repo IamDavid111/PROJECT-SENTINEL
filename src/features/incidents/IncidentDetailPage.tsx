@@ -2,16 +2,20 @@ import { useState } from "react";
 import type { ChangeEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ArrowLeft } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   useDeleteIncidentEvidence,
   useDownloadIncidentEvidence,
   useIncident,
+  useIncidentOrganization,
   useIncidentActivity,
   useIncidentEvidence,
   useUploadIncidentEvidence,
 } from "./useIncidentData";
 import type { IncidentDetail } from "./incidentTypes";
+import { IncidentClosureForm } from "./IncidentClosure";
+import { getIncidentClosure } from "./incidentClosureService";
 
 function formatLabel(value: string | null) {
   return value
@@ -49,15 +53,18 @@ function DetailItem({
 }
 
 // This screen brings together the incident record, its activity history, and its evidence files.
-// Evidence actions are available here; investigation and corrective-action workflows are future modules, not part of this page yet.
+// Closure evidence is read separately so older records are not given invented closure details.
 export function IncidentDetailPage({
   supabase,
   incidentId,
+  canClose = false,
 }: {
   supabase: SupabaseClient;
   incidentId: string | null;
+  canClose?: boolean;
 }) {
   const incident = useIncident(supabase, incidentId);
+  const organization = useIncidentOrganization(supabase);
   const activity = useIncidentActivity(supabase, incidentId);
   const evidence = useIncidentEvidence(supabase, incidentId);
   const uploadEvidence = useUploadIncidentEvidence(supabase);
@@ -65,6 +72,12 @@ export function IncidentDetailPage({
   const downloadEvidence = useDownloadIncidentEvidence(supabase);
   const [evidenceMessage, setEvidenceMessage] = useState("");
   const [evidenceError, setEvidenceError] = useState("");
+  const [closing, setClosing] = useState(false);
+  const closure = useQuery({
+    queryKey: ["incident-closure", incident.data?.organizationId, incidentId, organization.data?.userId],
+    queryFn: () => getIncidentClosure(supabase, incidentId!),
+    enabled: Boolean(organization.data?.userId && incidentId && incident.data?.status === "closed"),
+  });
 
   if (!incidentId)
     return (
@@ -165,14 +178,24 @@ export function IncidentDetailPage({
         </div>
       </div>
       <div className="incident-detail-actions">
+        {canClose && data.status !== "draft" && data.status !== "closed" && (
+          <button type="button" className="button button-green button-small" onClick={() => setClosing(true)}>Close incident</button>
+        )}
         <a className="button button-outline button-small" href="#my-reports">
           <ArrowLeft size={15} /> My Reports
         </a>
-        <span className="incident-detail-future">
-          Investigation and corrective-action workflow will be added in the next
-          operational module.
-        </span>
+        <a className="button button-outline button-small" href="#incidents">Incident Management</a>
       </div>
+      {closing && canClose && data.status !== "closed" && <IncidentClosureForm key={data.id} client={supabase} incident={data} onDismiss={() => setClosing(false)} />}
+      {data.status === "closed" && <section className="workspace-panel">
+        <h3>Incident closure</h3>
+        {closure.isPending ? <p>Loading closure details...</p> : closure.isError ? <div className="auth-message error" role="alert">{closure.error.message}</div> : closure.data ? <div className="incident-detail-items">
+          <DetailItem label="Root cause" value={closure.data.root_cause} />
+          <DetailItem label="Completed corrective action" value={closure.data.corrective_action} />
+          <DetailItem label="Closed at" value={formatDate(closure.data.closed_at)} />
+          <DetailItem label="Closed by (user ID)" value={closure.data.closed_by} />
+        </div> : <p>This incident was closed before the structured closure form was introduced. No closure details are available in the new record.</p>}
+      </section>}
       <div className="incident-detail-grid">
         <section className="workspace-panel">
           <div className="eyebrow">EVENT</div>

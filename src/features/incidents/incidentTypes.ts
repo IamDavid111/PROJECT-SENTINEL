@@ -133,7 +133,7 @@ export type IncidentSubmissionInput = IncidentDraftInput & {
 
 export type IncidentListFilters = {
   search?: string
-  status?: IncidentStatus | 'all'
+  status?: IncidentStatus | 'all' | 'open'
   reportType?: IncidentReportType | 'all'
   incidentCategory?: string | 'all'
   severity?: string | 'all'
