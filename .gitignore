@@ -31,3 +31,6 @@ dist-ssr
 
 # Supabase CLI runtime files and generated local secrets
 supabase/.temp/
+
+# Local design workbench (planning docs, audits, explorations) - never pushed
+rophi/

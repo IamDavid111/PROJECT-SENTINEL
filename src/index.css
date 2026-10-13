@@ -1,5 +1,37 @@
 @import 'tailwindcss';
 
+/* ---------------------------------------------------------------------------
+   SentinelQHSE design tokens (Tailwind v4 @theme)
+   Values mirror the legacy :root variables 1:1 — see rophi/UI_REVAMP.md.
+   Styling should consume these tokens, not inline hex. Legacy :root vars stay
+   until the UI kit absorbs every class that depends on them.
+--------------------------------------------------------------------------- */
+@theme {
+  /* Brand palette — frozen constraint; never drift from :root values */
+  --color-brand: #12a94f;
+  --color-brand-dark: #0f8d43;
+  --color-ink: #071225;
+  --color-ink-2: #0a1528;
+  --color-ink-3: #172337;
+  --color-accent: #f97316;
+  --color-danger: #dc2626;
+  --color-caution: #f59e0b;
+  --color-foreground: #0f172a;
+  --color-muted: #61718b;
+  --color-line: #dfe5ec;
+  --color-surface: #f8f9fa;
+  --color-surface-soft: #f7f9fb;
+
+  /* Type roles: display (headings/numerals), sans (UI/body), mono (field codes/data) */
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* Surfaces */
+  --shadow-card: 0 12px 35px rgba(15, 23, 42, 0.08);
+  --radius-card: 18px;
+}
+
 :root {
   --green: #12a94f;
   --green-dark: #0f8d43;
