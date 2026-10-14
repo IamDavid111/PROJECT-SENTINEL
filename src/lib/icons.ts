@@ -45,7 +45,7 @@ export const ICONS = {
   messages: 'hugeicons:message-01',
   mail: 'hugeicons:mail-01',
   sun: 'hugeicons:sun-01',
-  moon: 'hugeicons:moon-01',
+  moon: 'hugeicons:moon-02',
   logout: 'hugeicons:logout-01',
   power: 'hugeicons:power',
   lock: 'hugeicons:lock',
