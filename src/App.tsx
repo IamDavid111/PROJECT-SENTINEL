@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowLeft, ArrowRight, BarChart3, Bell, Camera, ChevronRight, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, LayoutDashboard, ListChecks, Menu, MessageSquare, Moon, Radar, Ship, ShieldCheck, Siren, Smartphone, Sparkles, Store, Sun, TrendingUp, Waypoints, Zap } from 'lucide-react'
+import { ArrowRight, Camera, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, ListChecks, Menu, Radar, ShieldCheck, Ship, Smartphone, Sparkles, TrendingUp, Waypoints, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { Alert, Button, Field, Input, Textarea } from './components/ui'
+import { CommandPalette, type CommandItem } from './components/ui/command-palette'
+import { Icon } from './components/ui/icon'
+import type { IconName } from './lib/icons'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import ExcelJS from 'exceljs'
@@ -61,7 +65,7 @@ function BrandMark() {
 }
 
 function ThemeToggleIcon({ dark }: { dark: boolean }) {
-  return dark ? <Sun size={17} /> : <Moon size={17} />
+  return <Icon name={dark ? 'sun' : 'moon'} size={17} />
 }
 
 type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'invite-signup' | 'demo'
@@ -130,7 +134,7 @@ function AuthShell({ title, subtitle, children }: { title: string; subtitle: str
         </div>
       </div>
       <section className="auth-panel">
-        <a className="auth-back" href="#top"><ArrowLeft size={14} /> Back to home</a>
+        <a className="auth-back" href="#top"><Icon name="arrowLeft" size={14} /> Back to home</a>
         <div className="auth-card">
           <div className="eyebrow">SENTINELQHSE PORTAL</div>
           <h2>{title}</h2>
@@ -144,7 +148,7 @@ function AuthShell({ title, subtitle, children }: { title: string; subtitle: str
 
 function AuthMessage({ error, success }: { error?: string; success?: string }) {
   if (!error && !success) return null
-  return <div className={`auth-message ${error ? 'error' : 'success'}`}>{error || success}</div>
+  return <Alert tone={error ? 'danger' : 'success'}>{error || success}</Alert>
 }
 
 // Edge Function errors may carry an HTTP response body; prefer its JSON message, fall back to text, then use the SDK error.
@@ -219,7 +223,7 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
 
   return (
     <AuthShell title="Sign in" subtitle="Use your organization credentials to access the safety intelligence platform.">
-      <form className="auth-form" onSubmit={submit}>
+      <form className="auth-form auth-form-kit" onSubmit={submit}>
         {!userOnly && <fieldset className="auth-sign-in-type">
           <legend>Sign in as</legend>
           <label className={signInType === 'admin' ? 'selected' : ''}>
@@ -231,15 +235,25 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
             <span>User</span>
           </label>
         </fieldset>}
-        {signInType === 'admin' && <label>Company Code<input name="companyCode" placeholder="ABC-123" autoComplete="organization" /></label>}
-        <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
-        <label>Password<input name="password" type="password" placeholder="Enter your password" autoComplete="current-password" /></label>
+        {signInType === 'admin' && (
+          <Field label="Company Code" htmlFor="companyCode">
+            <Input id="companyCode" name="companyCode" placeholder="ABC-123" autoComplete="organization" />
+          </Field>
+        )}
+        <Field label="Work email" htmlFor="email">
+          <Input id="email" name="email" type="email" placeholder="you@company.com" autoComplete="email" />
+        </Field>
+        <Field label="Password" htmlFor="password">
+          <Input id="password" name="password" type="password" placeholder="Enter your password" autoComplete="current-password" />
+        </Field>
         <div className="auth-options">
           <label className="checkbox-label"><input name="rememberMe" type="checkbox" defaultChecked /> Remember me</label>
           <a href="#forgot-password">Forgot password?</a>
         </div>
         <AuthMessage error={error} />
-          <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Signing in...' : <>Sign In <ArrowRight size={16} /></>}</button>
+        <Button type="submit" className="auth-submit" loading={loading}>
+          {loading ? 'Signing in…' : <>Sign In <Icon name="arrowRight" size={16} /></>}
+        </Button>
         <p className="auth-footer-copy">New organization? <a href="#register">Register your company</a></p>
       </form>
     </AuthShell>
@@ -260,10 +274,12 @@ function ForgotPasswordPage() {
   }
   return (
     <AuthShell title="Forgot password?" subtitle="Enter your work email and we will send a secure reset link.">
-      <form className="auth-form" onSubmit={submit}>
-        <label>Work email<input name="email" type="email" placeholder="you@company.com" autoComplete="email" /></label>
+      <form className="auth-form auth-form-kit" onSubmit={submit}>
+        <Field label="Work email" htmlFor="email">
+          <Input id="email" name="email" type="email" placeholder="you@company.com" autoComplete="email" />
+        </Field>
         <AuthMessage error={error} success={message} />
-          <button className="button button-green auth-submit">Send reset link <ArrowRight size={16} /></button>
+        <Button type="submit" className="auth-submit">Send reset link <Icon name="arrowRight" size={16} /></Button>
         <p className="auth-footer-copy"><a href="#sign-in">Return to sign in</a></p>
       </form>
     </AuthShell>
@@ -286,12 +302,20 @@ function PasswordPage({ reset = false }: { reset?: boolean }) {
   }
   return (
     <AuthShell title={reset ? 'Reset password' : 'Change password'} subtitle="Create a strong password for your SentinelQHSE account.">
-      <form className="auth-form" onSubmit={submit}>
-        {!reset && <label>Current password<input name="currentPassword" type="password" autoComplete="current-password" /></label>}
-        <label>New password<input name="password" type="password" autoComplete="new-password" /></label>
-        <label>Confirm new password<input name="confirmation" type="password" autoComplete="new-password" /></label>
+      <form className="auth-form auth-form-kit" onSubmit={submit}>
+        {!reset && (
+          <Field label="Current password" htmlFor="currentPassword">
+            <Input id="currentPassword" name="currentPassword" type="password" autoComplete="current-password" />
+          </Field>
+        )}
+        <Field label="New password" htmlFor="password">
+          <Input id="password" name="password" type="password" autoComplete="new-password" />
+        </Field>
+        <Field label="Confirm new password" htmlFor="confirmation">
+          <Input id="confirmation" name="confirmation" type="password" autoComplete="new-password" />
+        </Field>
         <AuthMessage error={error} success={message} />
-        <button className="button button-green auth-submit">Update password <ArrowRight size={16} /></button>
+        <Button type="submit" className="auth-submit">Update password <Icon name="arrowRight" size={16} /></Button>
       </form>
     </AuthShell>
   )
@@ -391,18 +415,18 @@ function InviteSignupPage() {
   return (
     <AuthShell title="Set Up Your Account" subtitle="Confirm your invitation details and create your account password.">
       {loading ? <div className="workspace-empty">Validating invitation...</div> : details ? (
-        <form className="auth-form" onSubmit={completeSignup}>
-          <label>Work email<input value={details.inviteeEmail} readOnly /></label>
-          <label>Organization<input value={details.organizationName} readOnly /></label>
-          <label>Department<input value={details.department || 'Not assigned'} readOnly /></label>
-          <label>Role<input value={details.role} readOnly /></label>
-          <label>Full name<input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required /></label>
-          <label>Password<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" required /></label>
-          <label>Confirm password<input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" required /></label>
+        <form className="auth-form auth-form-kit" onSubmit={completeSignup}>
+          <Field label="Work email" htmlFor="inviteeEmail"><Input id="inviteeEmail" value={details.inviteeEmail} readOnly /></Field>
+          <Field label="Organization" htmlFor="organizationName"><Input id="organizationName" value={details.organizationName} readOnly /></Field>
+          <Field label="Department" htmlFor="department"><Input id="department" value={details.department || 'Not assigned'} readOnly /></Field>
+          <Field label="Role" htmlFor="role"><Input id="role" value={details.role} readOnly /></Field>
+          <Field label="Full name" htmlFor="fullName"><Input id="fullName" value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required /></Field>
+          <Field label="Password" htmlFor="password"><Input id="password" value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" required /></Field>
+          <Field label="Confirm password" htmlFor="confirmPassword"><Input id="confirmPassword" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" required /></Field>
           <AuthMessage error={error} success={message} />
-          <button className="button button-green auth-submit" disabled={submitting}>{submitting ? 'Setting up account...' : 'Set up account'}</button>
+          <Button type="submit" className="auth-submit" loading={submitting}>{submitting ? 'Setting up account…' : 'Set up account'}</Button>
         </form>
-      ) : <div className="auth-form"><AuthMessage error={error} /><a className="button button-outline auth-submit" href="#sign-in">Return to sign in</a></div>}
+      ) : <div className="auth-form"><AuthMessage error={error} /><Button variant="outline" className="auth-submit" onClick={() => { window.location.hash = '#sign-in' }}>Return to sign in</Button></div>}
     </AuthShell>
   )
 }
@@ -418,15 +442,15 @@ function DemoRequestPage() {
       {submitted ? (
         <div className="auth-form">
           <AuthMessage success="Thanks. Your request has been recorded for follow-up." />
-          <a className="button button-green auth-submit" href="#top">Return to landing page</a>
+          <Button type="button" className="auth-submit" onClick={() => { window.location.hash = '#top' }}>Return to landing page</Button>
         </div>
       ) : (
-        <form className="auth-form" onSubmit={submit}>
-          <label>Full name<input name="name" placeholder="Your full name" required /></label>
-          <label>Work email<input name="email" type="email" placeholder="you@company.com" required /></label>
-          <label>Company<input name="company" placeholder="Company name" required /></label>
-          <label>What would you like to explore?<textarea name="message" rows={4} placeholder="Sites, teams, pricing, or QHSE workflows" /></label>
-          <button className="button button-green auth-submit" type="submit">Submit request <ArrowRight size={16} /></button>
+        <form className="auth-form auth-form-kit" onSubmit={submit}>
+          <Field label="Full name" htmlFor="name"><Input id="name" name="name" placeholder="Your full name" required /></Field>
+          <Field label="Work email" htmlFor="email"><Input id="email" name="email" type="email" placeholder="you@company.com" required /></Field>
+          <Field label="Company" htmlFor="company"><Input id="company" name="company" placeholder="Company name" required /></Field>
+          <Field label="What would you like to explore?" htmlFor="message"><Textarea id="message" name="message" rows={4} placeholder="Sites, teams, pricing, or QHSE workflows" /></Field>
+          <Button type="submit" className="auth-submit">Submit request <Icon name="arrowRight" size={16} /></Button>
           <p className="auth-footer-copy"><a href="#top">Return to landing page</a></p>
         </form>
       )}
@@ -437,14 +461,14 @@ function DemoRequestPage() {
 type AppRoute = 'dashboard' | 'report-incident' | 'incident-detail' | 'my-reports' | 'assigned-actions' | 'ai-assistant' | 'knowledge' | 'executive-analytics' | 'marketplace' | 'incidents' | 'corrective-actions' | 'inspections' | 'audits' | 'reports' | 'administration' | 'users' | 'roles-permissions' | 'profile' | 'preferences' | 'activity-log' | 'settings'
 type Permission = PermissionKey
 
-const primaryNavigation: { route: AppRoute; label: string; icon: LucideIcon; permission: Permission }[] = [
-  { route: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'view_dashboard' },
-  { route: 'report-incident', label: 'Report Incident', icon: Siren, permission: 'report_incident' },
-{ route: 'inspections', label: 'Log Inspection', icon: ClipboardCheck, permission: 'create_inspection' },
-  { route: 'corrective-actions', label: 'Actions', icon: ListChecks, permission: 'create_corrective_action' },
-  { route: 'ai-assistant', label: 'Safety Intelligence', icon: Sparkles, permission: 'use_ai_assistant' },
-  { route: 'executive-analytics', label: 'Executive Analytics', icon: BarChart3, permission: 'view_executive_analytics' },
-  { route: 'marketplace', label: 'HSE Marketplace', icon: Store, permission: 'view_marketplace' },
+const primaryNavigation: { route: AppRoute; label: string; icon: IconName; permission: Permission }[] = [
+  { route: 'dashboard', label: 'Dashboard', icon: 'dashboard', permission: 'view_dashboard' },
+  { route: 'report-incident', label: 'Report Incident', icon: 'reportIncident', permission: 'report_incident' },
+  { route: 'inspections', label: 'Log Inspection', icon: 'inspections', permission: 'create_inspection' },
+  { route: 'corrective-actions', label: 'Actions', icon: 'correctiveActions', permission: 'create_corrective_action' },
+  { route: 'ai-assistant', label: 'Safety Intelligence', icon: 'aiAssistant', permission: 'use_ai_assistant' },
+  { route: 'executive-analytics', label: 'Executive Analytics', icon: 'executiveAnalytics', permission: 'view_executive_analytics' },
+  { route: 'marketplace', label: 'HSE Marketplace', icon: 'marketplace', permission: 'view_marketplace' },
 ]
 
 const secondaryNavigation: { route: AppRoute; label: string; permission: PermissionKey }[] = [
@@ -518,6 +542,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const [needsSetup, setNeedsSetup] = useState(false)
   const [navResetKey, setNavResetKey] = useState(0)
   const [accountExpanded, setAccountExpanded] = useState<boolean>(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([])
 
   const canManageCompanySettings = role === 'Super Administrator'
@@ -614,6 +639,40 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     : Boolean(currentNavigation && canAccess(currentNavigation.permission))
   const fallbackRoute = visiblePrimaryNavigation[0]?.route || 'dashboard'
 
+  // Global search (⌘K / Ctrl+K) over the routes the current user can reach.
+  const paletteItems: CommandItem[] = [
+    ...visiblePrimaryNavigation.map((item) => ({
+      id: `nav-${item.route}`,
+      label: item.label,
+      hint: item.route,
+      icon: item.icon,
+      onSelect: () => { window.location.hash = `#${item.route}` },
+    })),
+    ...visibleSecondaryNavigation.map((item) => ({
+      id: `nav-${item.route}`,
+      label: item.label,
+      hint: item.route,
+      onSelect: () => { window.location.hash = `#${item.route}` },
+    })),
+    ...futureModuleRoutes
+      .filter((item) => canAccess(item.permission))
+      .map((item) => ({
+        id: `nav-${item.route}`,
+        label: item.label,
+        hint: item.route,
+        onSelect: () => { window.location.hash = `#${item.route}` },
+      })),
+    ...(canAccess('view_knowledge_documents')
+      ? [{
+          id: 'route-knowledge',
+          label: 'QHSE Knowledge',
+          hint: 'knowledge',
+          icon: 'knowledge' as const,
+          onSelect: () => { window.location.hash = '#knowledge' },
+        }]
+      : []),
+  ]
+
   useEffect(() => {
     if (!loading && route === 'settings' && !canManageCompanySettings) {
       if (route !== fallbackRoute) window.location.hash = `#${fallbackRoute}`
@@ -661,6 +720,17 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
     window.location.hash = '#top'
   }
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   if (loading || !loadingGateComplete || !proceedToWorkspace) return <WorkspaceLoadingState backgroundImage={heroFacility} canProceed={loadingGateComplete} secondsUntilAuto={autoProceedSeconds} onProceed={() => setProceedToWorkspace(true)} />
   if (error) return <div className="protected-state"><div className="auth-message error">Unable to load your organization access: {error}</div></div>
   if (needsSetup) return <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}><main className="workspace-main"><section className="workspace-content"><OrganizationSetupPage email={session.user.email || ''} /></section></main></div>
@@ -668,6 +738,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
 
   return (
     <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} />
       <aside className="workspace-sidebar">
         <a className="brand workspace-brand" href="#dashboard" onClick={() => handleNavClick('dashboard')}>   
           <BrandMark />
@@ -682,7 +753,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
               key={item.route}
               onClick={() => handleNavClick(item.route)}
             >
-              <span className="workspace-nav-icon" aria-hidden="true"><item.icon size={16} /></span>
+              <span className="workspace-nav-icon" aria-hidden="true"><Icon name={item.icon} size={16} /></span>
               {item.label}
             </a>
           ))}
@@ -695,7 +766,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
             aria-expanded={accountExpanded}
           >
             <span>ACCOUNT</span>
-            <span className={`workspace-account-chevron${accountExpanded ? ' open' : ''}`} aria-hidden="true"><ChevronRight size={14} /></span>
+            <span className={`workspace-account-chevron${accountExpanded ? ' open' : ''}`} aria-hidden="true"><Icon name="chevronRight" size={14} /></span>
           </button>
           <div className={`workspace-account-items${accountExpanded ? ' expanded' : ''}`}>
             <div className="workspace-account-items-inner">
@@ -717,7 +788,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
       <main className="workspace-main">
         <header className="workspace-topbar">
           <div className="workspace-topbar-left">
-            <div><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : route === 'executive-analytics' ? 'Operations / Executive Analytics' : route === 'knowledge' ? 'Operations / QHSE Knowledge' : 'Operations / Safety Overview'}</span></div>
+            <div className="workspace-topbar-title"><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : route === 'executive-analytics' ? 'Operations / Executive Analytics' : route === 'knowledge' ? 'Operations / QHSE Knowledge' : 'Operations / Safety Overview'}</span></div>
             {primaryEmergencyContact && (
               <div className="workspace-emergency-panel">
                 <div className="workspace-emergency-label">FOR EMERGENCY RESPONSE CALL:</div>
@@ -730,16 +801,20 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
             )}
           </div>
           <div className="workspace-actions">
-            <label className="global-search"><span className="sr-only">Global search</span><input placeholder="Search workspace" aria-label="Global search" /></label>
-            <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications"><Bell size={17} /></a>
-            {canAccess('view_executive_analytics') && <a className="workspace-header-action" href="#executive-analytics" title="Executive Analytics" aria-label="Executive Analytics"><Sparkles size={17} /></a>}
-            <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon"><MessageSquare size={17} /></button>
+            <button type="button" className="global-search-button" onClick={() => setPaletteOpen(true)} aria-label="Search workspace">
+              <Icon name="search" size={15} />
+              <span className="flex-1 text-left">Search workspace</span>
+              <kbd className="global-search-kbd">⌘K</kbd>
+            </button>
+            <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications"><Icon name="notifications" size={17} /></a>
+            {canAccess('view_executive_analytics') && <a className="workspace-header-action" href="#executive-analytics" title="Executive Analytics" aria-label="Executive Analytics"><Icon name="executiveAnalytics" size={17} /></a>}
+            <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon"><Icon name="messages" size={17} /></button>
             <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><ThemeToggleIcon dark={isDarkMode} /></button>
             <a className="workspace-user" href="#profile">{profileName}</a>
           </div>
         </header>
         <section className="workspace-content">
-{closureAccess.isError && <div className="auth-message error" role="alert">{closureAccess.error.message}</div>}
+{closureAccess.isError && <Alert tone="danger">{closureAccess.error.message}</Alert>}
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} currentUserId={session.user.id} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canCreateInspections} canCreateCorrectiveAction={canManageActions} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
           {route === 'report-incident' && canAccess('report_incident') && <IncidentReportForm key={`report-incident-${navResetKey}`} supabase={supabase} reportType="incident" draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} />}
           {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage key="own" supabase={supabase} scope="own" canViewAll={canAccess('view_all_incidents')} canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
@@ -769,11 +844,11 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
                 actionDisabled={closureAccess.isPending || closureAccess.isError} />
             </div>
             {!canAccess('view_executive_analytics')
-              ? <div className="auth-message error" role="alert">{executiveAnalyticsAccessMessage}</div>
+              ? <Alert tone="danger">{executiveAnalyticsAccessMessage}</Alert>
               : <div hidden={!analyticsOpen}>
-                  <button type="button" className="button button-outline button-small" onClick={() => setAnalyticsOpen(false)}>
-                    <ArrowLeft size={16} aria-hidden="true" />Back to Executive Analytics introduction
-                  </button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setAnalyticsOpen(false)}>
+                    <Icon name="arrowLeft" size={16} aria-hidden="true" />Back to Executive Analytics introduction
+                  </Button>
                   {/* Keep the existing view mounted so returning to the introduction preserves its reporting window and refresh state. */}
                   {closureAccess.isPending ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
                     : !closureAccess.isError && <SafetyIntelligencePage view="executive-analytics" canExportAnalytics={canAccess('view_executive_analytics')} client={supabase} scope={{
@@ -817,7 +892,7 @@ function WorkspaceLoadingState({ backgroundImage, canProceed, secondsUntilAuto, 
     return () => window.clearInterval(interval)
   }, [])
 
-  return <div className="workspace-loading-backdrop" style={{ backgroundImage: `linear-gradient(90deg, rgba(4, 13, 28, 0.92), rgba(4, 13, 28, 0.62)), url(${backgroundImage})` }}><div className="workspace-loading-state"><div className="workspace-loading-mark"><BrandMark /></div><div className="eyebrow">FIELD SAFETY BRIEF</div><h2>Preparing your SentinelQHSE workspace</h2><p className="workspace-loading-brief">{safetyBriefs[briefIndex]}</p><div className="workspace-loading-steps"><span className="active">Organization access</span><span>Operational settings</span><span>Applying role permissions</span></div><div className="workspace-loading-line"><span /></div><small>{canProceed ? `Dashboard will open automatically in ${secondsUntilAuto || 1} seconds` : 'Loading securely...'}</small>{canProceed && <button className="button button-green workspace-loading-proceed" type="button" onClick={onProceed}>Proceed to Dashboard</button>}</div></div>
+  return <div className="workspace-loading-backdrop" style={{ backgroundImage: `linear-gradient(90deg, rgba(4, 13, 28, 0.92), rgba(4, 13, 28, 0.62)), url(${backgroundImage})` }}><div className="workspace-loading-state"><div className="workspace-loading-mark"><BrandMark /></div><div className="eyebrow">FIELD SAFETY BRIEF</div><h2 className="font-display tracking-tight">Preparing your SentinelQHSE workspace</h2><p className="workspace-loading-brief">{safetyBriefs[briefIndex]}</p><div className="workspace-loading-steps"><span className="active">Organization access</span><span>Operational settings</span><span>Applying role permissions</span></div><div className="workspace-loading-line"><span className="motion-reduce:animate-none" /></div><small>{canProceed ? `Dashboard will open automatically in ${secondsUntilAuto || 1} seconds` : 'Loading securely...'}</small>{canProceed && <Button variant="default" className="workspace-loading-proceed" onClick={onProceed}>Proceed to Dashboard</Button>}</div></div>
 }
 
 function WorkspacePlaceholder({ title, description, action, onAction, actionDisabled = false }: {

@@ -1,5 +1,37 @@
 @import 'tailwindcss';
 
+/* ---------------------------------------------------------------------------
+   SentinelQHSE design tokens (Tailwind v4 @theme)
+   Values mirror the legacy :root variables 1:1 — see rophi/UI_REVAMP.md.
+   Styling should consume these tokens, not inline hex. Legacy :root vars stay
+   until the UI kit absorbs every class that depends on them.
+--------------------------------------------------------------------------- */
+@theme {
+  /* Brand palette — frozen constraint; never drift from :root values */
+  --color-brand: #12a94f;
+  --color-brand-dark: #0f8d43;
+  --color-ink: #071225;
+  --color-ink-2: #0a1528;
+  --color-ink-3: #172337;
+  --color-accent: #f97316;
+  --color-danger: #dc2626;
+  --color-caution: #f59e0b;
+  --color-foreground: #0f172a;
+  --color-muted: #61718b;
+  --color-line: #dfe5ec;
+  --color-surface: #f8f9fa;
+  --color-surface-soft: #f7f9fb;
+
+  /* Type roles: display (headings/numerals), sans (UI/body), mono (field codes/data) */
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* Surfaces */
+  --shadow-card: 0 12px 35px rgba(15, 23, 42, 0.08);
+  --radius-card: 18px;
+}
+
 :root {
   --green: #12a94f;
   --green-dark: #0f8d43;
@@ -1451,12 +1483,12 @@ blockquote footer span {
 }
 
 .workspace-topbar {
-  min-height: 64px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 12px clamp(24px, 4vw, 65px);
+  padding: 7px clamp(24px, 4vw, 56px);
   background: #fff;
   border-bottom: 1px solid #dfe5ec;
   position: sticky;
@@ -1466,38 +1498,53 @@ blockquote footer span {
 
 .workspace-topbar-left {
   display: flex;
-  align-items: flex-end;
-  gap: 34px;
+  align-items: center;
+  gap: 20px;
   min-width: 0;
   flex: 1;
 }
 
+/* One-line orientation row: eyebrow · title · breadcrumb */
+.workspace-topbar-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
 .workspace-topbar h1 {
-  margin: 5px 0 0;
-  font-size: 27px;
-  letter-spacing: -0.03em;
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .workspace-breadcrumb {
-  display: block;
-  margin-top: 2px;
+  display: inline-block;
+  margin: 0;
   color: #71819a;
   font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .workspace-emergency-panel {
-  display: grid;
-  gap: 5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  padding-top: 2px;
 }
 
 .workspace-emergency-label {
   color: #14c9a6;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   font-weight: 800;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .workspace-emergency-call {
@@ -1507,8 +1554,10 @@ blockquote footer span {
 }
 
 .workspace-emergency-contact {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
 .workspace-emergency-contact span {
@@ -5239,4 +5288,80 @@ button.workspace-placeholder-action:disabled {
 @media (prefers-reduced-motion: reduce) {
   .assistant-processing-dot { animation: none; }
   .assistant-starters button { transition: none; }
+}
+
+/* ------------------------------------------------------------------
+   UI kit inside migrated auth forms: neutralize legacy field chrome
+   so the primitives (Input/Textarea) own borders, radius and focus.
+   Remove together with the legacy .auth-form field styles in Phase 4.
+------------------------------------------------------------------- */
+/* ------------------------------------------------------------------
+   UI kit inside migrated auth forms (form.class="auth-form auth-form-kit"):
+   neutralize legacy field chrome so the primitives own the look.
+   Higher specificity than the legacy .auth-form input rules; values mirror
+   the kit tokens. Remove together with the legacy field styles in Phase 4.
+------------------------------------------------------------------- */
+.auth-form.auth-form-kit input:not([type='checkbox']):not([type='radio']),
+.auth-form.auth-form-kit textarea {
+  min-height: initial;
+  padding: 0.5rem 0.75rem;
+  border-color: var(--line);
+  border-radius: 0.75rem;
+  box-shadow: none;
+}
+.auth-form.auth-form-kit input:not([type='checkbox']):not([type='radio']):focus,
+.auth-form.auth-form-kit textarea:focus {
+  border-color: var(--green);
+  box-shadow: none;
+}
+
+/* ------------------------------------------------------------------
+   Global search trigger (opened by the command palette, ?K / Ctrl+K).
+   Replaces the inert .global-search input; uses palette tokens via vars.
+   Swap for a kit search trigger when the shell primitives land fully.
+------------------------------------------------------------------- */
+.global-search-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 190px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  cursor: text;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.global-search-button:hover,
+.global-search-button:focus-visible {
+  border-color: var(--green);
+  outline: none;
+}
+.global-search-button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(18, 169, 79, 0.13);
+}
+.global-search-button kbd {
+  margin-left: 2px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+.dark-theme .global-search-button { color: #aab8cb; }
+.dark-theme .global-search-button kbd {
+  color: #aab8cb;
+  background: #0b172b;
+  border-color: #26364d;
+}
+@media (max-width: 700px) {
+  .global-search-button { flex: 1 1 100%; width: 100%; }
 }
