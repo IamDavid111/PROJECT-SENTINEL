@@ -16,8 +16,6 @@ function Card({ title, value, children, band, tone = 'blue', icon: Icon = Sparkl
     <strong className="safety-kpi-value">{value}</strong>
     <Icon className="safety-kpi-icon" size={18} aria-hidden="true" />
     <div className="safety-kpi-description">{content.slice(0, 2)}</div>
-    {content.length > 2 && <details className="safety-kpi-details"><summary>Evidence and calculation</summary>
-      <div>{content.slice(2)}</div></details>}
   </article>
 }
 
@@ -67,9 +65,6 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
       {riskAvailable && <span>{risk.band} · Deterministic reported-event index</span>}
       {!riskAvailable && <span>{risk.state === 'incomplete' ? 'Incomplete coverage' : 'Deterministic index unavailable'}</span>}
       <small>{risk.sampleSize} classified reports. Not ML or accident probability.</small>
-      {riskAvailable && <small>Band uses the unrounded score.</small>}
-      <small>Point change unavailable: {risk.comparisonReason}</small>
-      <Reasons reasons={risk.reasons} />
     </Card>
     <Card title="High-Risk Incidents" tone="red" icon={AlertTriangle} value={highKnown ? number(highRisk.count) : 'Unavailable'}>
       {highKnown && <small>{number(highRisk.openCount)} still open</small>}
@@ -80,10 +75,7 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
     <Card title="Near-Miss Trend" tone="teal" icon={TrendingUp} value={trend}>
       {trendAvailable && <span>{allTime ? 'Submitted near-miss reports' : `${direction} ${nearMiss.direction === 'down' ? 'Reporting decreased' : nearMiss.direction === 'up' || nearMiss.direction === 'new_reporting' ? 'Reporting increased' : 'Reporting unchanged'}`}</span>}
       <small>{allTime ? 'No comparable previous period exists for the full historical dataset.' : <>{!trendAvailable && 'Known counts only: '}{nearMiss.currentCount} current / {nearMiss.previousCount} previous comparable month-to-date reports.</>}</small>
-      {!allTime && trendAvailable && nearMiss.percentageChange === null && <small>Percentage unavailable: previous period had no reports.</small>}
-      <small>Reporting direction does not establish a change in danger.</small>
-      <small>{allTime ? 'Reporting dates' : 'UTC month-to-date'}: {snapshot.windows.nearMissCurrent.start} to {snapshot.windows.nearMissCurrent.end}{!allTime && <>; previous: {snapshot.windows.nearMissPrevious.start} to {snapshot.windows.nearMissPrevious.end}</>}. Ends excluded.</small>
-      <Reasons reasons={nearMiss.reasons} />
+      {!trendAvailable && <small>Reporting direction does not establish a change in danger.</small>}
     </Card>
     <Card title="Most Common Reported Category" tone="blue" icon={Tags} value={category.state === 'available' && category.label ? category.label : 'Unavailable'}>
       {category.state === 'available' && category.share !== null && <span>{number(category.share)}% of {category.denominator} reported events</span>}
@@ -100,30 +92,21 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
       {!locationAvailable && <small>{!hasReports ? 'No eligible reports in this window.' : 'Complete incident and site retrieval is required for a reliable ranking.'}</small>}
       {dataQuality.unassignedFacility > 0 && <small>{dataQuality.unassignedFacility} reports lack an available site assignment and are excluded from site rankings.</small>}
       <small>Ranked by High/Critical count, open Critical, open High, then event count.</small>
-      <small>Overdue actions describe the current authorized backlog, including older reports.</small>
     </Card>
     <Card title="Average Resolution Time" tone="teal" icon={Clock} value={resolution.state === 'available' && resolution.averageDays !== null ? `${number(resolution.averageDays)} days` : 'Unavailable'}>
       <span>{resolution.sampleSize} valid closures in this window</span>
       <small>{resolution.changeDays !== null && resolution.state === 'available'
         ? `${signed(resolution.changeDays)} days versus previous period (${resolution.previousSampleSize} closures).`
         : 'Previous-period comparison unavailable.'}</small>
-      <small>Reported timestamp to trusted closure timestamp; grouped by closure date.</small>
-      <small>{resolution.legacyClosedWithoutEvidence} legacy closures without evidence; {resolution.invalidDurations} invalid durations excluded.</small>
-      <Reasons reasons={resolution.reasons} />
     </Card>
     <Card title="Corrective Action On-Time Closure" tone="blue" icon={ClipboardCheck} value="Unavailable">
       <span>Actual corrective-action closure dates are not recorded.</span>
       <small>Not an overall regulatory compliance score.</small>
-      <small>Requires actions due in the selected UTC reporting window and reliable actual closure dates.
-        Completion and verification dates do not establish closure; no percentage is calculated.</small>
     </Card>
     <Card title="Outstanding Actions" tone="amber" icon={ListChecks} value={outstandingActions ? number(outstandingActions.count) : 'Unavailable'}>
       <span>Current authorized backlog{outstandingActions?.state === 'incomplete' ? ' · Known counts only' : ''}
         {actionCoverage?.access === 'caller_visible' ? ' · Caller-visible actions only' : ''}</span>
       <small>Excludes verified and closed actions; pending verification and rejected/rework actions remain outstanding.</small>
-      <small>Snapshot: {snapshot.asOf} (UTC). Includes older linked incidents, regardless of the selected reporting window.</small>
-      {!outstandingActions && <small>The deployed snapshot endpoint does not yet provide action counts.</small>}
-      {outstandingActions && <Reasons reasons={outstandingActions.reasons} />}
     </Card>
   </div>
 }
