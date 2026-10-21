@@ -1664,6 +1664,27 @@ blockquote footer span {
   flex: 1 1 260px;
 }
 
+#executive-analytics-content .safety-section-heading > div:first-child {
+  flex: 1 1 540px;
+  min-width: 0;
+}
+#executive-analytics-content .safety-section-heading > div:first-child p {
+  max-width: 64ch;
+  font-size: 14px;
+  text-wrap: balance;
+}
+#executive-analytics-content .safety-section-heading > .safety-window-toggle,
+#executive-analytics-content .safety-section-heading > .safety-export {
+  flex: 0 0 auto;
+}
+@media print {
+  #executive-analytics-content, #executive-analytics-content * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .safety-export { display: none !important; }
+}
+
 .safety-intelligence-section h2 {
   margin: 8px 0 12px;
 }
@@ -1759,9 +1780,7 @@ blockquote footer span {
   line-height: 1.25;
 }
 .safety-kpi-icon { position: absolute; top: 18px; right: 16px; color: var(--green); }
-.safety-kpi-description, .safety-kpi-details > div { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
-.safety-kpi-details { font-size: 12px; margin-top: 6px; color: var(--muted); }
-.safety-kpi-details > div { margin-top: 12px; }
+.safety-kpi-description { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 .safety-methodology { font-size: 12px; color: var(--muted); margin-top: 12px; }
 .safety-intelligence-page summary { cursor: pointer; line-height: 1.5; }
 .safety-intelligence-page button:focus-visible, .safety-intelligence-page a:focus-visible,
@@ -5181,7 +5200,6 @@ button.workspace-placeholder-action:disabled {
   color: var(--kpi-accent);
 }
 #executive-analytics-content .safety-kpi-description,
-#executive-analytics-content .safety-kpi-details,
 #executive-analytics-content .safety-kpi span,
 #executive-analytics-content .safety-kpi small {
   color: color-mix(in srgb, var(--muted) 85%, var(--text));

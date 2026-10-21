@@ -64,6 +64,19 @@ select extensions.lives_ok(
   $$select public.transition_knowledge_version('ed000000-0000-4000-8000-000000000003', 'rejected', 'Revise the controls')$$,
   'Super Administrator rejects another user submission');
 select extensions.ok(
+  (select approval_status = 'approved' and approved_by = auth.uid() and approved_at is not null
+    from public.knowledge_document_versions where id = 'ed000000-0000-4000-8000-000000000001'),
+  'self-approval persists approved status and server-derived approval evidence');
+select extensions.ok(
+  (select approval_status = 'approved' and approved_by = auth.uid() and approved_at is not null
+    from public.knowledge_document_versions where id = 'ed000000-0000-4000-8000-000000000002'),
+  'approval of another uploader persists approved status and approval evidence');
+select extensions.ok(
+  (select approval_status = 'rejected' and rejected_by = auth.uid() and rejected_at is not null
+    and rejection_reason = 'Revise the controls' and approved_by is null and approved_at is null
+    from public.knowledge_document_versions where id = 'ed000000-0000-4000-8000-000000000003'),
+  'rejection persists its reason and decision evidence without approval evidence');
+select extensions.ok(
   exists (select 1 from public.activity_logs where metadata->>'record_id' = 'ed000000-0000-4000-8000-000000000001'
     and metadata->>'event_code' = 'knowledge_version_approved'
     and metadata->>'document_id' = 'ec000000-0000-4000-8000-000000000001'
@@ -84,6 +97,10 @@ select extensions.is(public.current_knowledge_capabilities()->>'canApprove', 'fa
 select extensions.throws_ok(
   $$select public.transition_knowledge_version('ed000000-0000-4000-8000-000000000004', 'approved')$$,
   '42501', 'Authorized knowledge lifecycle access is required', 'upload-only user cannot approve');
+select extensions.is(
+  (select approval_status from public.knowledge_document_versions
+    where id = 'ed000000-0000-4000-8000-000000000004'),
+  'pending_review', 'failed approval leaves the uploaded version pending');
 select set_config('request.jwt.claim.sub', 'ea000000-0000-4000-8000-000000000003', true);
 select extensions.throws_ok(
   $$select public.transition_knowledge_version('ed000000-0000-4000-8000-000000000005', 'approved')$$,
@@ -136,5 +153,19 @@ select set_config('request.jwt.claim.sub', 'ea000000-0000-4000-8000-000000000001
 select extensions.throws_ok(
   $$select public.transition_knowledge_version('ed000000-0000-4000-8000-000000000006', 'approved')$$,
   '42501', 'Authorized knowledge lifecycle access is required', 'suspended Super Administrator cannot approve');
+reset role;
+select extensions.is(
+  (select count(*)::integer from public.knowledge_processing_candidates
+    where id in ('ed000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000002')),
+  2, 'approved uploads become eligible for extraction and indexing');
+select extensions.is(
+  (select count(*)::integer from public.knowledge_ai_index_candidates
+    where id in ('ed000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000002')),
+  2, 'current approved uploads pass the live AI knowledge eligibility boundary');
+select extensions.is(
+  (select count(*)::integer from public.knowledge_processing_candidates
+    where id in ('ed000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000005',
+      'ed000000-0000-4000-8000-000000000006')),
+  0, 'rejected and pending uploads remain excluded from AI processing');
 select * from extensions.finish();
 rollback;

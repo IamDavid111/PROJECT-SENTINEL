@@ -19,16 +19,6 @@ export function SafetyPlanningOutlook({ snapshot, report = false }: { snapshot: 
     <p>Showing {visible.length} of {priorities.length} priority sites.
       {' '}High indicators or observed urgent drivers: open High/Critical reports or overdue unfinished actions.
       {' '}Other sites are not shown; omission is not a safety assurance.</p>
-    <details className="safety-methodology"><summary>Methodology and coverage</summary>
-      <p>Planning period: {outlook.asOf} to {outlook.planningEnd} (UTC).
-        {' '}Evidence window: {snapshot.windows.indicator.start} to {snapshot.windows.indicator.end}.
-        {' '}{snapshot.filters.days === 'all' ? 'Uses all available reporting history and the current open/action backlog.' : 'Uses 90-day history, latest 14-day reports and the current open/action backlog, regardless of the KPI window.'}</p>
-      <p>High: open Critical report or overdue unfinished action linked to a Critical report.
-        {' '}Medium: otherwise, open High report, recent High/Critical report or overdue unfinished action.
-        {' '}Low: none of those drivers, with complete evidence and at least 10 classified reports {snapshot.filters.days === 'all' ? 'in the available history' : 'in 90 days'}.</p>
-      <p>Verified/closed actions are terminal. Date-only due dates become overdue after their UTC day ends.
-        {' '}Missing history, classifications, dates or action access prevents a complete indicator. Low is not a safety assurance.</p>
-    </details>
     {!outlook.locations.length ? <p role="status">Insufficient site history to show planning indicators.</p>
       : !priorities.length ? <p role="status">No High indicator or qualifying urgent driver was observed in the authorized site data. This is not a safety assurance.</p>
       :       <div className="safety-planning-table" role="region" aria-label="Priority site planning outlook" tabIndex={0}>
@@ -38,8 +28,7 @@ export function SafetyPlanningOutlook({ snapshot, report = false }: { snapshot: 
         return <tr key={`${item.location.level}-${item.location.id}`}>
           <th scope="row"><strong>{item.location.name}</strong><small>{item.location.level} · {item.location.indicatorSampleSize} classified reports</small></th>
           <td><span className={`safety-indicator-badge${color ? ` safety-indicator-${color.toLowerCase()}` : ''}`}>{item.indicator ?? (item.state === 'incomplete' ? 'Incomplete evidence' : 'Insufficient history')}</span>
-            {item.observedPriority && <small>Observed {item.observedPriority} priority—not a complete indicator.</small>}
-            {item.reasons.length > 0 && <details><summary>Coverage limitations</summary><ul>{item.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></details>}
+            {item.observedPriority && <small>Observed {item.observedPriority} priority—not a complete indicator.</small>}
           </td>
           <td><ul>{item.drivers.map((driver) => <li key={driver.observation}>{driver.observation}</li>)}</ul></td>
           <td><ul>{item.drivers.map((driver) => <li key={driver.observation}>{driver.advice}</li>)}</ul></td>

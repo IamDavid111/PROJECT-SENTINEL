@@ -137,6 +137,16 @@ override system is introduced. Approval/rejection audit events include document/
 actual submitter, decision actor, server timestamp and self-approval flag. Recognized
 approval failures return actionable messages; unknown database details stay private.
 
+On 2026-10-21, linked database inspection confirmed that `202610110003` was already
+deployed. All 25 approval regression assertions passed against that database using
+rollback-only fixtures: Super Administrator self-approval and approval of another
+uploader, persisted decision evidence, rejection, permission denials, tenant isolation,
+and approved-version AI eligibility. No existing document decisions were committed.
+The frontend handoff tests separately verify that processing follows successful approval,
+never starts after denied approval, and reports processing failure without undoing approval.
+These checks do not constitute a signed-in browser upload/approval test or a live
+embedding-provider test; AI eligibility alone does not prove completed indexing.
+
 - Draft -> Submitted (`pending_review`) -> Approved or Rejected.
 - Archive freezes the document while preserving its version history. Restore does not
   change approval, effective or expiry dates.
@@ -159,6 +169,8 @@ Run the lifecycle regression with:
 
 ```powershell
 npx supabase test db supabase\tests\qhse_knowledge_lifecycle.sql supabase\tests\qhse_knowledge_documents.sql supabase\tests\qhse_knowledge_permissions.sql --local
+npx supabase test db supabase\tests\qhse_knowledge_approval.sql --local
+npx deno test --no-lock --allow-read --sloppy-imports --config supabase\functions\deno.json supabase\functions\knowledge-service\handler_test.ts scripts\test-knowledge-ui.ts
 ```
 
 ### Document text extraction

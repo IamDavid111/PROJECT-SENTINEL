@@ -3,10 +3,11 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import type { SafetySnapshot } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
 import { groupIncidentTrend, incidentTrendViews, type IncidentTrendView } from './incidentTrend'
 
-export function IncidentTrendChart({ snapshot, onPeriodChange, disabled = false }: {
+export function IncidentTrendChart({ snapshot, onPeriodChange, disabled = false, report = false }: {
   snapshot: SafetySnapshot
   onPeriodChange?: (period: 30 | 90 | 'all') => void
   disabled?: boolean
+  report?: boolean
 }) {
   const [view, setView] = useState<IncidentTrendView>('month')
   const id = useId()
@@ -17,13 +18,13 @@ export function IncidentTrendChart({ snapshot, onPeriodChange, disabled = false 
   return <section className="incident-trend-card" aria-labelledby={`${id}-title`}>
     <h3 id={`${id}-title`}>Incident Trend</h3>
     <p>Incidents, near misses and closures {selected.label.toLowerCase()}.</p>
-    <label className="incident-trend-selector" htmlFor={`${id}-view`}>
+    {!report && <label className="incident-trend-selector" htmlFor={`${id}-view`}>
       <span className="sr-only">Group incident trend</span>
       <select id={`${id}-view`} value={view} onChange={(event) => {
         const option = incidentTrendViews.find((item) => item.value === event.target.value)
         if (option) setView(option.value)
       }}>{incidentTrendViews.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
-    </label>
+    </label>}
     {onPeriodChange && <div className="safety-window-toggle" role="group" aria-label="Incident Trend reporting period">
       {([30, 90, 'all'] as const).map((period) => <button type="button" key={period}
         className="button button-outline button-small" disabled={disabled}
@@ -47,8 +48,9 @@ export function IncidentTrendChart({ snapshot, onPeriodChange, disabled = false 
         <small>{grouped?.omitted ? 'Matching records lack a valid company-defined value for this grouping.' : 'No incidents, near misses or actual closures match the selected reporting period.'}</small>
       </div> : <div className="incident-trend-scroll" tabIndex={0} role="region" aria-label="Incident trend grouped bar chart">
         <div className="incident-trend-plot" style={{ minWidth: Math.max(520, grouped.points.length * 110) }}>
-          <ResponsiveContainer width="100%" height={350}>
-            <BarChart data={grouped.points} accessibilityLayer margin={{ top: 16, right: 16, bottom: 30, left: 12 }} barGap={4}>
+          <ResponsiveContainer width={report ? Math.max(760, grouped.points.length * 110) : '100%'} height={350}>
+            <BarChart width={report ? Math.max(760, grouped.points.length * 110) : undefined} height={report ? 350 : undefined}
+              data={grouped.points} accessibilityLayer margin={{ top: 16, right: 16, bottom: 30, left: 12 }} barGap={4}>
               <CartesianGrid strokeDasharray="3 4" vertical={false} stroke="var(--line)" />
               <XAxis dataKey="label" interval={0} angle={-12} textAnchor="end" height={75}
                 tick={{ fill: 'var(--muted)', fontSize: 12 }} stroke="var(--muted)"
