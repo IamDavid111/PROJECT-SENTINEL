@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { incidentEvidenceMetadataSchema, incidentSubmissionSchema } from './incidentSchemas'
 import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentPerson, IncidentStatus, IncidentSummary, IncidentSubmissionInput } from './incidentTypes'
+import { incidentSeverityFilterPatterns, openIncidentStatuses } from '../../../supabase/functions/_shared/incidentReportFilters'
 
 const defaultPageSize = 25
 const megabyte = 1024 * 1024
@@ -191,11 +192,15 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
 
   if (scope === 'own') query = query.or(`created_by.eq.${context.userId},reported_by.eq.${context.userId}`)
 
-  if (filters.status === 'open') query = query.neq('status', 'draft').neq('status', 'closed')
+  if (filters.status === 'open') query = query.in('status', openIncidentStatuses())
   else if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
   if (filters.reportType && filters.reportType !== 'all') query = query.eq('report_type', filters.reportType)
   if (filters.incidentCategory && filters.incidentCategory !== 'all') query = query.eq('incident_category', filters.incidentCategory)
-  if (filters.severity && filters.severity !== 'all') query = query.eq('severity', filters.severity)
+  if (filters.severity && filters.severity !== 'all') {
+    const patterns = incidentSeverityFilterPatterns(filters.severity)
+    if (patterns.length === 1) query = query.ilike('severity', patterns[0])
+    else if (patterns.length > 1) query = query.or(patterns.map((pattern) => `severity.ilike.${pattern}`).join(','))
+  }
   if (filters.siteId && filters.siteId !== 'all') query = query.eq('site_id', filters.siteId)
   if (filters.department && filters.department !== 'all') query = query.eq('department', filters.department)
   if (filters.search) {

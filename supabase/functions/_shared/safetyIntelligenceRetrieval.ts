@@ -7,6 +7,7 @@ import {
   hasOrganizationIncidentVisibility, safetyCompanySettingsSchema, isExcludedSyntheticSafetyIncident,
   type SafetyCoverage, type SafetyDataset, type SafetyFilters, type SafetyScope,
 } from './safetyIntelligenceContracts.ts'
+import { isDraftIncidentStatus } from './incidentReportFilters.ts'
 
 export class SafetyRetrievalError extends Error {
   constructor() {
@@ -72,7 +73,7 @@ export async function retrieveSafetyDataset(
   const org = context.organizationId
   // Only the caller's anon-key/token client is accepted. No privileged client is created here.
   const [incidents, actions, investigations, causes, findings, closures, sites, facilities, settingsResult] = await Promise.all([
-    readPages(client, org, 'incidents', 'id,organization_id,reference_number,title,report_type,status,reported_at,site_id,facility_id,department,severity,potential_severity,incident_category,client_submission_id,digital_signature', safetyIncidentSchema, 'id', limits, true),
+    readPages(client, org, 'incidents', 'id,organization_id,reference_number,title,report_type,status,occurred_at,reported_at,site_id,facility_id,department,severity,potential_severity,incident_category,client_submission_id,digital_signature', safetyIncidentSchema, 'id', limits),
     readPages(client, org, 'corrective_actions', 'id,organization_id,incident_id,title,status,due_date', safetyActionSchema, 'id', limits),
     readPages(client, org, 'investigations', 'id,organization_id,incident_id,status,completed_at,findings_summary', safetyInvestigationSchema, 'id', limits),
     readPages(client, org, 'investigation_root_causes', 'id,organization_id,investigation_id,root_cause_statement,cause_category', safetyCauseSchema, 'id', limits),
@@ -91,14 +92,16 @@ export async function retrieveSafetyDataset(
   for (const page of Object.values(pages)) {
     if (page.rows.some((row) => row.organization_id !== org)) throw new SafetyRetrievalError()
   }
-  const scopedIncidents = incidents.rows.filter((row) => row.status !== 'draft'
-    && (!filters.siteId || row.site_id === filters.siteId))
+  const scopedIncidents = incidents.rows.filter((row) => !filters.siteId || row.site_id === filters.siteId)
   const syntheticCount = scopedIncidents.filter(isExcludedSyntheticSafetyIncident).length
-  const visibleIncidents = scopedIncidents.filter((row) => !isExcludedSyntheticSafetyIncident(row))
+  const visiblePlanningIncidents = scopedIncidents.filter((row) => !isExcludedSyntheticSafetyIncident(row))
+  const visibleIncidents = visiblePlanningIncidents.filter((row) => !isDraftIncidentStatus(row.status))
   const incidentIds = new Set(visibleIncidents.map((row) => row.id))
+  const planningIncidentIds = new Set(visiblePlanningIncidents.map((row) => row.id))
   const visibleInvestigations = investigations.rows.filter((row) => incidentIds.has(row.incident_id))
   const investigationIds = new Set(visibleInvestigations.map((row) => row.id))
   const siteIds = new Set(visibleIncidents.map((row) => row.site_id))
+  const planningSiteIds = new Set(visiblePlanningIncidents.map((row) => row.site_id))
   const facilityIds = new Set(visibleIncidents.map((row) => row.facility_id))
   // An assigned action/investigation may be readable while its parent incident is not.
   // Intersect both permissions before any such data can enter shared/model context.
@@ -113,6 +116,7 @@ export async function retrieveSafetyDataset(
     facilities: facilities.rows.filter((row) => facilityIds.has(row.id)
       && (!filters.siteId || row.site_id === filters.siteId)),
   }
+  const planningActions = actions.rows.filter((row) => planningIncidentIds.has(row.incident_id))
   const coverage: SafetyCoverage[] = (Object.keys(pages) as Array<keyof typeof pages>).map((source) => ({
     source, retrieved: source === 'incidents' ? scopedIncidents.length : rows[source].length, included: rows[source].length,
     complete: pages[source].complete,
@@ -120,7 +124,10 @@ export async function retrieveSafetyDataset(
     reasons: [
       ...(pages[source].complete ? [] : ['Authorized source exceeded the retrieval limit.']),
       ...(source === 'incidents' && syntheticCount ? [`${syntheticCount} confirmed synthetic incident records are excluded from operational analytics.`] : []),
+      ...(source === 'incidents' && visiblePlanningIncidents.some((row) => isDraftIncidentStatus(row.status))
+        ? ['Visible draft reports are included in planning counts only.'] : []),
     ],
   }))
-  return { rows, coverage, companySettings: settings.data }
+  const planningSites = sites.rows.filter((row) => planningSiteIds.has(row.id))
+  return { rows, incidentList: scopedIncidents, planningIncidents: visiblePlanningIncidents, planningActions, planningSites, coverage, companySettings: settings.data }
 }

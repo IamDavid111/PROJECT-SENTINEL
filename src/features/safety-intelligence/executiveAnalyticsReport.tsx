@@ -119,7 +119,7 @@ export async function prepareExecutiveAnalyticsReport(
     evidence: Array.from(card.querySelectorAll('.safety-kpi-description')).map(text).join(' '),
     ...(reportColors[Object.keys(reportColors).find((tone) => card.classList.contains(`safety-kpi-${tone}`)) ?? 'blue']),
   }))
-  if (kpis.length !== 11 || kpis.some((card) => !card.title || !card.value)) {
+  if (kpis.length !== 10 || kpis.some((card) => !card.title || !card.value)) {
     throw new Error('The analytics report is incomplete. No file was generated.')
   }
   const blocks: ReportBlock[] = []

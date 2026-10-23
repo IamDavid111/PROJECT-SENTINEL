@@ -365,10 +365,11 @@ source for future cards and assistant numerical evidence:
 - Near misses compare month-to-date with the same elapsed portion of the previous month, capped at
   its end. A zero baseline has no percentage. Increased reporting does not prove increased danger.
 - Category shares include uncategorized events in the denominator; no hazard taxonomy is invented.
-- Facility/site rankings remain separate: open Critical, open High, total High/Critical, total reports,
-  then name/ID. Old open backlog, recent counts and authorized overdue-action drivers are separate inputs
-  for later planning/guidance batches. Date-only actions become overdue after their UTC due day ends;
-  verified/closed actions are terminal. Missing due dates remain disclosed.
+- Top 3 High-Risk Sites rows count every report type in the selected `reported_at` window by the
+  authorized site ID. Any non-draft status other than `closed` is open; severity labels are normalized
+  case-insensitively. Ranking is open Critical, open High, then site name/ID. Other snapshot location
+  aggregates and planning inputs retain their existing definitions. Date-only actions become overdue
+  after their UTC due day ends; verified/closed actions are terminal. Missing due dates remain disclosed.
 - Resolution uses `reported_at` to trusted `incident_closures.closed_at`, grouped by closure window.
   Legacy records without evidence and invalid durations are excluded with counts. No `updated_at`
   substitutes or fabricated backfills. Comparisons use consecutive equal-duration closure windows.
@@ -443,7 +444,7 @@ analytics view. Each export refreshes the existing permission-protected snapshot
 displayed data, verifies its user/organization/site/window scope, and reads the organization name
 through caller RLS. PDF and DOCX are genuine files generated with the existing jsPDF/docx libraries.
 Print opens an isolated report frame with print-specific styling, not the application shell.
-Reports reuse all eleven actual KPI cards, site evidence/recommendations and all priority planning
+Reports reuse all ten actual KPI cards, site evidence/recommendations and all priority planning
 sites (including expandable rows), with coverage limitations, UTC timestamps and selected-period
 boundaries. Unavailable metrics remain unavailable; failed authorization or retrieval produces no download.
 Browser print headers/footers and printer selection remain browser-controlled.
@@ -510,11 +511,9 @@ Outstanding Actions counts distinct authorized linked actions in the current bac
 the reporting window; verified and closed are terminal, while pending verification/rework remains open.
 Caller-visible and incomplete action coverage are explicitly disclosed.
 
-Corrective Action On-Time Closure is unavailable: actions have `due_date`, `completion_date` and
-`verification_date`, but no reliable actual closure date. Completion is submission for verification,
-and verification can approve or reject work. Neither is substituted for closure, so no compliance
-percentage is produced. New count fields are additive; older deployed snapshots retain the existing
-cards and show the added counts as unavailable until the endpoint is updated.
+Corrective Action On-Time Closure is not shown because actions do not have a reliable actual closure
+date. Completion is submission for verification, and verification can approve or reject work. Neither
+is substituted for closure or treated as a compliance percentage.
 
 [SafetyKpiCards](src/features/safety-intelligence/SafetyKpiCards.tsx) displays only shared snapshot
 results: deterministic risk index, high-risk count/open count, comparable month-to-date near-miss
@@ -539,10 +538,11 @@ existing authorized snapshot without another endpoint/provider call. The
 and stable tie-breaks, selects up to three locations with High/Critical reports, and never mixes
 facilities with sites. Incomplete classifications/locations withhold a reliable ranking.
 
-Guidance explains actual open High/Critical report counts, closed high-risk report history and known
-overdue action drivers. It is rule-based, advisory and explicitly not AI-generated; it invents no causes
-or completed actions. Each item identifies its snapshot aggregate source and presents up to three
-authorized supporting incident examples where available. Bounded/missing excerpts are disclosed;
+Guidance explains actual open High/Critical report counts and closed high-risk report history. The
+Top 3 High-Risk Sites advisory uses incident-based drivers only; overdue corrective-action drivers and
+backlog disclaimers are excluded. It is rule-based, advisory and explicitly not AI-generated; it invents
+no causes or completed actions. Each item identifies its snapshot aggregate source and presents up to
+three authorized supporting incident examples where available. Bounded/missing excerpts are disclosed;
 incident examples are not claimed to prove a particular action is overdue. Detail links use authorized
 IDs and existing detail-route access checks. No records are modified, and no inference of compliance
 or trained prediction is made. Related cause text is not called a verified recurring cause without
@@ -553,27 +553,35 @@ npx --yes deno test --no-lock --config supabase\functions\deno.json supabase\fun
 node scripts\test-safety-intelligence-shell.mjs
 ```
 
-### Fourteen-day planning indicators (Batch 7)
+### Fourteen-day planning outlook (Batch 7)
 
-[Shared planning indicators](supabase/functions/_shared/safetyPlanningIndicators.ts) and the
-[planning panel](src/features/safety-intelligence/SafetyPlanningOutlook.tsx) reuse existing authorized
-snapshot inputs; no new provider calls, endpoints or database writes are required.
-This is a deterministic view of current priorities for the next 14 days, not a trained prediction,
-probability, confidence estimate or authoritative forecast.
+[Shared planning calculations](supabase/functions/_shared/safetyIntelligenceCalculations.ts),
+[planning selector](supabase/functions/_shared/safetyPlanningIndicators.ts) and
+[planning table](src/features/safety-intelligence/SafetyPlanningOutlook.tsx) use caller-authorized
+`incidents`, `corrective_actions` and `sites` rows. The table contains Site, Observed Drivers and
+Preventive Advice only; there is no Low/Medium/High planning-indicator column.
 
-- High: open Critical report or overdue unfinished action linked to a Critical report.
-- Medium: otherwise open High, High/Critical reported within the latest 14 days, or overdue unfinished action.
-- Low: no observed qualifying drivers, with complete usable evidence and at least 10 classified reports
-  within 90 days. Low does not assure safety.
-- Sparse history shows insufficient history. Missing dates/classifications, incomplete retrieval,
-  unavailable facility assignments or caller-visible-only action coverage show incomplete evidence.
-  Known High/Medium drivers remain visible as observed priorities, never complete indicators.
-- The evidence window is always 90 days and recent reporting window 14 days, independent of the
-  30/90-day KPI toggle. Current backlog includes older open incidents/actions. Facilities and sites
-  are never mixed; site fallback applies only when no facility cohort is available. Only referenced,
-  authorized locations with evidence/backlog are represented, not every site with no records.
-- Each location displays actual counts, preventive human-review guidance, methodology and source/coverage
-  limitations. Advice does not invent causes, close reports or complete/verify actions.
+- Planning counts use the same site ID and shared severity/status normalization as Incident Management.
+  They include all report types and visible drafts; any status other than closed/resolved is open.
+- Open Critical/High counts use actual severity and current open status, without a 14-day or 90-day
+  report-date cutoff. Non-overdue unfinished actions require a valid due date on or after the current
+  UTC date; completed/verified/closed actions are excluded. Critical-linked actions are unfinished
+  actions whose parent report is currently open Critical.
+- Draft-inclusive planner rows are isolated from standard snapshot rows, KPIs, risk calculations and
+  Copilot location context. RLS, organization predicates, site IDs and synthetic-record exclusions remain
+  authoritative. Missing due dates are excluded from non-overdue counts and explicitly disclosed.
+- The advisory is generated from observed counts: Critical reports/actions are prioritized, followed by
+  High reports and other unfinished actions. Recommendations call for risk review, owner/due-date
+  confirmation, control effectiveness verification and management review. Hierarchy-of-controls actions
+  are considered before administrative controls/PPE; applicable site/sector guidance should be used where
+  relevant. No causes or standard clauses are invented.
+- The outlook is current deterministic prioritization for the next 14 days, not a trained prediction,
+  probability, confidence estimate or authoritative forecast. Incomplete caller-visible/retrieval coverage
+  is disclosed. An older deployed endpoint that omits `planningSites` reports planning counts unavailable.
+
+Six qualifying sites are shown initially; expansion includes all additional authorized sites. Order is
+open Critical, Critical-linked unfinished actions, open High, remaining non-overdue unfinished actions,
+then site name and ID.
 
 ```powershell
 npx --yes deno test --no-lock --config supabase\functions\deno.json supabase\functions\safety-intelligence\planning_test.ts
@@ -853,7 +861,7 @@ npm run build
 ### Screenshot-inspired Safety Intelligence interface
 
 The local interface now uses compact six-card intelligence summaries, paired ranked-location and
-advisory-recommendation panels, and a facility planning table. Calculation details, source examples,
+advisory-recommendation panels, and a site planning table. Calculation details, source examples,
 recommendation drivers and coverage notices remain available in expandable disclosures rather than
 being removed. All displayed figures still come from the existing authorized canonical snapshot.
 
@@ -866,24 +874,19 @@ Screenshot claims about document/regulatory knowledge, hourly model refresh and 
 copied because those capabilities do not exist.
 
 The [priority outlook selector](src/features/safety-intelligence/safetyPlanningView.ts) is a presentation
-filter, not a new risk model. A location qualifies through an existing High indicator/observed High
-priority, open High backlog, or known overdue unfinished actions. Incomplete/sparse history remains
-explicit even when urgent drivers qualify. Recent High/Critical reporting alone without urgent
-backlog does not qualify this focused view. Facilities are preferred, with the existing site fallback
-when no facility cohort exists.
+filter over the shared site metrics. A site qualifies when any of its open Critical, open High,
+non-overdue unfinished-action or Critical-linked unfinished-action counts is positive. It does not
+substitute facility groupings for site IDs. Incomplete source or caller-visible-only action coverage is
+shown as a limitation; omitted sites are not declared safe.
 
-Show six qualifying locations initially; Show more includes every additional authorized qualifying
-location, not just another fixed slice. Ordering uses open Critical backlog, overdue Critical-linked
-actions, open High backlog, overdue actions, recent High/Critical counts, name and ID. The unchanged
-top-three reporting-window panel remains separate from this 90-day/14-day planning outlook.
-Omitted locations are not declared safe, and incomplete retrieval is not treated as complete coverage.
+Show six qualifying sites initially; Show more includes every additional authorized site. Ordering uses
+open Critical reports, Critical-linked unfinished actions, open High reports, remaining non-overdue
+unfinished actions, site name and ID. The Top 3 reporting-window panel remains separate.
 
-Render tests cover filtering, sparse urgent history, overdue-only drivers, ordering/ties and
-six-row/all-row expansion. Browser checks verified six of 30 real qualifying facilities, expansion
-to all 30 and collapse, prompt selection without sending, desktop two-column conversation/tools,
-mobile single-column cards/chat, and local table scrolling without page overflow.
-No backend methodology, migration/deployment, paid provider calls or official record changes occur
-as part of this visual update.
+Tests cover draft-only retrieval isolation, all report types, status/severity normalization, date
+boundaries, action linkage, advisory order, three-column rendering, and six-row/all-row expansion.
+The planning table remains inside its horizontal scroll region on narrow screens; no other dashboard
+sections are changed.
 
 ## Phase 1 AI foundation
 

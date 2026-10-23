@@ -11,23 +11,26 @@ const guidanceSchema = z.object({
     recommendations: z.array(z.object({
       driver: z.string(), advice: z.string(), source: z.enum(['incident_counts', 'action_counts']),
     })),
-    actionCoverageNote: z.string(),
   })).max(3),
 })
 export type SafetyLocationGuidance = z.infer<typeof guidanceSchema>
 
 // Reusable by the page and later assistant: advice uses canonical counts, never invented causes.
-export function buildSafetyLocationGuidance(snapshot: SafetySnapshot): SafetyLocationGuidance {
+export function buildSafetyLocationGuidance(
+  snapshot: SafetySnapshot, { includeActionDrivers = true }: { includeActionDrivers?: boolean } = {},
+): SafetyLocationGuidance {
   const complete = (source: SafetySnapshot['coverage'][number]['source']) =>
     snapshot.coverage.some((entry) => entry.source === source && entry.complete)
-  const sites = snapshot.locations.filter((entry) => entry.level === 'site' && entry.count > 0)
+  const sites = snapshot.locations.filter((entry) => entry.level === 'site')
   const retrievalComplete = complete('incidents') && complete('sites')
   if (!retrievalComplete) return guidanceSchema.parse({
     origin: 'deterministic', authoritative: false, state: 'incomplete', locations: [],
     reasons: ['Incident and site retrieval must be complete before ranking assigned sites.'],
   })
-  const candidates = sites.filter((entry) => entry.highRiskCount > 0).slice(0, 3)
-  const actionCoverage = snapshot.coverage.find((entry) => entry.source === 'actions')
+  const candidates = sites.filter((entry) => entry.openCriticalCount + entry.openHighCount > 0)
+    .sort((a, b) => b.openCriticalCount - a.openCriticalCount || b.openHighCount - a.openHighCount
+      || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+    .slice(0, 3)
   const locations = candidates.map((location) => {
     const authorizedIds = new Set(location.evidenceIncidentIds)
     const evidence = snapshot.evidence.filter((item) => item.source === 'incidents'
@@ -44,18 +47,12 @@ export function buildSafetyLocationGuidance(snapshot: SafetySnapshot): SafetyLoc
       driver: `${location.highRiskCount} High/Critical reports in this reporting window; none are currently open.`,
       advice: 'Review the recorded investigations and closure evidence for these high-risk reports to identify supported follow-up lessons. Do not assume a common root cause.',
     })
-    if (location.overdueActions) recommendations.push({
+    if (includeActionDrivers && location.overdueActions) recommendations.push({
       source: 'action_counts',
       driver: `${location.overdueActions} known overdue corrective actions in the current authorized backlog.`,
       advice: 'Review the existing overdue actions with their responsible owners, confirm their workflow status and prioritize follow-up. This guidance does not complete or verify an action.',
     })
-    return {
-      location, evidence, recommendations,
-      actionCoverageNote: !actionCoverage?.complete ? 'Action retrieval is incomplete; overdue counts are known counts only.'
-        : actionCoverage.access !== 'organization' ? 'Action counts cover only the records you can access, not all organization actions.'
-          : location.invalidActionDueDates ? 'Some action due dates are missing or invalid; overdue counts exclude those actions.'
-            : 'Action counts use authorized current backlog, including older reports.',
-    }
+    return { location, evidence, recommendations }
   })
   return guidanceSchema.parse({
     origin: 'deterministic', authoritative: false,

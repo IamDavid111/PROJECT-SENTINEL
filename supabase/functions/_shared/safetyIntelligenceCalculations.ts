@@ -3,12 +3,16 @@ import {
   safetySnapshotSchema, safetyMethodologyVersion, isExcludedSyntheticSafetyIncident,
   type SafetyDataset, type SafetyFilters, type SafetyIncident, type SafetyScope, type SafetySnapshot,
 } from './safetyIntelligenceContracts.ts'
+import {
+  isActionDueNotPassed, isClosedIncidentStatus, isDraftIncidentStatus, isOpenIncidentStatus,
+  isUnfinishedCorrectiveActionStatus, normalizeIncidentReportType, normalizeIncidentSeverity,
+} from './incidentReportFilters.ts'
 
 const day = 86_400_000
-const severityRanks: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 }
+const severityRanks = { low: 1, medium: 2, high: 3, critical: 4 } as const
 
 export function effectiveSafetySeverity(actual: string | null, potential: string | null): number | null {
-  const supplied = [actual, potential].flatMap((value) => value?.trim() ? [value.trim().toLowerCase()] : [])
+  const supplied = [actual, potential].flatMap((value) => value?.trim() ? [normalizeIncidentSeverity(value)] : [])
   if (!supplied.length || supplied.some((value) => !Object.hasOwn(severityRanks, value))) return null
   return Math.max(...supplied.map((value) => severityRanks[value]))
 }
@@ -23,7 +27,7 @@ function between(value: string | null, start: number, end: number) {
   const time = timestamp(value)
   return time !== null && time >= start && time < end
 }
-function isOpen(incident: SafetyIncident) { return incident.status !== 'draft' && incident.status !== 'closed' }
+function isOpen(incident: SafetyIncident) { return isOpenIncidentStatus(incident.status) }
 function severity(incident: SafetyIncident) { return effectiveSafetySeverity(incident.severity, incident.potential_severity) }
 function isHigh(incident: SafetyIncident) { return (severity(incident) ?? 0) >= 3 }
 function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null }
@@ -61,9 +65,15 @@ export function calculateSafetySnapshot(
   for (const collection of Object.values(rows)) {
     if (collection.some((row) => row.organization_id !== scope.organizationId)) throw new Error('Snapshot scope mismatch.')
   }
+  if (dataset.planningIncidents?.some((row) => row.organization_id !== scope.organizationId)
+    || dataset.planningActions?.some((row) => row.organization_id !== scope.organizationId)) throw new Error('Snapshot scope mismatch.')
+  if (dataset.incidentList?.some((row) => row.organization_id !== scope.organizationId)) throw new Error('Snapshot scope mismatch.')
   if (dataset.companySettings && dataset.companySettings.organization_id !== scope.organizationId) throw new Error('Snapshot settings scope mismatch.')
   const incidents = rows.incidents.filter((row) => row.status !== 'draft' && !isExcludedSyntheticSafetyIncident(row)
     && (!scope.siteId || row.site_id === scope.siteId))
+  const planningIncidents = (dataset.planningIncidents ?? rows.incidents).filter((row) =>
+    !isExcludedSyntheticSafetyIncident(row) && (!scope.siteId || row.site_id === scope.siteId))
+  const planningActions = dataset.planningActions ?? rows.actions
   const observed = incidents.filter((row) => {
     const reported = timestamp(row.reported_at)
     return reported === null || reported < end
@@ -85,8 +95,12 @@ export function calculateSafetySnapshot(
     ...(futureReportedAt ? ['Reports at or after the snapshot cutoff are excluded.'] : []),
   ]
   const uncertainReporting = !sourceComplete('incidents') || missingReportedAt > 0
-  const selectedIncidents = [...new Map(selected.filter((row) => row.report_type === 'incident')
+  const incidentListRows = [...new Map((dataset.incidentList ?? dataset.planningIncidents ?? rows.incidents)
+    .filter((row) => (!scope.siteId || row.site_id === scope.siteId)
+      && (allTime || between(row.occurred_at, start, end)))
     .map((row) => [row.id, row])).values()]
+  const draftCount = incidentListRows.filter((row) => isDraftIncidentStatus(row.status)).length
+  const nearMissCount = incidentListRows.filter((row) => normalizeIncidentReportType(row.report_type) === 'near_miss').length
   // Outstanding means unfinished under the existing workflow, including work awaiting verification.
   // It is a current backlog, not actions attached only to newly reported incidents.
   const outstandingActions = [...new Map(actions.map((row) => [row.id, row])).values()]
@@ -148,11 +162,15 @@ export function calculateSafetySnapshot(
   ]
 
   const location = (level: 'facility' | 'site', id: string, name: string) => {
-    const atLocation = observed.filter((row) => row.site_id === id && row.report_type === 'incident')
+    const atLocation = observed.filter((row) => row.site_id === id)
+    const atLocationIncidents = atLocation.filter((row) => row.report_type === 'incident')
     const windowReports = atLocation.filter((row) => between(row.reported_at, start, end))
-    const indicatorReports = atLocation.filter((row) => between(row.reported_at, indicatorStart, end))
-    const locationIds = new Set(atLocation.map((row) => row.id))
+    const windowIncidents = atLocationIncidents.filter((row) => between(row.reported_at, start, end))
+    const incidentIndicatorReports = atLocationIncidents.filter((row) => between(row.reported_at, indicatorStart, end))
+    const locationIds = new Set(atLocationIncidents.map((row) => row.id))
     const locationActions = actions.filter((row) => locationIds.has(row.incident_id))
+    const planningAtLocation = planningIncidents.filter((row) => row.site_id === id)
+    const planningById = new Map(planningAtLocation.map((row) => [row.id, row]))
     let invalidActionDueDates = 0
     const overdue = locationActions.filter((row) => {
       if (row.status === 'verified' || row.status === 'closed') return false
@@ -163,24 +181,24 @@ export function calculateSafetySnapshot(
       return due + day <= end
     })
     return {
-      level, id, name, count: windowReports.length,
-      highRiskCount: windowReports.filter(isHigh).length,
+      level, id, name, count: windowIncidents.length,
+      highRiskCount: windowIncidents.filter(isHigh).length,
       openHighCount: windowReports.filter((row) => isOpen(row) && severity(row) === 3).length,
       openCriticalCount: windowReports.filter((row) => isOpen(row) && severity(row) === 4).length,
       overdueActions: overdue.length,
-      unclassified: indicatorReports.filter((row) => severity(row) === null).length,
-      recentHighRiskCount: atLocation.filter((row) => isHigh(row) && between(row.reported_at, recentStart, end)).length,
-      indicatorSampleSize: indicatorReports.filter((row) => severity(row) !== null).length,
-      backlogOpenCritical: atLocation.filter((row) => isOpen(row) && severity(row) === 4).length,
-      backlogOpenHigh: atLocation.filter((row) => isOpen(row) && severity(row) === 3).length,
-      backlogUnclassified: atLocation.filter((row) => isOpen(row) && severity(row) === null).length,
-      missingReportedAt: atLocation.filter((row) => timestamp(row.reported_at) === null).length,
+      unclassified: incidentIndicatorReports.filter((row) => severity(row) === null).length,
+      recentHighRiskCount: atLocationIncidents.filter((row) => isHigh(row) && between(row.reported_at, recentStart, end)).length,
+      indicatorSampleSize: incidentIndicatorReports.filter((row) => severity(row) !== null).length,
+      backlogOpenCritical: atLocationIncidents.filter((row) => isOpen(row) && severity(row) === 4).length,
+      backlogOpenHigh: atLocationIncidents.filter((row) => isOpen(row) && severity(row) === 3).length,
+      backlogUnclassified: atLocationIncidents.filter((row) => isOpen(row) && severity(row) === null).length,
+      missingReportedAt: atLocationIncidents.filter((row) => timestamp(row.reported_at) === null).length,
       overdueCriticalActions: overdue.filter((row) => {
         const parent = byId.get(row.incident_id)
         return parent && severity(parent) === 4
       }).length,
       invalidActionDueDates,
-      evidenceIncidentIds: windowReports.filter(isHigh).map((row) => row.id).sort().slice(0, 20),
+      evidenceIncidentIds: windowIncidents.filter(isHigh).map((row) => row.id).sort().slice(0, 20),
     }
   }
   const compareLocations = (a: SafetySnapshot['locations'][number], b: SafetySnapshot['locations'][number]) =>
@@ -190,6 +208,30 @@ export function calculateSafetySnapshot(
   const sites = rows.sites.filter((row) => !scope.siteId || row.id === scope.siteId)
     .map((row) => location('site', row.id, row.name))
   const locations = sites.sort(compareLocations)
+  const planningRows = planningIncidents.filter((row) => row.site_id && (!scope.siteId || row.site_id === scope.siteId))
+  const planningSites = (dataset.planningSites ?? rows.sites).filter((row) => !scope.siteId || row.id === scope.siteId).map((site) => {
+    const reports = planningRows.filter((row) => row.site_id === site.id)
+    const reportIds = new Set(reports.map((row) => row.id))
+    const openCriticalIds = new Set(reports.filter((row) => isOpenIncidentStatus(row.status, true)
+      && normalizeIncidentSeverity(row.severity) === 'critical').map((row) => row.id))
+    const unfinished = planningActions.filter((row) => reportIds.has(row.incident_id)
+      && isUnfinishedCorrectiveActionStatus(row.status))
+    const missingDue = (dueDate: string | null) => {
+      if (typeof dueDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return true
+      const parsed = new Date(`${dueDate}T00:00:00.000Z`)
+      return !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dueDate
+    }
+    return {
+      id: site.id, name: site.name,
+      openCritical: reports.filter((row) => isOpenIncidentStatus(row.status, true)
+        && normalizeIncidentSeverity(row.severity) === 'critical').length,
+      openHigh: reports.filter((row) => isOpenIncidentStatus(row.status, true)
+        && normalizeIncidentSeverity(row.severity) === 'high').length,
+      nonOverdueUnfinishedActions: unfinished.filter((row) => isActionDueNotPassed(row.due_date, asOf)).length,
+      criticalLinkedUnfinishedActions: unfinished.filter((row) => openCriticalIds.has(row.incident_id)).length,
+      unfinishedActionsMissingDueDate: unfinished.filter((row) => missingDue(row.due_date)).length,
+    }
+  })
 
   const evidence: SafetySnapshot['evidence'] = []
   let characters = 0
@@ -280,9 +322,11 @@ export function calculateSafetySnapshot(
     metrics: {
       incidentCounts: {
         state: uncertainReporting ? 'incomplete' : 'available', reasons: reportReasons,
-        total: selectedIncidents.length,
-        open: selectedIncidents.filter(isOpen).length,
-        closed: selectedIncidents.filter((row) => row.status === 'closed').length,
+        total: incidentListRows.length,
+        open: incidentListRows.filter((row) => !isClosedIncidentStatus(row.status)).length,
+        closed: incidentListRows.filter((row) => isClosedIncidentStatus(row.status)).length,
+        drafts: draftCount,
+        nearMiss: nearMissCount,
       },
       outstandingActions: {
         state: sourceComplete('incidents', 'actions') ? 'available' : 'incomplete',
@@ -294,7 +338,7 @@ export function calculateSafetySnapshot(
       category: { state: uncertainReporting ? 'incomplete' : category ? 'available' : 'unavailable', reasons: [...reportReasons, ...(!category ? ['No categorized reports in this window.'] : [])], label: category?.[0] ?? null, count: category?.[1] ?? 0, share: category && !uncertainReporting ? 100 * category[1] / selected.length : null, denominator: selected.length },
       resolution: { state: !resolutionComplete ? 'incomplete' : durations.length ? 'available' : 'insufficient', reasons: resolutionReasons, averageDays, previousAverageDays, changeDays: averageDays !== null && previousAverageDays !== null ? averageDays - previousAverageDays : null, sampleSize: durations.length, previousSampleSize: previousDurations.length, legacyClosedWithoutEvidence, invalidDurations },
     },
-    locations, evidence, evidenceTruncated,
+    locations, planningSites, evidence, evidenceTruncated,
     limitations: [
       'Read-only live observations, not a transactionally frozen historical snapshot.',
       'Only caller-authorized records are represented; invisible record totals are not disclosed.',

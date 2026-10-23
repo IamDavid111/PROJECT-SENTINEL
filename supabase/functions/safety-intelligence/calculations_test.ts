@@ -1,10 +1,50 @@
 import { calculateSafetySnapshot, effectiveSafetySeverity } from '../_shared/safetyIntelligenceCalculations.ts'
-import { safetyFiltersSchema, safetySnapshotSchema } from '../_shared/safetyIntelligenceContracts.ts'
+import { safetyFiltersSchema, safetyIncidentSchema, safetyResponseSchema, safetySnapshotSchema } from '../_shared/safetyIntelligenceContracts.ts'
+import {
+  incidentSeverityFilterPatterns, isActionDueNotPassed, isOpenIncidentStatus,
+  isUnfinishedCorrectiveActionStatus, normalizeIncidentReportType, normalizeIncidentSeverity, normalizeIncidentStatus,
+} from '../_shared/incidentReportFilters.ts'
 import { asOf, assert, dataset, equal, id, incident, org, scope, site } from './fixtures_test.ts'
 
 const snapshot = (data = dataset(), date = asOf) => calculateSafetySnapshot(data, scope, { days: 90 }, date)
 
-Deno.test('synthetic incidents never enter operational counts or linked action backlog', () => {
+Deno.test('older deployed snapshots without Drafts remain valid responses', () => {
+  const legacy = snapshot()
+  delete legacy.metrics.incidentCounts?.drafts
+  assert(safetyResponseSchema.safeParse({ ok: true, requestId: id(99), snapshot: legacy }).success,
+    'Legacy incidentCounts without drafts should remain response-compatible')
+})
+
+Deno.test('Drafts KPI counts authorized planning incidents excluded from operational rows', () => {
+  const submitted = incident(0)
+  const draft = incident(1, { status: 'draft' })
+  const data = dataset([submitted])
+  data.planningIncidents = [submitted, draft]
+
+  const result = snapshot(data)
+  equal(result.metrics.incidentCounts?.total, 2)
+  equal(result.metrics.incidentCounts?.open, 2)
+  equal(result.metrics.incidentCounts?.drafts, 1)
+  equal(result.metrics.category.denominator, 1)
+})
+
+Deno.test('incident filters normalize severity and status variants using Incident Management rules', () => {
+  equal(['CRITICAL', 'Critical Risk', 'critical-severity'].map(normalizeIncidentSeverity), ['critical', 'critical', 'critical'])
+  equal(incidentSeverityFilterPatterns('Critical'), ['critical', 'critical%risk', 'critical%severity'])
+  equal(normalizeIncidentStatus('Resolved'), 'closed')
+  equal(normalizeIncidentStatus(' Draft Report '), 'draft')
+  equal(normalizeIncidentStatus('DRAFT'), 'draft')
+  equal(normalizeIncidentReportType('Near Miss'), 'near_miss')
+  equal(normalizeIncidentStatus('Pending Verification'), 'pending_verification')
+  assert(isOpenIncidentStatus('DRAFT', true), 'Draft should be open when explicitly included')
+  assert(!isOpenIncidentStatus('resolved', true), 'Resolved incident counted as open')
+  assert(isUnfinishedCorrectiveActionStatus('Pending Verification'), 'Pending verification action treated as complete')
+  assert(!isUnfinishedCorrectiveActionStatus('Completed'), 'Completed action treated as unfinished')
+  assert(isActionDueNotPassed('2026-10-06', asOf), 'Due today counted overdue')
+  assert(!isActionDueNotPassed('2026-10-05', asOf), 'Past-due action counted non-overdue')
+})
+
+Deno.test('incident-list KPI counts match Incident Management while synthetic records stay out of operational evidence', () => {
   const data = dataset([
     incident(0, { client_submission_id: 'MOCK-EXAMPLE-INCIDENTS-20260929-0001', digital_signature: 'MOCK:MOCK-EXAMPLE-INCIDENTS-20260929' }),
     incident(1, { report_type: 'near_miss' }),
@@ -13,7 +53,8 @@ Deno.test('synthetic incidents never enter operational counts or linked action b
     id: id(300), organization_id: org, incident_id: incident(0).id, title: 'Seed action', status: 'open', due_date: null,
   }]
   const result = snapshot(data)
-  equal(result.metrics.incidentCounts?.total, 0)
+  equal(result.metrics.incidentCounts?.total, 2)
+  equal(result.metrics.incidentCounts?.nearMiss, 1)
   equal(result.metrics.outstandingActions?.count, 0)
   equal(result.incidentTrend?.records.map((row) => row.id), [incident(1).id])
 })
@@ -36,7 +77,7 @@ Deno.test('approved existing evaluation batch restores counts and actions only f
   equal(restored.metrics.outstandingActions?.count, 1)
   for (const collection of Object.values(data.rows)) for (const row of collection) row.organization_id = org
   data.companySettings!.organization_id = org
-  equal(snapshot(data).metrics.incidentCounts?.total, 0)
+  equal(snapshot(data).metrics.incidentCounts?.total, 1)
   equal(snapshot(data).metrics.outstandingActions?.count, 0)
 })
 
@@ -65,7 +106,7 @@ Deno.test('All Time expands only trend history and preserves every other snapsho
   equal(shorter.metrics, before.metrics)
 })
 
-Deno.test('main All Time period includes historical reports, closures and site history without drafts or future reports', () => {
+Deno.test('KPI counts follow Incident Management occurrence-date windows for every report type and status', () => {
     const data = dataset([
       incident(0, { reported_at: '2023-10-01T12:00:00.000Z', status: 'closed', severity: 'High' }),
       incident(1, { reported_at: '2024-02-01T12:00:00.000Z', report_type: 'near_miss' }),
@@ -76,9 +117,11 @@ Deno.test('main All Time period includes historical reports, closures and site h
     data.rows.closures.push({ incident_id: incident(0).id, organization_id: org,
       closed_at: '2024-01-01T12:00:00.000Z', root_cause: 'Recorded cause', corrective_action: 'Recorded action' })
     const all = calculateSafetySnapshot(data, scope, { days: 'all' }, asOf)
-    equal(all.metrics.incidentCounts?.total, 2)
-    equal(all.metrics.incidentCounts?.open, 1)
+    equal(all.metrics.incidentCounts?.total, 5)
+    equal(all.metrics.incidentCounts?.open, 4)
+    equal(all.metrics.incidentCounts?.drafts, 1)
     equal(all.metrics.incidentCounts?.closed, 1)
+    equal(all.metrics.incidentCounts?.nearMiss, 1)
     equal(all.metrics.category.denominator, 3)
     equal(all.metrics.nearMiss.currentCount, 1)
     equal(all.metrics.nearMiss.percentageChange, null)
@@ -89,7 +132,9 @@ Deno.test('main All Time period includes historical reports, closures and site h
     equal(all.windows.reporting.start, '2023-10-01T12:00:00.000Z')
     for (const days of [30, 90] as const) {
       const bounded = calculateSafetySnapshot(data, scope, { days }, asOf)
-      equal(bounded.metrics.incidentCounts?.total, 1)
+      equal(bounded.metrics.incidentCounts?.total, 5)
+      equal(bounded.metrics.incidentCounts?.drafts, 1)
+      equal(bounded.metrics.incidentCounts?.nearMiss, 1)
       equal(bounded.metrics.resolution.sampleSize, 0)
       equal(bounded.incidentTrend?.records.length, 1)
     }
@@ -118,7 +163,10 @@ Deno.test('trend uses independent reporting and actual closure cohorts without a
   equal(trend.records[2].reportedAt, null)
   equal(trend.records[2].closedAt, '2026-10-04T12:00:00.000Z')
   equal(trend.records[1].severity, null)
-  equal(result.metrics.incidentCounts?.total, 1)
+  equal(result.metrics.incidentCounts?.total, 6)
+  equal(result.metrics.incidentCounts?.open, 4)
+  equal(result.metrics.incidentCounts?.drafts, 1)
+  equal(result.metrics.incidentCounts?.nearMiss, 1)
   equal(trend.settings.categories, ['Equipment'])
   equal(trend.settings.departments, ['Fixture Department'])
   data.rows.closures[1].closed_at = asOf.toISOString()
@@ -170,25 +218,30 @@ Deno.test('missing closure dates do not block open or closed submitted reports a
   equal(trend.records.filter((row) => row.closedAt).length, 1)
 })
 
-Deno.test('incident counts use report type, current status and distinct IDs within UTC reporting windows', () => {
+Deno.test('incident counts use distinct IDs, normalized status and occurred_at windows', () => {
   const data = dataset([
-    incident(0, { reported_at: '2026-09-06T12:00:00.000Z', severity: null }),
+    incident(0, { occurred_at: '2026-09-06T12:00:00.000Z', reported_at: '2026-09-06T12:00:00.000Z', severity: null }),
     incident(1, { status: 'closed' }),
     incident(2, { status: 'pending_verification' }),
-    incident(3, { reported_at: '2026-07-08T12:00:00.000Z' }),
-    incident(4, { reported_at: '2026-07-08T11:59:59.999Z' }),
+    incident(3, { occurred_at: '2026-07-08T12:00:00.000Z', reported_at: '2026-07-08T12:00:00.000Z' }),
+    incident(4, { occurred_at: '2026-07-08T11:59:59.999Z', reported_at: '2026-07-08T11:59:59.999Z' }),
     incident(5, { report_type: 'near_miss' }),
     incident(6, { status: 'draft' }),
-    incident(7, { reported_at: asOf.toISOString() }),
+    incident(7, { occurred_at: asOf.toISOString(), reported_at: asOf.toISOString() }),
   ])
+  data.rows.incidents[6] = safetyIncidentSchema.parse({ ...data.rows.incidents[6], status: ' Draft Report ' })
   data.rows.incidents.push(data.rows.incidents[0])
   equal(snapshot(data).metrics.incidentCounts, { state: 'available', reasons: [
     'Reports at or after the snapshot cutoff are excluded.',
-  ], total: 4, open: 3, closed: 1 })
+  ], total: 6, open: 5, closed: 1, drafts: 1, nearMiss: 1 })
+  const allTime = calculateSafetySnapshot(data, scope, { days: 'all' }, asOf).metrics.incidentCounts!
+  equal([allTime.total, allTime.open, allTime.closed, allTime.drafts, allTime.nearMiss], [8, 7, 1, 1, 1])
+  const ninetyDays = calculateSafetySnapshot(data, scope, { days: 90 }, asOf).metrics.incidentCounts!
+  equal([ninetyDays.total, ninetyDays.open, ninetyDays.closed, ninetyDays.drafts, ninetyDays.nearMiss], [6, 5, 1, 1, 1])
   const shorter = calculateSafetySnapshot(data, scope, { days: 30 }, asOf)
-  equal(shorter.metrics.incidentCounts?.total, 3)
-  equal(shorter.metrics.incidentCounts?.open, 2)
-  equal(shorter.metrics.incidentCounts?.closed, 1)
+  equal([shorter.metrics.incidentCounts?.total, shorter.metrics.incidentCounts?.open,
+    shorter.metrics.incidentCounts?.closed, shorter.metrics.incidentCounts?.drafts,
+    shorter.metrics.incidentCounts?.nearMiss], [5, 4, 1, 1, 1])
   equal(snapshot().metrics.incidentCounts?.total, 0)
   data.rows.incidents.push(incident(8, { reported_at: null }))
   equal(snapshot(data).metrics.incidentCounts?.state, 'incomplete')
@@ -320,6 +373,53 @@ Deno.test('site rankings use incident site IDs with current-window counts and ol
   equal(result.locations.find((row) => row.id === id(6))?.backlogOpenCritical, 1)
   equal(result.locations.find((row) => row.id === id(6))?.openCriticalCount, 0)
   equal(result.dataQuality.unassignedFacility, 1)
+})
+
+Deno.test('site open severity counts include all open report types in the 90-day report-date window', () => {
+  const data = dataset([])
+  const siteRows = [
+    { id: id(5), organization_id: org, name: 'Eckert Drilling Site' },
+    { id: id(6), organization_id: org, name: 'Onshore Gas Processing Plant' },
+    { id: id(7), organization_id: org, name: 'Offshore Platform Alpha' },
+    { id: id(8), organization_id: org, name: 'Alpha Site' },
+    { id: id(9), organization_id: org, name: 'High-Volume Site' },
+  ]
+  data.rows.sites.push(...siteRows)
+  const reportTypes = ['incident', 'near_miss', 'unsafe_act', 'unsafe_condition', 'environmental_incident'] as const
+  const openStatuses = ['submitted', 'under_review', 'investigation', 'corrective_action', 'pending_verification'] as const
+  let reportIndex = 0
+  const addReports = (siteId: string, criticalCount: number, highCount: number) => {
+    for (const [classification, count] of [['Critical', criticalCount], ['High', highCount]] as const) {
+      for (let countIndex = 0; countIndex < count; countIndex++) {
+        const firstReport = reportIndex === 0
+        const severity = classification === 'Critical'
+          ? (countIndex % 3 === 0 ? 'CRITICAL' : countIndex % 3 === 1 ? 'critical' : 'Critical')
+          : (countIndex % 2 === 0 ? 'HIGH' : 'High')
+        data.rows.incidents.push(incident(reportIndex, {
+          site_id: siteId, report_type: reportTypes[reportIndex % reportTypes.length],
+          status: openStatuses[reportIndex % openStatuses.length], severity,
+          reported_at: firstReport ? '2026-07-08T12:00:00.000Z' : '2026-10-02T12:00:00.000Z',
+        }))
+        reportIndex++
+      }
+    }
+  }
+  addReports(id(5), 10, 2)
+  addReports(id(6), 9, 1)
+  addReports(id(7), 9, 3)
+  addReports(id(8), 9, 3)
+  addReports(id(9), 8, 5)
+  data.rows.incidents.push(
+    incident(reportIndex++, { site_id: id(5), severity: 'Critical', status: 'closed' }),
+    incident(reportIndex++, { site_id: id(5), severity: 'Critical', status: 'draft' }),
+    incident(reportIndex++, { site_id: id(5), severity: 'Critical', reported_at: '2026-07-08T11:59:59.999Z' }),
+  )
+  const result = snapshot(data)
+  const byName = new Map(result.locations.map((location) => [location.name, location]))
+  equal([byName.get('Eckert Drilling Site')?.openCriticalCount, byName.get('Eckert Drilling Site')?.openHighCount], [10, 2])
+  equal([byName.get('Onshore Gas Processing Plant')?.openCriticalCount, byName.get('Onshore Gas Processing Plant')?.openHighCount], [9, 1])
+  equal([byName.get('Offshore Platform Alpha')?.openCriticalCount, byName.get('Offshore Platform Alpha')?.openHighCount], [9, 3])
+  equal([byName.get('Alpha Site')?.openCriticalCount, byName.get('Alpha Site')?.openHighCount], [9, 3])
 })
 
 Deno.test('date-only overdue actions and parent visibility are explicit', () => {

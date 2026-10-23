@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeIncidentStatus } from './incidentReportFilters.ts'
 
 export const safetyMethodologyVersion = 'safety-intelligence-v1' as const
 export const safetyFiltersSchema = z.object({
@@ -10,12 +11,12 @@ export type SafetyFilters = z.infer<typeof safetyFiltersSchema>
 
 const uuid = z.uuid()
 const text = z.string().nullable()
-const status = z.enum(['draft', 'submitted', 'under_review', 'investigation', 'corrective_action', 'pending_verification', 'closed'])
+const status = z.string().transform(normalizeIncidentStatus)
 // Timestamp strings remain nullable so missing/bad historical dates become coverage limitations.
 export const safetyIncidentSchema = z.object({
   id: uuid, organization_id: uuid, reference_number: z.string(), title: z.string(),
-  report_type: z.enum(['incident', 'near_miss', 'unsafe_act', 'unsafe_condition', 'environmental_incident']),
-  status, reported_at: text, site_id: uuid.nullable(), facility_id: uuid.nullable(),
+  report_type: z.string().min(1),
+  status, occurred_at: text, reported_at: text, site_id: uuid.nullable(), facility_id: uuid.nullable(),
   severity: text, potential_severity: text, incident_category: text,
   department: text.optional(),
   client_submission_id: text.optional(),
@@ -23,7 +24,7 @@ export const safetyIncidentSchema = z.object({
 })
 export const safetyActionSchema = z.object({
   id: uuid, organization_id: uuid, incident_id: uuid, title: z.string(),
-  status: z.enum(['open', 'assigned', 'in_progress', 'pending_verification', 'verified', 'closed', 'rejected']),
+  status: z.string(),
   due_date: text,
 })
 export const safetyInvestigationSchema = z.object({
@@ -86,7 +87,15 @@ export const safetyCompanySettingsSchema = z.object({
   incident_categories: companySettingNamesSchema,
 })
 export type SafetyCompanySettings = z.infer<typeof safetyCompanySettingsSchema>
-export type SafetyDataset = { rows: SafetyRows; coverage: SafetyCoverage[]; companySettings?: SafetyCompanySettings | null }
+export type SafetyDataset = {
+  rows: SafetyRows
+  incidentList?: SafetyRows['incidents']
+  planningIncidents?: SafetyRows['incidents']
+  planningActions?: SafetyRows['actions']
+  planningSites?: SafetyRows['sites']
+  coverage: SafetyCoverage[]
+  companySettings?: SafetyCompanySettings | null
+}
 export const safetyScopeSchema = z.object({
   organizationId: uuid, userId: uuid,
   visibility: z.enum(['organization', 'personal']),
@@ -153,7 +162,9 @@ export const safetySnapshotSchema = z.object({
   }),
   metrics: z.object({
     // Additive fields allow the existing six cards to work with an older deployed endpoint.
-    incidentCounts: metricBase.extend({ total: count, open: count, closed: count }).optional(),
+    incidentCounts: metricBase.extend({
+      total: count, open: count, closed: count, drafts: count.optional(), nearMiss: count.optional(),
+    }).optional(),
     outstandingActions: metricBase.extend({ count }).optional(),
     risk: metricBase.extend({
       score: z.number().min(0).max(100).nullable(), band: band.nullable(), sampleSize: count,
@@ -181,6 +192,11 @@ export const safetySnapshotSchema = z.object({
     invalidActionDueDates: count,
     evidenceIncidentIds: z.array(uuid).max(20),
   })),
+  planningSites: z.array(z.object({
+    id: uuid, name: z.string(), openCritical: count, openHigh: count,
+    nonOverdueUnfinishedActions: count, criticalLinkedUnfinishedActions: count,
+    unfinishedActionsMissingDueDate: count,
+  })).optional(),
   evidence: z.array(evidenceSchema).max(80),
   evidenceTruncated: z.boolean(),
   limitations: z.array(z.string()),

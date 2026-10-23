@@ -1,14 +1,19 @@
 import { z } from 'zod'
-import { safetySnapshotSchema, type SafetySnapshot } from './safetyIntelligenceContracts.ts'
+import type { SafetySnapshot } from './safetyIntelligenceContracts.ts'
 
-const band = z.enum(['High', 'Medium', 'Low'])
 const planningSchema = z.object({
   origin: z.literal('deterministic'), authoritative: z.literal(false),
   asOf: z.iso.datetime(), planningEnd: z.iso.datetime(),
+  state: z.enum(['available', 'unavailable']), reasons: z.array(z.string()),
   locations: z.array(z.object({
-    location: safetySnapshotSchema.shape.locations.element,
-    state: z.enum(['available', 'insufficient', 'incomplete']),
-    indicator: band.nullable(), observedPriority: z.enum(['High', 'Medium']).nullable(),
+    location: z.object({
+      level: z.literal('site'), id: z.uuid(), name: z.string(),
+    }),
+    openCritical: z.number().int().nonnegative(),
+    openHigh: z.number().int().nonnegative(),
+    nonOverdueUnfinishedActions: z.number().int().nonnegative(),
+    criticalLinkedUnfinishedActions: z.number().int().nonnegative(),
+    state: z.enum(['available', 'incomplete']),
     reasons: z.array(z.string()),
     drivers: z.array(z.object({ observation: z.string(), advice: z.string() })),
   })),
@@ -17,52 +22,62 @@ export type SafetyPlanningIndicators = z.infer<typeof planningSchema>
 
 // Describes current priorities for the next 14 days, never a probability of future incidents.
 export function buildSafetyPlanningIndicators(snapshot: SafetySnapshot): SafetyPlanningIndicators {
+  const legacyPlanningSites = snapshot.locations.filter((location) => location.level === 'site').map((location) => ({
+    id: location.id, name: location.name,
+    openCritical: location.openCriticalCount,
+    openHigh: location.openHighCount,
+    nonOverdueUnfinishedActions: Math.max(0, location.overdueActions - location.overdueCriticalActions),
+    criticalLinkedUnfinishedActions: location.overdueCriticalActions,
+    unfinishedActionsMissingDueDate: location.invalidActionDueDates,
+  }))
+  const planningSites = snapshot.planningSites ?? legacyPlanningSites
+  if (!planningSites.length) return planningSchema.parse({
+    origin: 'deterministic', authoritative: false, asOf: snapshot.asOf,
+    planningEnd: new Date(Date.parse(snapshot.asOf) + 14 * 86_400_000).toISOString(),
+    state: 'unavailable', reasons: ['The deployed snapshot endpoint does not provide planning counts.'], locations: [],
+  })
   const complete = (source: SafetySnapshot['coverage'][number]['source']) =>
     snapshot.coverage.some((entry) => entry.source === source && entry.complete)
   const actionCoverage = snapshot.coverage.find((entry) => entry.source === 'actions')
-  const locations = snapshot.locations.filter((location) => location.level === 'site')
-    .filter((location) => location.indicatorSampleSize || location.unclassified || location.backlogOpenCritical
-      || location.backlogOpenHigh || location.backlogUnclassified || location.missingReportedAt || location.overdueActions)
-    .map((location) => {
+  const locations = planningSites.map((location) => {
       const reasons = [
         ...(!complete('incidents') || !complete('sites') ? ['Incident/site retrieval is incomplete.'] : []),
         ...(!actionCoverage?.complete ? ['Corrective-action retrieval is incomplete.'] : []),
         ...(actionCoverage?.access !== 'organization' ? ['Only caller-visible actions are represented; hidden actions cannot be ruled out.'] : []),
-        ...(location.missingReportedAt || snapshot.dataQuality.missingReportedAt ? ['Reporting dates are missing or invalid; history coverage is uncertain.'] : []),
-        ...(location.unclassified || location.backlogUnclassified ? ['History or open-backlog severities require explicit mapping.'] : []),
-        ...(location.invalidActionDueDates ? ['Some action due dates are missing or invalid.'] : []),
+        ...(location.unfinishedActionsMissingDueDate ? ['Some unfinished actions have missing or invalid due dates and are excluded from the non-overdue count.'] : []),
       ]
-      const incomplete = reasons.length > 0
-      const sparse = location.indicatorSampleSize < 10
-      if (sparse) reasons.push(snapshot.filters.days === 'all'
-        ? 'At least 10 classified reports in the available history are required.'
-        : 'At least 10 classified reports in the 90-day evidence window are required.')
-      const priority = location.backlogOpenCritical || location.overdueCriticalActions ? 'High'
-        : location.backlogOpenHigh || location.recentHighRiskCount || location.overdueActions ? 'Medium' : null
-      const state = incomplete ? 'incomplete' : sparse ? 'insufficient' : 'available'
+      const state = reasons.length ? 'incomplete' : 'available'
+      const { openCritical, openHigh, nonOverdueUnfinishedActions, criticalLinkedUnfinishedActions } = location
       const drivers: SafetyPlanningIndicators['locations'][number]['drivers'] = []
-      if (location.backlogOpenCritical || location.backlogOpenHigh) drivers.push({
-        observation: `${location.backlogOpenCritical} open Critical and ${location.backlogOpenHigh} open High reports in the current backlog, including older reports.`,
-        advice: 'Prioritize a human review of these reports and verify the recorded controls and required follow-up. Do not infer that an incident is ready to close.',
+      if (openCritical) drivers.push({
+        observation: `${openCritical} open Critical reports.`,
+        advice: `Prioritize risk review of these ${openCritical} Critical reports using the site's OH&S and risk-management process. Consider elimination, substitution or engineering controls before administrative controls or PPE; verify control effectiveness and escalate residual risk for management review. Apply relevant process-safety guidance where applicable.`,
       })
-      if (location.overdueActions) drivers.push({
-        observation: `${location.overdueActions} known overdue unfinished actions; ${location.overdueCriticalActions} linked to Critical reports.`,
-        advice: 'Review the existing overdue actions with their responsible owners and confirm control and verification requirements. This does not complete or verify actions.',
+      if (criticalLinkedUnfinishedActions) drivers.push({
+        observation: `${criticalLinkedUnfinishedActions} unfinished actions linked to open Critical reports.`,
+        advice: `Review these ${criticalLinkedUnfinishedActions} Critical-linked actions first; confirm accountable owners, due dates and interim controls, then verify effectiveness before completion. Record verified learning for continual improvement and management review.`,
       })
-      if (location.recentHighRiskCount) drivers.push({
-        observation: `${location.recentHighRiskCount} High/Critical reports ${snapshot.filters.days === 'all' ? 'in the available reporting history' : 'in the latest 14-day reporting window'}.`,
-        advice: 'Review these recent reports for supported operational lessons and any recorded preventive follow-up; do not assume a shared root cause.',
+      if (openHigh) drivers.push({
+        observation: `${openHigh} open High reports.`,
+        advice: `Review the ${openHigh} open High reports, confirm risk controls and follow-up owners, apply the hierarchy of controls where further risk reduction is needed, and include unresolved risks in management review.`,
+      })
+      if (nonOverdueUnfinishedActions) drivers.push({
+        observation: `${nonOverdueUnfinishedActions} non-overdue unfinished corrective actions.`,
+        advice: `Confirm owners and due dates for these ${nonOverdueUnfinishedActions} unfinished actions, track progress against due dates, and verify corrective-action effectiveness before recording completion. Use verified results to support continual improvement.`,
       })
       if (!drivers.length) drivers.push({
-        observation: 'No qualifying driver was observed in the retrieved records.',
-        advice: 'Continue routine reporting and review. Absence of observed drivers does not establish that operations are safe.',
+        observation: '0 open Critical, 0 open High, 0 non-overdue unfinished actions, and 0 unfinished actions linked to open Critical reports.',
+        advice: 'Continue routine risk review and verify the effectiveness of existing controls; zero observed counts are not an assurance of safety.',
       })
-      // Incomplete history can expose a known priority, but can never yield a reassuring Low.
-      return { location, state, indicator: state === 'available' ? priority ?? 'Low' : null,
-        observedPriority: state === 'available' ? null : priority, reasons, drivers }
+      return {
+        location: { level: 'site', id: location.id, name: location.name },
+        openCritical, openHigh, nonOverdueUnfinishedActions, criticalLinkedUnfinishedActions,
+        state, reasons, drivers,
+      }
     })
   return planningSchema.parse({
     origin: 'deterministic', authoritative: false, asOf: snapshot.asOf,
     planningEnd: new Date(Date.parse(snapshot.asOf) + 14 * 86_400_000).toISOString(), locations,
+    state: 'available', reasons: snapshot.planningSites ? [] : ['Legacy site metrics were used because the deployed snapshot did not provide planning counts.'],
   })
 }

@@ -8,6 +8,7 @@ function ranked() {
     incident(1, { severity: 'High', site_id: id(5) }),
     incident(2, { severity: 'High', site_id: id(6), status: 'closed' }),
     incident(3, { severity: 'High', site_id: id(7), status: 'closed' }),
+    incident(4, { severity: 'High', site_id: id(6) }),
   ])
   data.rows.sites.push(
     { id: id(5), organization_id: org, name: 'Second' },
@@ -19,13 +20,27 @@ function ranked() {
 Deno.test('top-three uses canonical ranking/ties and authorized high-risk evidence', () => {
   const snapshot = ranked()
   const guidance = buildSafetyLocationGuidance(snapshot)
-  equal(guidance.locations.map((item) => item.location.name), ['Fixture Site', 'Second', 'Alpha'])
+  equal(guidance.locations.map((item) => item.location.name), ['Fixture Site', 'Alpha', 'Second'])
   assert(guidance.locations.every((item) => item.location.level === 'site'), 'Non-site location included')
   equal(guidance.locations[0].evidence[0].id, incident(0).id)
   assert(guidance.locations.every((item) => item.evidence.every((evidence) => item.location.evidenceIncidentIds.includes(evidence.id))), 'Unlinked evidence invented')
   assert(guidance.locations[0].recommendations[0].driver.includes('1 open Critical'), 'Wrong observed driver')
-  assert(guidance.locations[2].recommendations[0].driver.includes('none are currently open'), 'Closed events treated open')
+  assert(guidance.locations[1].recommendations[0].driver.includes('1 open High'), 'Open report count missing')
+  assert(!guidance.locations.some((item) => item.location.name === 'Beta'), 'Closed-only site ranked as currently high risk')
   assert(guidance.origin === 'deterministic' && !guidance.authoritative, 'Advice misrepresented as AI/authoritative')
+})
+Deno.test('Top 3 sites rank by open Critical then open High with stable name and ID ties', () => {
+  const snapshot = ranked()
+  const counts: Record<string, [number, number]> = {
+    'Fixture Site': [10, 0],
+    Second: [9, 1],
+    Alpha: [9, 3],
+    Beta: [9, 3],
+  }
+  snapshot.locations = snapshot.locations.map((location) => ({
+    ...location, openCriticalCount: counts[location.name][0], openHighCount: counts[location.name][1],
+  }))
+  equal(buildSafetyLocationGuidance(snapshot).locations.map((item) => item.location.name), ['Fixture Site', 'Alpha', 'Beta'])
 })
 Deno.test('data-quality counts do not hide known rankings; incomplete sources and empty cohorts cannot rank', () => {
   for (const field of ['unclassified', 'missingReportedAt', 'unassignedFacility'] as const) {
@@ -42,7 +57,7 @@ Deno.test('data-quality counts do not hide known rankings; incomplete sources an
   equal(buildSafetyLocationGuidance(calculateSafetySnapshot(dataset(), scope, { days: 90 }, asOf)).state, 'insufficient')
   equal(buildSafetyLocationGuidance(calculateSafetySnapshot(dataset([incident(0)]), scope, { days: 90 }, asOf)).locations.length, 0)
 })
-Deno.test('bounded excerpts never invent evidence; action advice uses actual known aggregate with coverage disclosure', () => {
+Deno.test('bounded excerpts never invent evidence; action guidance can be disabled for incident-only advice', () => {
   const snapshot = ranked()
   snapshot.evidence = []
   snapshot.evidenceTruncated = true
@@ -51,7 +66,11 @@ Deno.test('bounded excerpts never invent evidence; action advice uses actual kno
   const item = buildSafetyLocationGuidance(snapshot).locations[0]
   equal(item.evidence.length, 0)
   assert(item.recommendations.some((entry) => entry.driver.includes('2 known overdue')), 'Actual action driver missing')
-  assert(item.actionCoverageNote.includes('only the records you can access'), 'Incomplete scope concealed')
+  const incidentOnly = buildSafetyLocationGuidance(snapshot, { includeActionDrivers: false })
+  assert(incidentOnly.locations.every((location) => location.recommendations.every((entry) => entry.source === 'incident_counts')),
+    'Action driver included after opt-out')
+  const recommendationText = JSON.stringify(incidentOnly.locations.map((location) => location.recommendations))
+  assert(!recommendationText.match(/overdue|corrective action|backlog|responsible owners/i), 'Action guidance text survived opt-out')
 })
 Deno.test('personal and site filtered cohorts only produce their own location evidence', () => {
   const data = dataset([

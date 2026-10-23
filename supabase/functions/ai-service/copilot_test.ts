@@ -233,6 +233,10 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
           role: scenario === 'denied' ? 'Denied custom role' : 'Super Administrator',
         })
         if (table === 'custom_roles') return json({ permissions: [] })
+        if (table === 'company_settings') {
+          equal(url.searchParams.get('organization_id'), `eq.${org}`)
+          return json(data.companySettings)
+        }
         if (table === 'search_knowledge') {
           // The caller JWT is asserted above; the database applies org/RBAC/approval/expiry filtering.
           if (scenario === 'knowledge_denied') return json({ code: '42501', message: 'denied' }, 403)
@@ -267,6 +271,19 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
       const previousData = await retrieveSafetyDataset(caller, access, { days: 90 })
       const previousScope = await resolveSafetyScope(caller, access, { days: 90 })
       priorDigest = await groundingDigest(previousData, calculateSafetySnapshot(previousData, previousScope, { days: 90 }, asOf))
+    }
+    if (scenario === 'success') {
+      const caller = createClient('https://copilot-test.invalid', 'test-anon', {
+        global: { headers: { Authorization: 'Bearer test-caller' }, fetch: runtime.fetch },
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+      const access = { organizationId: org, userId: user, role: 'Super Administrator' }
+      const filters = { days: 90 as const }
+      const scope = await resolveSafetyScope(caller, access, filters)
+      const retrieved = await retrieveSafetyDataset(caller, access, filters)
+      const snapshot = calculateSafetySnapshot(retrieved, scope, filters, asOf)
+      const context = await buildCopilotGrounding(retrieved, snapshot, 'Risk')
+      assert(context.context.planningMetrics.length > 0, 'Retrieved planning metrics missing from Copilot context')
     }
     const response = await handleAiRequest(new Request('https://service-test.invalid', {
       method: 'POST', headers: { Authorization: 'Bearer test-caller', 'Content-Type': 'application/json' },

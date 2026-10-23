@@ -1229,9 +1229,23 @@ blockquote footer span {
 }
 
 .auth-options a,
-.auth-footer-copy a {
+.auth-footer-copy a,
+.auth-footer-copy button {
   color: var(--green-dark);
   font-weight: 750;
+}
+
+.auth-footer-copy button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.auth-footer-copy button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .checkbox-label {
@@ -1319,16 +1333,6 @@ blockquote footer span {
   padding: 0 10px;
 }
 
-.workspace-org {
-  display: grid;
-  gap: 5px;
-  margin: 42px 10px 25px;
-  padding: 16px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.workspace-org small,
 .workspace-topbar small {
   color: #8293aa;
   font-size: 10px;
@@ -1336,19 +1340,10 @@ blockquote footer span {
   letter-spacing: 0.16em;
 }
 
-.workspace-org strong {
-  color: #fff;
-  font-size: 15px;
-}
-
-.workspace-org span {
-  color: #62dc91;
-  font-size: 12px;
-}
-
 .workspace-nav {
   display: grid;
   gap: 5px;
+  margin-top: 42px;
 }
 
 .workspace-nav a,
@@ -1507,9 +1502,9 @@ blockquote footer span {
 /* One-line orientation row: eyebrow · title · breadcrumb */
 .workspace-topbar-title {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -1533,15 +1528,17 @@ blockquote footer span {
 
 .workspace-emergency-panel {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex: 0 1 260px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-width: 0;
 }
 
 .workspace-emergency-label {
   color: #14c9a6;
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  font-size: 10px;
+  letter-spacing: 0.16em;
   font-weight: 800;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1555,9 +1552,13 @@ blockquote footer span {
 
 .workspace-emergency-contact {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  column-gap: 8px;
+  row-gap: 2px;
+  width: 100%;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .workspace-emergency-contact span {
@@ -1566,13 +1567,24 @@ blockquote footer span {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .workspace-emergency-contact strong {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
   color: #ff6b57;
   font-size: 17px;
   letter-spacing: -0.02em;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-emergency-contact small {
+  flex: 0 0 100%;
+  white-space: nowrap;
 }
 
 .workspace-emergency-contact small,
@@ -1581,6 +1593,7 @@ blockquote footer span {
   font-size: 13px;
   line-height: 1.3;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .workspace-actions {
@@ -1722,9 +1735,18 @@ blockquote footer span {
   font-size: 14px;
   text-wrap: balance;
 }
+#executive-analytics-content .safety-section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: start;
+}
 #executive-analytics-content .safety-section-heading > .safety-window-toggle,
 #executive-analytics-content .safety-section-heading > .safety-export {
   flex: 0 0 auto;
+  white-space: nowrap;
+}
+#executive-analytics-content .safety-section-heading > button {
+  white-space: nowrap;
 }
 @media print {
   #executive-analytics-content, #executive-analytics-content * {
@@ -1850,8 +1872,9 @@ blockquote footer span {
 .safety-ranked-row > div { flex: 1; min-width: 0; }
 .safety-ranked-row h4 { margin: 0 0 4px; font-size: 14px; }
 .safety-ranked-row small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
-.safety-ranked-row > strong { text-align: right; }
 .safety-rank { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; flex-shrink: 0; color: #bd7c12; background: rgb(189 124 18 / 12%); font-size: 13px; font-weight: 700; }
+.safety-ranked-total { display: flex; align-items: center; flex-shrink: 0; margin-left: auto; }
+.safety-total-pill { min-width: 34px; display: inline-flex; justify-content: center; align-items: center; padding: 6px 10px; border-radius: 999px; background: rgba(245, 159, 0, 0.12); color: #f4bb50; font-size: 12px; font-weight: 700; }
 .safety-ranked-list details, .safety-recommendation-list details { margin-top: 12px; color: var(--muted); font-size: 12px; }
 .safety-ranked-list a { color: var(--green-dark); text-decoration: underline; }
 .safety-recommendation-list > li { display: flex; align-items: flex-start; gap: 10px; }
@@ -1864,24 +1887,21 @@ blockquote footer span {
 .safety-planning-table thead { color: var(--muted); font-size: 12px; }
 .safety-planning-table th, .safety-planning-table td { padding: 18px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .safety-planning-table th:first-child { padding-left: 0; min-width: 140px; }
-.safety-planning-table tbody th { width: 19%; }
-.safety-planning-table td:nth-child(2) { width: 19%; }
-.safety-planning-table td:nth-child(3) { width: 26%; }
-.safety-planning-table td:last-child { width: 36%; }
+.safety-planning-table table { table-layout: fixed; }
+.safety-planning-table tbody th { width: 24%; }
+.safety-planning-table td:nth-child(2) { width: 38%; }
+.safety-planning-table td:last-child { width: 38%; }
 .safety-planning-table ul { padding-left: 16px; margin: 0; }
 .safety-planning-table li + li { margin-top: 12px; }
 .safety-planning-table td:last-child li::marker { color: var(--green); }
 .safety-planning-table small { display: block; color: var(--muted); font-size: 11px; line-height: 1.6; margin-top: 8px; font-weight: 400; }
 .safety-planning-table details { margin-top: 10px; font-size: 11px; color: var(--muted); }
 .safety-indicator-badge { display: inline-flex; font-size: 12px; font-weight: 600; border: 1px solid var(--line); border-radius: 20px; padding: 4px 10px; color: var(--muted); }
-.safety-indicator-high { color: #c93636; border-color: rgb(233 84 84 / 25%); background: rgb(233 84 84 / 10%); }
-.safety-indicator-medium { color: #966009; border-color: rgb(189 124 18 / 25%); background: rgb(189 124 18 / 10%); }
 .safety-show-more { margin-top: 18px; }
 .safety-source-note { display: block; font-size: 11px; color: var(--muted); margin-top: 14px; }
 .dark-theme .safety-kpi, .dark-theme .safety-priority-panel, .dark-theme .safety-locations:not(.safety-priority-grid) { background: #101829; border-color: var(--line); }
 .dark-theme .safety-label, .dark-theme .safety-ranked-list a { color: #62dc91; }
-.dark-theme .safety-indicator-high { color: #ff7878; }
-.dark-theme .safety-indicator-medium, .dark-theme .safety-rank { color: #f4bb50; }
+.dark-theme .safety-rank { color: #f4bb50; }
 
 .safety-kpi-reasons {
   padding-left: 18px;
@@ -4973,12 +4993,9 @@ button.workspace-placeholder-action:disabled {
     overflow: visible;
   }
 
-  .workspace-org {
-    margin-top: 24px;
-  }
-
   .workspace-nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 24px;
   }
 
   .workspace-content {
@@ -5290,7 +5307,7 @@ button.workspace-placeholder-action:disabled {
 @media (max-width: 800px) {
   .assistant-conversation-layout { grid-template-columns: minmax(0, 1fr); }
   .assistant-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .safety-planning-table table { min-width: 720px; }
+  .safety-planning-table table { min-width: 640px; }
 }
 @media (max-width: 640px) {
   .assistant-sidebar { grid-template-columns: minmax(0, 1fr); }
@@ -5343,6 +5360,7 @@ button.workspace-placeholder-action:disabled {
   align-items: center;
   gap: 8px;
   width: 190px;
+  min-width: 220px;
   min-height: 38px;
   padding: 0 12px;
   border: 1px solid var(--line);
@@ -5353,6 +5371,7 @@ button.workspace-placeholder-action:disabled {
   font: inherit;
   font-size: 14px;
   text-align: left;
+  white-space: nowrap;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .global-search-button:hover,
@@ -5379,6 +5398,9 @@ button.workspace-placeholder-action:disabled {
   color: #aab8cb;
   background: #0b172b;
   border-color: #26364d;
+}
+@media (max-width: 1100px) {
+  .workspace-emergency-panel { display: none; }
 }
 @media (max-width: 700px) {
   .global-search-button { flex: 1 1 100%; width: 100%; }
