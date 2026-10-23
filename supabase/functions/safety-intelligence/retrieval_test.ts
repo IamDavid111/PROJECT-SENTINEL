@@ -53,7 +53,6 @@ function fixtureFetch(data = dataset(), scenario: Scenario = {}, seen: URL[] = [
       const parsed = JSON.parse(JSON.stringify(row)) as Record<string, unknown>
       return scenario.foreignRow ? { ...parsed, organization_id: id(999) } : parsed
     }).filter((row) => !cursor || String(row[key]) > cursor)
-    if (table === 'incidents') records = records.filter((row) => row.status !== 'draft')
     records.sort((a, b) => String(a[key]).localeCompare(String(b[key])))
     return json(records.slice(0, Number(url.searchParams.get('limit'))))
   })
@@ -136,6 +135,25 @@ Deno.test('site filters narrow real visibility; child sources require both paren
   assert(result.coverage.every((row) => row.access === 'caller_visible'), 'Personal reads mislabeled organization coverage')
   equal((await resolveSafetyScope(caller, context, { days: 90 })).visibility, 'personal')
   equal((await resolveSafetyScope(client(fixtureFetch(data, { delegated: true })), context, { days: 90 })).visibility, 'organization')
+})
+
+Deno.test('visible drafts and linked actions are planning-only while ordinary snapshots exclude them', async () => {
+  const draft = incident(10, { status: 'draft', report_type: 'near_miss', site_id: id(55), severity: 'Critical Risk' })
+  const submitted = incident(11, { site_id: site })
+  const data = dataset([draft, submitted])
+  data.rows.sites.push({ id: id(55), organization_id: org, name: 'Draft planning site' })
+  data.rows.actions = [
+    { id: id(300), organization_id: org, incident_id: draft.id, title: 'Draft-linked action', status: 'Pending Verification', due_date: '2026-10-20' },
+    { id: id(301), organization_id: org, incident_id: submitted.id, title: 'Submitted-linked action', status: 'open', due_date: '2026-10-20' },
+  ]
+  const result = await retrieveSafetyDataset(client(fixtureFetch(data)),
+    { organizationId: org, userId: user, role: 'Super Administrator' }, { days: 90 })
+  equal(result.rows.incidents.map((row) => row.id), [submitted.id])
+  equal(result.planningIncidents?.map((row) => row.id), [draft.id, submitted.id])
+  equal(result.rows.actions.map((row) => row.title), ['Submitted-linked action'])
+  equal(result.planningActions?.map((row) => row.title), ['Draft-linked action', 'Submitted-linked action'])
+  assert(result.planningSites?.some((row) => row.id === id(55)), 'Draft-visible site was omitted from planning lookup')
+  assert(!result.rows.sites.some((row) => row.id === id(55)), 'Draft-only site leaked into standard snapshot rows')
 })
 
 Deno.test('confirmed synthetic provenance excludes incident and linked evidence without filtering ordinary submission IDs', async () => {

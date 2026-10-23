@@ -42,11 +42,11 @@ export async function mountAnalyticsVerification() {
   verification = { root, queryClient, host, revoke: () => { revoked = true; callbacks[0]() } }
   root.render(React.createElement(QueryClientProvider, { client: queryClient },
     React.createElement(SafetyIntelligencePage, { client, scope, view: 'executive-analytics', canExportAnalytics: true })))
-  for (let attempt = 0; attempt < 40 && host.querySelectorAll('article').length !== 11; attempt++) {
+  for (let attempt = 0; attempt < 40 && host.querySelectorAll('article').length !== 10; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
-  assert(host.querySelectorAll('article').length === 11, 'Analytics verification view did not load')
-  return { mounted: true, cards: 11 }
+  assert(host.querySelectorAll('article').length === 10, 'Analytics verification view did not load')
+  return { mounted: true, cards: 10 }
 }
 
 export async function verifyLiveAccessWithdrawal() {
@@ -103,9 +103,9 @@ export async function runExportTests() {
   }
   const report = await prepareExecutiveAnalyticsReport(client, scope, { days: 90 })
   assert(requests === 1 && organizationReads === 1, 'Preparation did not refresh/revalidate')
-  assert(report.kpis.length === 11 && new Set(report.kpis.map((card) => card.title)).size === 11, 'Missing/duplicate KPI cards')
+  assert(report.kpis.length === 10 && new Set(report.kpis.map((card) => card.title)).size === 10, 'Missing/duplicate KPI cards')
   assert(report.kpis.find((card) => card.title === 'Total Incidents').value === '12', 'Wrong real-data incident total')
-  assert(report.kpis.find((card) => card.title === 'Corrective Action On-Time Closure').value === 'Unavailable', 'Fabricated compliance')
+  assert(!report.kpis.some((card) => card.title === 'Corrective Action On-Time Closure'), 'Removed on-time closure card remains in report')
   assert(report.blocks.some((block) => block.kind === 'table' && block.rows.length === 13), 'Planning report omitted expanded priority sites')
   assert(report.blocks.some((block) => block.kind !== 'table' && block.text.includes('Advisory recommendations')), 'Missing recommendations')
   const printed = executiveAnalyticsPrintHtml(report)
@@ -176,7 +176,7 @@ export async function runExportTests() {
     'Chart All Time altered the exported reporting period or KPI values')
   expectedDays = 'all'
   const historical = await prepareExecutiveAnalyticsReport(client, scope, { days: 'all' })
-  assert(historical.period.startsWith('All Time:') && historical.kpis.length === 11, 'All Time reporting export was not prepared')
+  assert(historical.period.startsWith('All Time:') && historical.kpis.length === 10, 'All Time reporting export was not prepared')
   expectedDays = 30
   for (const scenario of ['denied', 'foreign', 'missing-name']) {
     fail = scenario === 'denied'
@@ -188,5 +188,5 @@ export async function runExportTests() {
   }
   return { passed: true, kpis: report.kpis.length, pdfBytes: pdf.size, docxBytes: word.size,
     unicodePdfBytes: unicodePdf.size,
-    checks: 'Fresh authorized scope, 30/90 periods, 11 KPIs, all planning sites, real PDF/DOCX, multilingual PDF fallback, print sanitization, denial/mismatch/missing-name failures' }
+    checks: 'Fresh authorized scope, 30/90 periods, 10 KPIs, all planning sites, real PDF/DOCX, multilingual PDF fallback, print sanitization, denial/mismatch/missing-name failures' }
 }

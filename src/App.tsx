@@ -27,7 +27,7 @@ import { IncidentReportForm } from './features/incidents/IncidentReportForm'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
 import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
 import { ActionsWorkspace } from './features/qhse/ActionsWorkspace'
-import { InspectionWorkspace } from './features/qhse/InspectionWorkspace'
+import { InspectionNavigationOnly, InspectionWorkspace } from './features/qhse/InspectionWorkspace'
 import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/OrganizationSetupPage'
 import { useIncidentClosureAccess, useIncidentOfflineSync } from './features/incidents/useIncidentData'
 import { IncidentClosureSettings } from './features/incidents/IncidentClosure'
@@ -171,12 +171,17 @@ async function getEdgeFunctionErrorMessage(error: unknown) {
 
 function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
   const [error, setError] = useState('')
+  const [confirmationEmail, setConfirmationEmail] = useState('')
+  const [confirmationMessage, setConfirmationMessage] = useState('')
+  const [resendingConfirmation, setResendingConfirmation] = useState(false)
   const [loading, setLoading] = useState(false)
   const [signInType, setSignInType] = useState<'admin' | 'user'>('user')
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
+    setConfirmationEmail('')
+    setConfirmationMessage('')
     const form = new FormData(event.currentTarget)
     const selectedSignInType = String(form.get('signInType') || 'user')
     const email = String(form.get('email') || '')
@@ -199,7 +204,10 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
     }
     setLoading(true)
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-    if (signInError) setError(signInError.message)
+    if (signInError) {
+      setError(signInError.code === 'email_not_confirmed' ? 'This email address has not been confirmed yet.' : signInError.message)
+      if (signInError.code === 'email_not_confirmed') setConfirmationEmail(email)
+    }
     else {
       const { data: userData } = await supabase.auth.getUser()
       const { data: profile } = await supabase.from('profiles').select('id, organization_id').eq('id', userData.user?.id || '').maybeSingle()
@@ -219,6 +227,20 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
       window.location.hash = '#dashboard'
     }
     if (signInError) setLoading(false)
+  }
+
+  const resendConfirmation = async () => {
+    setError('')
+    setConfirmationMessage('')
+    setResendingConfirmation(true)
+    const { error: resendError } = await supabase.auth.resend({
+      type: 'signup',
+      email: confirmationEmail,
+      options: { emailRedirectTo: `${window.location.origin}/#/sign-in` },
+    })
+    setResendingConfirmation(false)
+    if (resendError) setError(resendError.message)
+    else setConfirmationMessage('Confirmation email sent. Check your inbox and spam folder.')
   }
 
   return (
@@ -250,7 +272,10 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
           <label className="checkbox-label"><input name="rememberMe" type="checkbox" defaultChecked /> Remember me</label>
           <a href="#forgot-password">Forgot password?</a>
         </div>
-        <AuthMessage error={error} />
+        <AuthMessage error={error} success={confirmationMessage} />
+        {confirmationEmail && <p className="auth-footer-copy"><button type="button" onClick={() => void resendConfirmation()} disabled={resendingConfirmation || loading}>
+          {resendingConfirmation ? 'Sending confirmation email…' : 'Resend confirmation email'}
+        </button></p>}
         <Button type="submit" className="auth-submit" loading={loading}>
           {loading ? 'Signing in…' : <>Sign In <Icon name="arrowRight" size={16} /></>}
         </Button>
@@ -465,7 +490,6 @@ const primaryNavigation: { route: AppRoute; label: string; icon: IconName; permi
   { route: 'dashboard', label: 'Dashboard', icon: 'dashboard', permission: 'view_dashboard' },
   { route: 'report-incident', label: 'Report Incident', icon: 'reportIncident', permission: 'report_incident' },
   { route: 'inspections', label: 'Log Inspection', icon: 'inspections', permission: 'create_inspection' },
-  { route: 'corrective-actions', label: 'Actions', icon: 'correctiveActions', permission: 'create_corrective_action' },
   { route: 'ai-assistant', label: 'Safety Intelligence', icon: 'aiAssistant', permission: 'use_ai_assistant' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: 'executiveAnalytics', permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: 'marketplace', permission: 'view_marketplace' },
@@ -482,6 +506,7 @@ const secondaryNavigation: { route: AppRoute; label: string; permission: Permiss
 ]
 
 const futureModuleRoutes: { route: AppRoute; label: string; permission: PermissionKey }[] = [
+  { route: 'corrective-actions', label: 'Actions', permission: 'create_corrective_action' },
   { route: 'incidents', label: 'Incident Management', permission: 'view_all_incidents' },
   { route: 'incident-detail', label: 'Incident Detail', permission: 'view_all_incidents' },
   { route: 'audits', label: 'Audit Management', permission: 'view_dashboard' },
@@ -630,11 +655,14 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
   const canCreateInspections = canAccess('create_inspection')
   const canManageActions = canAccess('create_corrective_action')
   const legacyFeatureRole = role && BUILT_IN_BACKEND_ROLES.includes(role as typeof BUILT_IN_BACKEND_ROLES[number]) ? role as Role : 'Field Worker'
-  const visiblePrimaryNavigation = primaryNavigation.filter((item) => canAccess(item.permission))
+  const visiblePrimaryNavigation = primaryNavigation.filter((item) => item.route === 'inspections'
+    ? canCreateInspections || canManageActions : canAccess(item.permission))
   const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? canManageCompanySettings && canAccess(item.permission) : canAccess(item.permission))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
     || (route === 'knowledge' ? { label: 'QHSE Knowledge', permission: 'view_knowledge_documents' as PermissionKey } : undefined)
-  const currentRouteAuthorized = route === 'incident-detail'
+  const currentRouteAuthorized = route === 'inspections'
+    ? canCreateInspections || canManageActions
+    : route === 'incident-detail'
     ? canAccess('view_own_reports') || canAccess('view_all_incidents')
     : Boolean(currentNavigation && canAccess(currentNavigation.permission))
   const fallbackRoute = visiblePrimaryNavigation[0]?.route || 'dashboard'
@@ -744,7 +772,6 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           <BrandMark />
           <span className="brand-copy"><strong>SentinelQHSE<sup>™</sup></strong><small>SAFETY INTELLIGENCE</small></span>
         </a>
-        <div className="workspace-org"><small>ORGANIZATION</small><strong>{organizationName}</strong><span>{role}</span></div>
         <nav className="workspace-nav" aria-label="Workspace navigation">
           {visiblePrimaryNavigation.map((item) => (
             <a
@@ -821,9 +848,10 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} canClose={canAccess('close_incidents')} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
           {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage key="organization" supabase={supabase} scope="organization" canViewAll canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
 
-          {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage />}
+          {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage showInspectionBack />}
           {route === 'assigned-actions' && canAccess('view_own_reports') && <ActionsWorkspace supabase={supabase} canManage={canManageActions} assignedOnly />}
-          {route === 'inspections' && canCreateInspections && <InspectionWorkspace supabase={supabase} />}
+          {route === 'inspections' && canCreateInspections && <InspectionWorkspace supabase={supabase} canManageActions={canManageActions} />}
+          {route === 'inspections' && !canCreateInspections && canManageActions && <InspectionNavigationOnly canManageActions={canManageActions} />}
           {/* Navigation exists for these modules, but each route currently shows a placeholder instead of a working feature workflow. */}
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
           {route === 'reports' && canAccess('view_reports') && <WorkspacePlaceholder title="Reports" description="Reporting and exports will connect to validated operational records in the reporting module." action="Module coming next" />}

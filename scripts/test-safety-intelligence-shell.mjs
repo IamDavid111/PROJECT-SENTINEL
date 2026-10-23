@@ -52,8 +52,8 @@ const app = read('../src/App.tsx')
 const primary = app.split('const primaryNavigation:')[1].split('const secondaryNavigation:')[0]
 const secondary = app.split('const secondaryNavigation:')[1].split('const futureModuleRoutes:')[0]
 const labels = [...primary.matchAll(/label: '([^']+)'/g)].map((match) => match[1])
-assert.deepEqual(labels, ['Dashboard', 'Report Incident', 'Safety Intelligence', 'Executive Analytics', 'HSE Marketplace'])
-assert.match(primary, /route: 'ai-assistant', label: 'Safety Intelligence', icon: Sparkles, permission: 'use_ai_assistant'/)
+assert.deepEqual(labels, ['Dashboard', 'Report Incident', 'Log Inspection', 'Safety Intelligence', 'Executive Analytics', 'HSE Marketplace'])
+assert.match(primary, /route: 'ai-assistant', label: 'Safety Intelligence', icon: 'aiAssistant', permission: 'use_ai_assistant'/)
 assert(!primary.includes("label: 'QHSE Knowledge'"))
 const accountLabels = [...secondary.matchAll(/label: '([^']+)'/g)].map((match) => match[1])
 assert.equal(accountLabels[accountLabels.indexOf('Administration') + 1], 'Settings')
@@ -149,7 +149,7 @@ const analyticsFlow = app.slice(app.indexOf("{route === 'executive-analytics' &&
 const flowContext = {
   exports: {}, require, route: 'executive-analytics', analyticsOpen: false,
   canAccess: () => true, closureAccess: { isPending: false, isError: false, data: true },
-  WorkspacePlaceholder: () => null, SafetyIntelligencePage: () => null, ArrowLeft: () => null,
+  WorkspacePlaceholder: () => null, SafetyIntelligencePage: () => null, Button: () => null, Icon: () => null,
   supabase: {}, organizationId: 'test-org', session: { user: { id: 'test-user' } },
   role: 'Super Administrator', hasOrganizationIncidentVisibility: () => true,
   executiveAnalyticsAccessMessage: 'Access denied',
@@ -335,17 +335,20 @@ const actual = calculateSafetySnapshot(events, scope, { days: 90 }, asOf)
 const Outlook = load(resolve(root, 'src/features/safety-intelligence/SafetyPlanningOutlook.tsx')).SafetyPlanningOutlook
 const outlookHtml = renderToStaticMarkup(createElement(Outlook, { snapshot: actual }))
 assert(outlookHtml.includes('14-Day Safety Planning Indicators') && outlookHtml.includes('not a trained prediction'))
-assert(outlookHtml.includes('Medium') && outlookHtml.includes('20 open High') && outlookHtml.includes('100 classified reports'))
+assert(outlookHtml.includes('<th scope="col">Site</th><th scope="col">Observed drivers</th><th scope="col">Preventive advice'))
+assert(outlookHtml.includes('20 open High reports') && !outlookHtml.includes('Planning indicator')
+  && !outlookHtml.includes('classified reports'))
 assert(!outlookHtml.includes('confidence') && !outlookHtml.includes('probability'))
-assert(renderToStaticMarkup(createElement(Outlook, { snapshot: data })).includes('Insufficient site history'))
+assert(renderToStaticMarkup(createElement(Outlook, { snapshot: data })).includes('No qualifying open reports or unfinished actions'))
 const sparseOutlook = calculateSafetySnapshot(dataset([incident(0, { severity: 'Critical' })]), scope, { days: 90 }, asOf)
 const sparseHtml = renderToStaticMarkup(createElement(Outlook, { snapshot: sparseOutlook }))
-assert(sparseHtml.includes('Insufficient history') && sparseHtml.includes('Observed High priority—not a complete indicator'))
+assert(sparseHtml.includes('1 open Critical reports') && !sparseHtml.includes('Insufficient history'))
 const many = structuredClone(actual)
-const seedLocation = many.locations.find((item) => item.level === 'site')
-many.locations = Array.from({ length: 9 }, (_, n) => ({ ...seedLocation,
+const seedLocation = many.planningSites[0]
+many.planningSites = Array.from({ length: 9 }, (_, n) => ({ ...seedLocation,
   id: `ab000000-0000-4000-8000-${String(600 + n).padStart(12, '0')}`,
-  name: `Priority site ${n + 1}`, backlogOpenCritical: 9 - n,
+  name: `Priority site ${n + 1}`, openCritical: 9 - n, openHigh: 1,
+  nonOverdueUnfinishedActions: 0, criticalLinkedUnfinishedActions: 0,
 }))
 let priorityHtml = renderToStaticMarkup(createElement(Outlook, { snapshot: many }))
 assert.equal((priorityHtml.match(/<th scope="row">/g) ?? []).length, 6)
@@ -364,47 +367,81 @@ assert.equal((priorityHtml.match(/<th scope="row">/g) ?? []).length, 9)
 assert(priorityHtml.includes('Show fewer sites') && priorityHtml.includes('Priority site 9'))
 planningExpanded = false
 const routine = structuredClone(actual)
-routine.locations = routine.locations.map((item) => ({ ...item, backlogOpenCritical: 0, backlogOpenHigh: 0, overdueCriticalActions: 0, overdueActions: 0, recentHighRiskCount: 1 }))
+routine.planningSites = routine.planningSites.map((item) => ({ ...item,
+  openCritical: 0, openHigh: 0, nonOverdueUnfinishedActions: 0, criticalLinkedUnfinishedActions: 0,
+}))
 const routineHtml = renderToStaticMarkup(createElement(Outlook, { snapshot: routine }))
-assert(routineHtml.includes('No High indicator or qualifying urgent driver') && !routineHtml.includes('<th scope="row">'))
+assert(routineHtml.includes('No qualifying open reports or unfinished actions') && !routineHtml.includes('<th scope="row">'))
 const { priorityPlanningLocations } = load(resolve(root, 'src/features/safety-intelligence/safetyPlanningView.ts'))
 const { buildSafetyPlanningIndicators } = load(resolve(root, 'supabase/functions/_shared/safetyPlanningIndicators.ts'))
 const priorities = priorityPlanningLocations(buildSafetyPlanningIndicators(many))
 assert.equal(priorities.length, 9)
 assert.equal(priorities[0].location.name, 'Priority site 1')
 const tied = buildSafetyPlanningIndicators(many)
-tied.locations = tied.locations.slice(0, 2).map((item) => ({ ...item, location: { ...item.location, backlogOpenCritical: 1, name: 'Same priority' } })).reverse()
+tied.locations = tied.locations.slice(0, 2).map((item) => ({ ...item,
+  location: { ...item.location, name: 'Same priority' }, openCritical: 1,
+  criticalLinkedUnfinishedActions: 0, openHigh: 0, nonOverdueUnfinishedActions: 0,
+})).reverse()
 assert.deepEqual(priorityPlanningLocations(tied).map((item) => item.location.id),
   [...tied.locations.map((item) => item.location.id)].sort())
 const overdueOnly = structuredClone(routine)
-overdueOnly.locations = overdueOnly.locations.filter((item) => item.level === 'site')
-overdueOnly.locations[0].overdueActions = 1
+overdueOnly.planningSites = overdueOnly.planningSites.slice(0, 1).map((item) => ({ ...item, nonOverdueUnfinishedActions: 1 }))
 assert.equal(priorityPlanningLocations(buildSafetyPlanningIndicators(overdueOnly)).length, 1)
 const Locations = load(resolve(root, 'src/features/safety-intelligence/SafetyLocations.tsx')).SafetyLocations
 const locationHtml = renderToStaticMarkup(createElement(Locations, { snapshot: actual }))
 assert(locationHtml.includes('Deterministic guidance—not AI-generated') && locationHtml.includes('Advisory only'))
-assert(locationHtml.includes('Fixture Site') && locationHtml.includes('20 open High'))
-assert(locationHtml.includes(`#incident-detail?id=${incident(0).id}`))
+assert(locationHtml.includes('Fixture Site') && locationHtml.includes('0 open critical, 20 open high'))
+assert(!locationHtml.includes('High/Critical</small>'), 'Combined count badge is still rendered')
 assert(locationHtml.includes('authorized incident aggregate') && !locationHtml.includes('common cause:'))
+const currentSite = actual.locations.find((item) => item.level === 'site')
+const threeOverdueSites = structuredClone(actual)
+threeOverdueSites.locations = [
+  { ...currentSite, id: 'ab000000-0000-4000-8000-000000000101', name: 'Eckert Drilling Site', openCriticalCount: 10, openHighCount: 2, overdueActions: 10 },
+  { ...currentSite, id: 'ab000000-0000-4000-8000-000000000102', name: 'Onshore Gas Processing Plant', openCriticalCount: 9, openHighCount: 1, overdueActions: 18 },
+  { ...currentSite, id: 'ab000000-0000-4000-8000-000000000103', name: 'Offshore Platform Alpha', openCriticalCount: 9, openHighCount: 3, overdueActions: 9 },
+]
+const threeSitesHtml = renderToStaticMarkup(createElement(Locations, { snapshot: threeOverdueSites }))
+const topRowsHtml = threeSitesHtml.match(/<ol class="safety-ranked-list">([\s\S]*?)<\/ol>/)?.[1] || ''
+assert(topRowsHtml, 'Top 3 ranked rows were not rendered')
+assert.equal((threeSitesHtml.match(/<details>/g) || []).length, 3, 'Each site should retain its native disclosure')
+assert(!threeSitesHtml.includes('<details open'), 'Advisory disclosures should be initially closed')
+for (const [rank, name, counts] of [
+  ['1', 'Eckert Drilling Site', '10 open critical, 2 open high'],
+  ['2', 'Offshore Platform Alpha', '9 open critical, 3 open high'],
+  ['3', 'Onshore Gas Processing Plant', '9 open critical, 1 open high'],
+]) {
+  assert(threeSitesHtml.includes(`<span class="safety-rank">${rank}</span><div><h4>${name}</h4><small>${counts}</small></div>`),
+    `Wrong ranked row for ${name}`)
+}
+assert(!threeSitesHtml.includes('High/Critical</small>'), 'Combined count badge is still rendered')
+assert.equal((threeSitesHtml.match(/Source: authorized incident aggregate, snapshot/g) || []).length, 3,
+  'Each site should retain its incident aggregate source line')
+assert.equal((threeSitesHtml.match(/supported driver/g) || []).length, 3,
+  'Each advisory should contain only one incident-based driver')
+assert(!topRowsHtml.includes('High/Critical'), 'Combined count was rendered in a site row')
+assert(!threeSitesHtml.match(/overdue|corrective action|current authorized backlog|responsible owners|action counts use/i),
+  'Advisory displayed corrective-action guidance or disclaimer')
 assert(renderToStaticMarkup(createElement(Locations, { snapshot: data })).includes('No site-assigned High/Critical'))
 const cards = (snapshot) => renderToStaticMarkup(createElement(Cards, { snapshot }))
 html = cards(actual)
-assert.equal((html.match(/<article/g) || []).length, 11)
-for (const title of ['Total Incidents', 'Open Incidents', 'Closed Incidents',
-  'Corrective Action On-Time Closure', 'Outstanding Actions']) {
+assert.equal((html.match(/<article/g) || []).length, 10)
+for (const title of ['Total Incidents', 'Open Incidents', 'Closed Incidents', 'Drafts', 'Near Miss']) {
   assert.equal(html.split(`<h3>${title}</h3>`).length - 1, 1, `Duplicated or missing ${title}`)
 }
+assert(!html.includes('Outstanding Actions'))
+assert(!html.includes('Corrective Action On-Time Closure'))
 assert.match(html, /Total Incidents<\/h3><strong[^>]*>100<\/strong>/)
 assert.match(html, /Open Incidents<\/h3><strong[^>]*>80<\/strong>/)
 assert.match(html, /Closed Incidents<\/h3><strong[^>]*>20<\/strong>/)
-assert.match(html, /Outstanding Actions<\/h3><strong[^>]*>0<\/strong>/)
-assert.match(html, /Corrective Action On-Time Closure<\/h3><strong[^>]*>Unavailable<\/strong>/)
-assert(html.includes('Completion and verification dates do not establish closure'))
+assert.match(html, /Drafts<\/h3><strong[^>]*>0<\/strong>/)
+assert.match(html, /Near Miss<\/h3><strong[^>]*>0<\/strong>/)
 const legacySnapshot = structuredClone(actual)
 delete legacySnapshot.metrics.incidentCounts
-delete legacySnapshot.metrics.outstandingActions
 assert(cards(legacySnapshot).includes('deployed snapshot endpoint does not yet provide incident counts'))
-for (const expected of ['34 / 100', 'Medium', 'safety-risk-medium', '20 still open', 'Equipment', '100%', 'Fixture Site', '100 total incidents', '2 days', '1 valid closures', 'Historical open-state observations']) assert(html.includes(expected), `Missing ${expected}`)
+const preDraftSnapshot = structuredClone(actual)
+delete preDraftSnapshot.metrics.incidentCounts.drafts
+assert(cards(preDraftSnapshot).includes('Drafts</h3><strong class="safety-kpi-value">Unavailable</strong>'))
+for (const expected of ['34 / 100', 'Medium', 'safety-risk-medium', '20 still open', 'Equipment', '100%', 'Fixture Site', '100 total incidents', '2 days']) assert(html.includes(expected), `Missing ${expected}`)
 assert.match(html, /High-Risk Incidents<\/h3><strong[^>]*>40<\/strong>/)
 html = cards(data)
 assert(html.includes('Insufficient data') && html.includes('Unavailable') && !html.includes('0 / 100'))
@@ -415,13 +452,10 @@ partial.metrics.highRisk.state = 'incomplete'
 partial.metrics.category = { ...partial.metrics.category, state: 'incomplete', share: null }
 html = cards(partial)
 assert(html.includes('Known counts only') && !html.includes('34 / 100') && !html.includes('Fixture Site'))
-const zeroBaseline = structuredClone(actual)
-zeroBaseline.metrics.nearMiss = { state: 'available', reasons: [], currentCount: 3, previousCount: 0, percentageChange: null, direction: 'new_reporting' }
-html = cards(zeroBaseline)
-assert(html.includes('New reporting') && html.includes('Percentage unavailable'))
-const callerActions = structuredClone(actual)
-callerActions.coverage.find((entry) => entry.source === 'actions').access = 'caller_visible'
-assert(cards(callerActions).includes('caller-visible action coverage only'))
+const nearMissCount = structuredClone(actual)
+nearMissCount.metrics.incidentCounts.nearMiss = 3
+html = cards(nearMissCount)
+assert.match(html, /Near Miss<\/h3><strong[^>]*>3<\/strong>/)
 const siteOnly = structuredClone(actual)
 siteOnly.locations = siteOnly.locations.filter((entry) => entry.level === 'site')
 siteOnly.dataQuality.unassignedFacility = siteOnly.metrics.category.denominator
@@ -433,11 +467,6 @@ dataQualitySnapshot.dataQuality.missingReportedAt = 1
 dataQualitySnapshot.dataQuality.unassignedFacility = 1
 assert(cards(dataQualitySnapshot).includes('Highest Risk Site')
   && cards(dataQualitySnapshot).includes('reports lack an available site assignment'))
-const improved = structuredClone(actual)
-improved.metrics.resolution.changeDays = -2
-improved.metrics.resolution.previousAverageDays = 4
-improved.metrics.resolution.previousSampleSize = 3
-assert(cards(improved).includes('-2 days versus previous period (3 closures)'))
 for (const [band, score] of [['High', 70], ['Low', 10]]) {
   const colored = structuredClone(actual)
   colored.metrics.risk = { ...colored.metrics.risk, band, score }
@@ -452,7 +481,7 @@ assert(css.includes('.safety-kpi-grid') && css.includes('repeat(3, minmax(0, 1fr
 console.log('PASS: five primary areas, Account Settings after Administration, permission guards and legacy routes')
 console.log('PASS: real shell rendering for loading/error/empty/personal/ready/incomplete states and Refresh')
 console.log('PASS: responsive wrapping/mobile rules and existing dark panel styles (not a browser layout test)')
-console.log('PASS: eleven distinct KPI cards, real counts, closure-date blocker, unavailable/partial states and 90/30-day hook selection')
-console.log('PASS: location guidance rendering, observed counts, advisory labels and authorized incident links')
+console.log('PASS: ten KPI cards without on-time closure, real counts, unavailable/partial states and 90/30-day hook selection')
+console.log('PASS: ranked site rows show open counts only, no combined badge, and responsive alignment')
 console.log('PASS: planning outlook drivers, methodology, empty/sparse states and no unsupported predictive output')
 console.log('PASS: priority-only site outlook, urgent sparse/overdue drivers, six initial rows, expandable remainder and deterministic priority ordering')

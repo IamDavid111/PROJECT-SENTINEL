@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ArrowLeft } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { createAction, downloadQhseFile, getActionsWorkspace, resolveAction, reassignAction, validateQhseFile } from './inspectionActionService'
@@ -12,7 +13,7 @@ function localDateTime() {
   return date.toISOString().slice(0, 16)
 }
 
-export function ActionsWorkspace({ supabase, canManage, assignedOnly = false }: { supabase: SupabaseClient; canManage: boolean; assignedOnly?: boolean }) {
+export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, showInspectionBack = false }: { supabase: SupabaseClient; canManage: boolean; assignedOnly?: boolean; showInspectionBack?: boolean }) {
   const queryClient = useQueryClient()
   const [actions, setActions] = useState<ActionRecord[]>([])
   const [sites, setSites] = useState<QhseSite[]>([])
@@ -122,9 +123,21 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false }: 
   const siteName = (id: string) => sites.find((site) => site.id === id)?.name || 'Site unavailable'
   const personName = (id: string) => people.find((person) => person.id === id)?.full_name || 'Organization user'
   const heading = assignedOnly ? 'Assigned Actions' : 'Actions'
+  const returnToInspection = () => {
+    const returnKey = new URLSearchParams(window.location.hash.split('?')[1] || '').get('return')
+    const storageKey = returnKey && /^[\da-f-]{36}$/i.test(returnKey) ? `actions-return:${returnKey}` : ''
+    if (storageKey && sessionStorage.getItem(storageKey) === 'inspections') {
+      sessionStorage.removeItem(storageKey)
+      window.history.back()
+      return
+    }
+    const url = new URL(window.location.href)
+    url.hash = '#inspections'
+    window.location.replace(url.toString())
+  }
 
   return <div className="my-reports-page">
-    <div className="my-reports-header"><div><div className="eyebrow">OPERATIONS &amp; QHSE</div><h2>{heading}</h2><p>{assignedOnly ? 'Actions assigned to your account.' : 'Create, assign, and track organization actions.'}</p></div>{canManage && <a className="button button-outline button-small" href="#assigned-actions">Assigned Actions</a>}</div>
+    <div className="my-reports-header"><div>{showInspectionBack && <button className="button button-outline button-small workspace-back-link" type="button" onClick={returnToInspection}><ArrowLeft size={16} aria-hidden="true" />Back</button>}<div className="eyebrow">OPERATIONS &amp; QHSE</div><h2>{heading}</h2><p>{assignedOnly ? 'Actions assigned to your account.' : 'Create, assign, and track organization actions.'}</p></div>{canManage && <a className="button button-outline button-small" href="#assigned-actions">Assigned Actions</a>}</div>
     {error && <div className="auth-message error" role="alert">{error}</div>}
     {message && <div className="auth-message success" role="status">{message}</div>}
     {canManage && !assignedOnly && <form className="incident-form" onSubmit={(event) => void submit(event)}>

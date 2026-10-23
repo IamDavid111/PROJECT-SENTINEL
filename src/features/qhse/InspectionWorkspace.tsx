@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, MouseEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -12,7 +12,29 @@ function localDateTime() {
   return date.toISOString().slice(0, 16)
 }
 
-export function InspectionWorkspace({ supabase }: { supabase: SupabaseClient }) {
+export function InspectionNavigationButtons({ canManageActions }: { canManageActions: boolean }) {
+  const openActions = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    const returnKey = crypto.randomUUID()
+    sessionStorage.setItem(`actions-return:${returnKey}`, 'inspections')
+    window.location.hash = `#corrective-actions?return=${returnKey}`
+  }
+  return <div className="incident-form-header-actions">
+    {canManageActions && <a className="button button-outline button-small" href="#corrective-actions" onClick={openActions}>Actions</a>}
+    <a className="button button-outline button-small" href="#dashboard">Dashboard</a>
+  </div>
+}
+
+export function InspectionNavigationOnly({ canManageActions }: { canManageActions: boolean }) {
+  return <div className="incident-form-page">
+    <div className="incident-form-header">
+      <div><div className="eyebrow">OPERATIONS &amp; QHSE</div><h2>Log Inspection</h2></div>
+      <InspectionNavigationButtons canManageActions={canManageActions} />
+    </div>
+  </div>
+}
+
+export function InspectionWorkspace({ supabase, canManageActions = false }: { supabase: SupabaseClient; canManageActions?: boolean }) {
   const queryClient = useQueryClient()
   const [sites, setSites] = useState<QhseSite[]>([])
   const [people, setPeople] = useState<QhsePerson[]>([])
@@ -80,7 +102,7 @@ export function InspectionWorkspace({ supabase }: { supabase: SupabaseClient }) 
   const inspectorName = (id: string) => people.find((person) => person.id === id)?.full_name || 'Organization user'
 
   return <div className="incident-form-page">
-    <div className="incident-form-header"><div><div className="eyebrow">OPERATIONS &amp; QHSE</div><h2>Log Inspection</h2><p>Record an inspection and its findings for an organization site.</p></div><div className="incident-form-header-actions"><a className="button button-outline button-small" href="#dashboard">Dashboard</a></div></div>
+    <div className="incident-form-header"><div><div className="eyebrow">OPERATIONS &amp; QHSE</div><h2>Log Inspection</h2><p>Record an inspection and its findings for an organization site.</p></div><InspectionNavigationButtons canManageActions={canManageActions} /></div>
     {error && <div className="auth-message error" role="alert">{error}</div>}
     {message && <div className="auth-message success" role="status">{message}</div>}
     <form className="incident-form" onSubmit={(event) => void submit(event)}>

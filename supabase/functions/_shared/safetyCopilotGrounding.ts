@@ -41,10 +41,11 @@ const contextSchema = z.object({
   locationGuidance: z.array(z.object({ locationId: z.uuid(), recommendations: z.array(z.object({
     driver: z.string(), advice: z.string(), source: z.enum(['incident_counts', 'action_counts']),
   })) })),
-  planningIndicators: z.array(z.object({
-    locationId: z.uuid(), state: z.enum(['available', 'insufficient', 'incomplete']),
-    indicator: z.enum(['High', 'Medium', 'Low']).nullable(),
-    observedPriority: z.enum(['High', 'Medium']).nullable(), reasons: z.array(z.string()),
+  planningMetrics: z.array(z.object({
+    siteId: z.uuid(), siteName: z.string(), state: z.enum(['available', 'incomplete']),
+    openCritical: z.number().int().nonnegative(), openHigh: z.number().int().nonnegative(),
+    nonOverdueUnfinishedActions: z.number().int().nonnegative(),
+    criticalLinkedUnfinishedActions: z.number().int().nonnegative(), reasons: z.array(z.string()),
   })),
   evidence: z.array(safetySnapshotSchema.shape.evidence.element.extend({ key: z.string() })),
   limitations: z.array(z.string()), contextTruncated: z.boolean(),
@@ -81,9 +82,11 @@ export async function buildCopilotGrounding(
     windows: snapshot.windows, coverage: snapshot.coverage, dataQuality: snapshot.dataQuality,
     metrics: snapshot.metrics, locations: locations.slice(0, 12),
     locationGuidance: guidance.locations.map((item) => ({ locationId: item.location.id, recommendations: item.recommendations })),
-    planningIndicators: planning.locations.slice(0, 12).map((item) => ({
-      locationId: item.location.id, state: item.state, indicator: item.indicator,
-      observedPriority: item.observedPriority, reasons: item.reasons,
+    planningMetrics: planning.locations.slice(0, 12).map((item) => ({
+      siteId: item.location.id, siteName: item.location.name, state: item.state,
+      openCritical: item.openCritical, openHigh: item.openHigh,
+      nonOverdueUnfinishedActions: item.nonOverdueUnfinishedActions,
+      criticalLinkedUnfinishedActions: item.criticalLinkedUnfinishedActions, reasons: item.reasons,
     })),
     evidence: evidence.slice(0, 20),
     limitations: [
@@ -100,14 +103,14 @@ export async function buildCopilotGrounding(
     context.contextTruncated = true
     if (context.evidence.length) context.evidence.pop()
     else if (context.locations.length) context.locations.pop()
-    else if (context.planningIndicators.length) context.planningIndicators.pop()
+    else if (context.planningMetrics.length) context.planningMetrics.pop()
     else if (context.locationGuidance.length) context.locationGuidance.pop()
     else throw new Error('Operational context exceeds its fixed budget.')
   }
   // Advice cannot describe a location name omitted by trimming; retain only included locations.
   const ids = new Set(context.locations.map((item) => item.id))
   context.locationGuidance = context.locationGuidance.filter((item) => ids.has(item.locationId))
-  context.planningIndicators = context.planningIndicators.filter((item) => ids.has(item.locationId))
+  context.planningMetrics = context.planningMetrics.filter((item) => ids.has(item.siteId))
   const { rows } = dataset
   const accessSources = {
     incidents: rows.incidents.map((row) => row.id), actions: rows.actions.map((row) => row.id),
