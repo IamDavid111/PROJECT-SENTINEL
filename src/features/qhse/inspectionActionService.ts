@@ -8,6 +8,8 @@ const bucket = 'incident-evidence'
 
 export type QhseSite = { id: string; name: string }
 export type QhsePerson = { id: string; full_name: string }
+export type EligibleIncident = { id: string; reference_number: string; title: string; status: string }
+export type ActionType = 'preventive' | 'corrective' | 'investigation'
 export type InspectionRecord = {
   id: string
   site_id: string
@@ -22,12 +24,14 @@ export type InspectionRecord = {
 }
 export type ActionRecord = {
   id: string
-  type: 'preventive' | 'corrective'
+  type: 'preventive' | 'corrective' | 'investigation'
+  incident_id: string | null
   description: string
   site_id: string
   assignee_id: string
   created_by: string
   due_at: string
+  assigned_at: string
   status: 'open' | 'resolved'
   resolved_at: string | null
   resolved_by: string | null
@@ -108,26 +112,60 @@ export async function createInspection(client: SupabaseClient, input: {
   return { uploadWarning }
 }
 
-export async function getActionsWorkspace(client: SupabaseClient, assignedOnly = false) {
+export async function getActionsWorkspace(client: SupabaseClient, assignedOnly = false, includeOrganizationActions = false) {
   const context = await getOrganizationContext(client)
   let actionsQuery = client.from('actions').select('*').eq('organization_id', context.organizationId).order('due_at')
-  if (assignedOnly) actionsQuery = actionsQuery.eq('assignee_id', context.userId)
+  if (assignedOnly && !includeOrganizationActions) actionsQuery = actionsQuery.eq('assignee_id', context.userId)
   const [{ data: actions, error: actionsError }, { data: sites, error: sitesError }, { data: people, error: peopleError }] = await Promise.all([
     actionsQuery,
     client.from('sites').select('id, name').eq('organization_id', context.organizationId).order('name'),
     client.from('profiles').select('id, full_name').eq('organization_id', context.organizationId).eq('account_status', 'active').order('full_name'),
   ])
   if (actionsError || sitesError || peopleError) throw new Error('Unable to load organization actions.')
-  return { ...context, actions: (actions || []) as ActionRecord[], sites: (sites || []) as QhseSite[], people: (people || []) as QhsePerson[] }
+  const incidentRows: EligibleIncident[] = []
+  if (!assignedOnly) {
+    for (let offset = 0; ; offset += 500) {
+      const { data: page, error: incidentError } = await client.from('incidents')
+        .select('id, reference_number, title, status')
+        .eq('organization_id', context.organizationId)
+        .in('status', ['submitted', 'under_review', 'investigation', 'corrective_action', 'pending_verification'])
+        .order('created_at', { ascending: false })
+        .range(offset, offset + 499)
+      if (incidentError) throw new Error('Unable to load eligible incidents for action assignment.')
+      incidentRows.push(...(page || []) as EligibleIncident[])
+      if (!page || page.length < 500) break
+    }
+  }
+  const linkedIncidentIds = [...new Set((actions || [])
+    .map((action) => (action as ActionRecord).incident_id)
+    .filter((incidentId): incidentId is string => Boolean(incidentId)))]
+  const eligibleIncidents = incidentRows
+  let linkedIncidents: EligibleIncident[] = []
+  if (linkedIncidentIds.length) {
+    const { data: linkedRows, error: linkedIncidentsError } = await client.from('incidents')
+      .select('id, reference_number, title, status')
+      .eq('organization_id', context.organizationId)
+      .in('id', linkedIncidentIds)
+    if (linkedIncidentsError) throw new Error('Unable to load linked incident references for actions.')
+    linkedIncidents = (linkedRows || []) as EligibleIncident[]
+  }
+  return {
+    ...context,
+    actions: (actions || []) as ActionRecord[],
+    sites: (sites || []) as QhseSite[],
+    people: (people || []) as QhsePerson[],
+    eligibleIncidents,
+    linkedIncidents,
+  }
 }
 
-export async function createAction(client: SupabaseClient, input: { type: 'preventive' | 'corrective'; description: string; siteId: string; assigneeId: string; dueAt: string }) {
+export async function createAction(client: SupabaseClient, input: { type: ActionType; description: string; siteId: string; assigneeId: string; dueAt: string; incidentId?: string | null }) {
   const context = await getOrganizationContext(client)
   const dueDate = new Date(input.dueAt)
   if (!input.type || !input.description.trim() || !input.siteId || !input.assigneeId || Number.isNaN(dueDate.getTime()) || dueDate.getTime() <= Date.now()) {
     throw new Error('Enter an action, site, assignee, and a future due date and time.')
   }
-  const { error } = await client.from('actions').insert({
+  const { data: action, error } = await client.from('actions').insert({
     organization_id: context.organizationId,
     type: input.type,
     description: input.description.trim(),
@@ -136,8 +174,33 @@ export async function createAction(client: SupabaseClient, input: { type: 'preve
     created_by: context.userId,
     due_at: dueDate.toISOString(),
     status: 'open',
-  })
+    incident_id: input.incidentId || null,
+  }).select('id').single()
   if (error) throw new Error(error.message || 'Unable to create the action.')
+  if (!action) throw new Error('The action could not be saved.')
+  return notifyActionAssignment(client, action.id)
+}
+
+async function notifyActionAssignment(client: SupabaseClient, actionId: string) {
+  const { data, error } = await client.functions.invoke('action-assignment-notification', { body: { actionId } })
+  return {
+    notificationWarning: error || !data?.emailSent
+      ? 'The action was saved, but its email notification could not be confirmed.'
+      : '',
+  }
+}
+
+export type LinkedIncidentAction = Pick<ActionRecord, 'id' | 'incident_id' | 'type' | 'description' | 'assignee_id' | 'due_at' | 'status' | 'assigned_at' | 'resolved_at'>
+
+export async function getActionsForIncidents(client: SupabaseClient, organizationId: string, incidentIds: string[]) {
+  if (!incidentIds.length) return [] as LinkedIncidentAction[]
+  const { data, error } = await client.from('actions')
+    .select('id, incident_id, type, description, assignee_id, due_at, status, assigned_at, resolved_at')
+    .eq('organization_id', organizationId)
+    .in('incident_id', incidentIds)
+    .order('assigned_at', { ascending: false })
+  if (error) throw new Error('Unable to load actions linked to these incidents.')
+  return (data || []) as LinkedIncidentAction[]
 }
 
 export async function reassignAction(client: SupabaseClient, actionId: string, assigneeId: string) {
@@ -145,6 +208,7 @@ export async function reassignAction(client: SupabaseClient, actionId: string, a
   const { data, error } = await client.from('actions').update({ assignee_id: assigneeId })
     .eq('id', actionId).eq('organization_id', context.organizationId).eq('status', 'open').select('id').maybeSingle()
   if (error || !data) throw new Error(error?.message || 'This action is no longer open and could not be reassigned.')
+  return notifyActionAssignment(client, data.id)
 }
 
 export async function resolveAction(client: SupabaseClient, action: ActionRecord, notes: string, file?: File | null) {

@@ -849,7 +849,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage key="organization" supabase={supabase} scope="organization" canViewAll canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
 
           {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage showInspectionBack />}
-          {route === 'assigned-actions' && canAccess('view_own_reports') && <ActionsWorkspace supabase={supabase} canManage={canManageActions} assignedOnly />}
+          {route === 'assigned-actions' && canAccess('view_own_reports') && <ActionsWorkspace supabase={supabase} canManage={canManageActions} assignedOnly canViewAllAssignedActions={canAccess('view_all_assigned_actions')} />}
           {route === 'inspections' && canCreateInspections && <InspectionWorkspace supabase={supabase} canManageActions={canManageActions} />}
           {route === 'inspections' && !canCreateInspections && canManageActions && <InspectionNavigationOnly canManageActions={canManageActions} />}
           {/* Navigation exists for these modules, but each route currently shows a placeholder instead of a working feature workflow. */}
@@ -3015,7 +3015,7 @@ export default function App() {
   }
   // These routes show organization-specific pages, so require a signed-in session first.
   // Public pages and account routes are handled elsewhere; ProtectedApp then loads organization access.
-  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'ai-assistant' || requestedRoute === 'knowledge' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
+  const protectedRoute = requestedRoute === 'dashboard' || requestedRoute === 'report-incident' || requestedRoute === 'incident-detail' || requestedRoute === 'my-reports' || requestedRoute === 'assigned-actions' || requestedRoute === 'ai-assistant' || requestedRoute === 'knowledge' || requestedRoute === 'executive-analytics' || requestedRoute === 'marketplace' || requestedRoute === 'incidents' || requestedRoute === 'corrective-actions' || requestedRoute === 'inspections' || requestedRoute === 'audits' || requestedRoute === 'reports' || requestedRoute === 'administration' || requestedRoute === 'users' || requestedRoute === 'roles-permissions' || requestedRoute === 'profile' || requestedRoute === 'preferences' || requestedRoute === 'activity-log' || requestedRoute === 'settings'
   if (protectedRoute) {
     if (sessionLoading) return <div className="protected-state">Checking your session...</div>
     if (!session) return <SignInPage />

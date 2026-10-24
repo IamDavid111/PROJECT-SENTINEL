@@ -39,10 +39,7 @@ const incidentDraftFields = z.object({
 })
 
 // These cross-field checks prevent contradictory combinations in both saved drafts and final submissions.
-function addCommonIncidentRules(data: { contractorInvolved?: boolean; contractorOrganization?: string; reportType: string; environmentalImpact?: boolean }, context: z.RefinementCtx) {
-  if (!data.contractorInvolved && data.contractorOrganization) {
-    context.addIssue({ code: 'custom', path: ['contractorOrganization'], message: 'Contractor organization requires contractor involvement.' })
-  }
+function addCommonIncidentRules(data: { reportType: string; environmentalImpact?: boolean }, context: z.RefinementCtx) {
   if (data.reportType === 'environmental_incident' && !data.environmentalImpact) {
     context.addIssue({ code: 'custom', path: ['environmentalImpact'], message: 'Environmental incidents must identify environmental impact.' })
   }

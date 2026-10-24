@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChangeEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ArrowLeft } from "lucide-react";
@@ -16,6 +16,7 @@ import {
 import type { IncidentDetail } from "./incidentTypes";
 import { IncidentClosureForm } from "./IncidentClosure";
 import { getIncidentClosure } from "./incidentClosureService";
+import { getActionsForIncidents } from "../qhse/inspectionActionService";
 
 function formatLabel(value: string | null) {
   return value
@@ -27,6 +28,16 @@ function formatLabel(value: string | null) {
 
 function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not available";
+}
+
+function elapsedSince(value: string, now: number) {
+  const elapsedMinutes = Math.max(0, Math.floor((now - new Date(value).getTime()) / 60_000))
+  const days = Math.floor(elapsedMinutes / 1440)
+  const hours = Math.floor((elapsedMinutes % 1440) / 60)
+  const minutes = elapsedMinutes % 60
+  if (days) return `${days}d ${hours}h`
+  if (hours) return `${hours}h ${minutes}m`
+  return `${minutes}m`
 }
 
 function IncidentStatus({ status }: { status: IncidentDetail["status"] }) {
@@ -73,11 +84,22 @@ export function IncidentDetailPage({
   const [evidenceMessage, setEvidenceMessage] = useState("");
   const [evidenceError, setEvidenceError] = useState("");
   const [closing, setClosing] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const closure = useQuery({
     queryKey: ["incident-closure", incident.data?.organizationId, incidentId, organization.data?.userId],
     queryFn: () => getIncidentClosure(supabase, incidentId!),
     enabled: Boolean(organization.data?.userId && incidentId && incident.data?.status === "closed"),
   });
+  const linkedActions = useQuery({
+    queryKey: ["incident-linked-actions", incident.data?.organizationId || "pending", organization.data?.userId || "pending", incidentId || "pending"],
+    queryFn: () => getActionsForIncidents(supabase, incident.data!.organizationId, [incidentId!]),
+    enabled: Boolean(incident.data?.organizationId && incidentId),
+  });
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   if (!incidentId)
     return (
@@ -186,6 +208,18 @@ export function IncidentDetailPage({
         </a>
         <a className="button button-outline button-small" href="#incidents">Incident Management</a>
       </div>
+      {linkedActions.isError ? <div className="auth-message error" role="alert">{linkedActions.error.message}</div> : linkedActions.data?.map((action) => <section className="workspace-panel" key={action.id}>
+        <div className="eyebrow">LINKED ACTION</div>
+        <h3>{formatLabel(action.type)} action</h3>
+        <div className="incident-detail-items">
+          <DetailItem label="Description" value={action.description} />
+          <DetailItem label="Status" value={action.status === "resolved" ? "Closed" : "Open"} />
+          <DetailItem label="Assigned" value={formatDate(action.assigned_at)} />
+          <DetailItem label="Elapsed since assignment" value={elapsedSince(action.assigned_at, currentTime)} />
+          <DetailItem label="Due" value={formatDate(action.due_at)} />
+        </div>
+        <a className="button button-outline button-small" href={`#assigned-actions?action=${action.id}`}>View action details</a>
+      </section>)}
       {closing && canClose && data.status !== "closed" && <IncidentClosureForm key={data.id} client={supabase} incident={data} onDismiss={() => setClosing(false)} />}
       {data.status === "closed" && <section className="workspace-panel">
         <h3>Incident closure</h3>

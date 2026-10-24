@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { AlarmClock, CalendarCheck, CheckCircle2, CircleAlert, ClipboardCheck, ClipboardList, Eye, FileWarning, Flame, Gauge } from 'lucide-react'
+import { CheckCircle2, CircleAlert, ClipboardCheck, ClipboardList, Eye, FileWarning, Flame, Gauge } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import type { DashboardActivity, DashboardFilters, DashboardIncident, DashboardMetric, DashboardSnapshot } from './dashboardTypes'
+import { normalizeIncidentReportType, normalizeIncidentSeverity } from '../../../supabase/functions/_shared/incidentReportFilters'
 
 const dateRangeDays: Record<DashboardFilters['dateRange'], number | null> = {
   '7d': 7,
@@ -71,6 +72,7 @@ type DashboardIncidentRow = {
   department: string | null
   shift: string | null
   severity: string | null
+  potential_severity: string | null
   incident_category: string | null
 }
 
@@ -96,11 +98,10 @@ function unavailableMetrics(): DashboardMetric[] {
     ['open-incidents', 'Open incidents', CircleAlert, '#incidents', 'Incident Management'],
     ['resolved-incidents', 'Resolved incidents', CheckCircle2, '#incidents', 'Incident Management'],
     ['high-risk-incidents', 'High-risk incidents', Flame, '#incidents', 'Incident Management'],
+    ['open-high-risk-incidents', 'Open high-risk incidents', Flame, '#incidents', 'Incident Management'],
+    ['closed-high-risk-incidents', 'Closed high-risk incidents', Flame, '#incidents', 'Incident Management'],
     ['near-misses', 'Near misses', Eye, '#report-incident', 'Report Incident'],
-    ['open-actions', 'Open corrective actions', ClipboardList, '#corrective-actions', 'Corrective Actions'],
-    ['overdue-actions', 'Overdue actions', AlarmClock, '#corrective-actions', 'Corrective Actions'],
     ['inspections-completed', 'Inspections completed', ClipboardCheck, '#inspections', 'Safety Inspections'],
-    ['pending-audits', 'Pending audits', CalendarCheck, '#audits', 'Audit Management'],
     ['safety-score', 'Safety score', Gauge, '#executive-analytics', 'Executive Analytics'],
   ]
   return entries.map(([key, label, icon, href, module]) => ({
@@ -153,26 +154,9 @@ export async function getDashboardSnapshot(
     ? null
     : organizationSites?.find((site) => site.name.trim().toLowerCase() === filters.site.trim().toLowerCase())?.id ?? '00000000-0000-0000-0000-000000000000'
 
-  const countIncidents = async (status?: 'submitted' | 'under_review' | 'closed', reportType?: 'near_miss') => {
-    let query = client
-      .from('incidents')
-      .select('id', { count: 'exact', head: true })
-      .eq('organization_id', organizationId)
-      .neq('status', 'draft')
-    if (status) query = query.eq('status', status)
-    if (reportType) query = query.eq('report_type', reportType)
-    if (since) query = query.gte('occurred_at', since)
-    if (selectedSiteId) query = query.eq('site_id', selectedSiteId)
-    if (filters.department !== 'all') query = query.eq('department', filters.department)
-    if (filters.severity !== 'all') query = query.eq('severity', filters.severity)
-    if (filters.incidentType !== 'all') query = query.in('incident_category', incidentCategoryValues(filters.incidentType))
-    if (filters.shift !== 'all') query = query.eq('shift', filters.shift)
-    return query
-  }
-
   let filteredIncidentQuery = client
     .from('incidents')
-    .select('id, reference_number, title, report_type, status, occurred_at, created_at, location, site_id, department, shift, severity, incident_category')
+    .select('id, reference_number, title, report_type, status, occurred_at, created_at, location, site_id, department, shift, severity, potential_severity, incident_category')
     .eq('organization_id', organizationId)
     .neq('status', 'draft')
     .order('created_at', { ascending: false })
@@ -183,16 +167,6 @@ export async function getDashboardSnapshot(
   if (filters.severity !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('severity', filters.severity)
   if (filters.incidentType !== 'all') filteredIncidentQuery = filteredIncidentQuery.in('incident_category', incidentCategoryValues(filters.incidentType))
   if (filters.shift !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('shift', filters.shift)
-
-  const [totalResult, submittedResult, reviewResult, closedResult, nearMissResult] = await Promise.all([
-    countIncidents(),
-    countIncidents('submitted'),
-    countIncidents('under_review'),
-    countIncidents('closed'),
-    countIncidents(undefined, 'near_miss'),
-  ])
-  const incidentQueryError = [totalResult, submittedResult, reviewResult, closedResult, nearMissResult].find((result) => result.error)?.error
-  if (incidentQueryError) throw new Error('Unable to load incident dashboard metrics.')
 
   const { data: operationsMetrics, error: operationsMetricsError } = await client.rpc('get_inspection_action_metrics', {
     p_since: since,
@@ -210,31 +184,68 @@ export async function getDashboardSnapshot(
     incidentRows.push(...(page || []) as DashboardIncidentRow[])
     if (!page || page.length < incidentPageSize) break
   }
-  const incidentCount = totalResult.count || 0
+  const isHighRisk = (incident: DashboardIncidentRow) => {
+    const supplied = [incident.severity, incident.potential_severity].filter((value) => value?.trim())
+    const normalized = supplied.map(normalizeIncidentSeverity)
+    return normalized.length > 0 && normalized.every(Boolean)
+      && normalized.some((severity) => severity === 'high' || severity === 'critical')
+  }
+  const highRiskIncidents = incidentRows.filter(isHighRisk)
+  const openIncidents = incidentRows.filter((incident) => incident.status !== 'closed')
+  const closedIncidents = incidentRows.filter((incident) => incident.status === 'closed')
   const incidentMetricValues: Record<string, number> = {
-    'total-incidents': incidentCount,
-    'open-incidents': submittedResult.count || 0,
-    'under-review-incidents': reviewResult.count || 0,
-    'resolved-incidents': closedResult.count || 0,
-    'near-misses': nearMissResult.count || 0,
+    'total-incidents': incidentRows.length,
+    'open-incidents': openIncidents.length,
+    'resolved-incidents': closedIncidents.length,
+    'high-risk-incidents': highRiskIncidents.length,
+    'open-high-risk-incidents': highRiskIncidents.filter((incident) => incident.status !== 'closed').length,
+    'closed-high-risk-incidents': highRiskIncidents.filter((incident) => incident.status === 'closed').length,
+    'near-misses': incidentRows.filter((incident) => normalizeIncidentReportType(incident.report_type) === 'near_miss').length,
     'inspections-completed': Number(metricsRow?.inspections_completed || 0),
-    'open-actions': Number(metricsRow?.open_corrective_actions || 0),
-    'overdue-actions': Number(metricsRow?.overdue_actions || 0),
   }
   // Only keys present in incidentMetricValues have live counts; all other metric cards remain explicitly unavailable.
   const metrics = unavailableMetrics().map((metric) => {
     const value = incidentMetricValues[metric.key]
     if (value === undefined) return metric
     const detail = metric.key === 'inspections-completed'
-      ? 'Organization inspections in selected date range'
-      : metric.key === 'open-actions'
-        ? 'Open corrective actions not yet due'
-        : metric.key === 'overdue-actions'
-          ? 'Open actions past due'
+      ? 'Saved inspection records in the selected date range'
+      : metric.key.includes('high-risk')
+        ? 'High/Critical actual or potential severity'
+        : metric.key === 'open-incidents'
+          ? 'All submitted incidents not yet closed'
           : 'Organization incident data'
-    const tone = metric.key === 'open-incidents' || metric.key === 'overdue-actions' ? 'orange' as const : 'green' as const
+    const tone = metric.key.startsWith('open-') ? 'orange' as const : 'green' as const
     return { ...metric, value: String(value), detail, available: true, tone }
   })
+  const actionMetricDefinitions: Array<{ key: string; label: string; type: 'corrective' | 'preventive' | 'investigation'; status: 'open' | 'resolved'; icon: LucideIcon }> = [
+    { key: 'open-corrective-actions', label: 'Open Corrective Actions', type: 'corrective', status: 'open', icon: ClipboardList },
+    { key: 'closed-corrective-actions', label: 'Closed Corrective Actions', type: 'corrective', status: 'resolved', icon: CheckCircle2 },
+    { key: 'open-preventive-actions', label: 'Open Preventive Actions', type: 'preventive', status: 'open', icon: ClipboardList },
+    { key: 'closed-preventive-actions', label: 'Closed Preventive Actions', type: 'preventive', status: 'resolved', icon: CheckCircle2 },
+    { key: 'open-investigations', label: 'Open Investigations', type: 'investigation', status: 'open', icon: ClipboardList },
+    { key: 'closed-investigations', label: 'Closed Investigations', type: 'investigation', status: 'resolved', icon: CheckCircle2 },
+  ]
+  const actionMetricResults = await Promise.all(actionMetricDefinitions.map(async (definition) => {
+    let query = client.from('actions')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .eq('type', definition.type)
+      .eq('status', definition.status)
+    if (selectedSiteId) query = query.eq('site_id', selectedSiteId)
+    const { count, error: actionError } = await query
+    return { definition, count, error: actionError }
+  }))
+  if (actionMetricResults.some((result) => result.error)) throw new Error('Unable to load dashboard action metrics.')
+  const actionMetrics: DashboardMetric[] = actionMetricResults.map(({ definition, count }) => ({
+    key: definition.key,
+    label: definition.label,
+    value: String(count || 0),
+    detail: 'All actions in your authorized scope',
+    icon: definition.icon,
+    href: '#assigned-actions',
+    available: true,
+    tone: definition.status === 'open' ? 'orange' : 'green',
+  }))
   const siteNames = new Map((organizationSites || []).map((site) => [site.id, site.name]))
   const recentIncidents = incidentRows.slice(0, 5).map((incident) => ({
     id: incident.id,
@@ -259,7 +270,7 @@ export async function getDashboardSnapshot(
     if (Number.isNaN(date.getTime())) return
     const key = `${date.getFullYear()}-${date.getMonth()}`
     const bucket = trendBuckets.get(key) || { label: monthLabel(date), incidents: 0, nearMisses: 0 }
-    if (incident.report_type === 'near_miss') bucket.nearMisses += 1
+    if (normalizeIncidentReportType(incident.report_type) === 'near_miss') bucket.nearMisses += 1
     else bucket.incidents += 1
     trendBuckets.set(key, bucket)
   })
@@ -298,6 +309,7 @@ export async function getDashboardSnapshot(
     activities,
     recentIncidents,
     metrics,
+    actionMetrics,
     incidentTrend,
     incidentSeverity,
     incidentTypes,
@@ -309,6 +321,6 @@ export async function getDashboardSnapshot(
     configuredIncidentTypes,
     configuredDepartments,
     configuredSites,
-    hasOperationalData: incidentCount > 0,
+    hasOperationalData: incidentRows.length > 0,
   }
 }

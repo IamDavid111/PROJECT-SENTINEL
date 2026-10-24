@@ -190,7 +190,13 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
     .order('created_at', { ascending: false })
     .range(from, to)
 
-  if (scope === 'own') query = query.or(`created_by.eq.${context.userId},reported_by.eq.${context.userId}`)
+  if (filters.incidentFilter === 'draft') {
+    query = query.eq('status', 'draft').eq('created_by', context.userId)
+  } else {
+    if (scope === 'own') query = query.or(`created_by.eq.${context.userId},and(status.neq.draft,reported_by.eq.${context.userId})`)
+    else query = query.neq('status', 'draft')
+    if (filters.incidentFilter === 'submitted' || filters.incidentFilter === 'closed') query = query.eq('status', filters.incidentFilter)
+  }
 
   if (filters.status === 'open') query = query.in('status', openIncidentStatuses())
   else if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status)
@@ -209,6 +215,27 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   }
   if (filters.dateFrom) query = query.gte('occurred_at', `${filters.dateFrom}T00:00:00.000Z`)
   if (filters.dateTo) query = query.lte('occurred_at', `${filters.dateTo}T23:59:59.999Z`)
+
+  if (filters.incidentFilter === 'investigation' || filters.incidentFilter === 'corrective_action' || filters.incidentFilter === 'preventive_action') {
+    let actionQuery = client.from('actions')
+      .select('incident_id')
+      .eq('organization_id', context.organizationId)
+      .not('incident_id', 'is', null)
+      .eq('type', filters.incidentFilter === 'corrective_action' ? 'corrective' : filters.incidentFilter === 'preventive_action' ? 'preventive' : 'investigation')
+    actionQuery = actionQuery.order('incident_id')
+    const linkedIncidentIds = new Set<string>()
+    for (let offset = 0; ; offset += 500) {
+      const { data: linkedActions, error: linkedActionsError } = await actionQuery.range(offset, offset + 499)
+      if (linkedActionsError) throw new Error('Unable to filter incidents by their assigned actions.')
+      for (const action of linkedActions || []) {
+        if (action.incident_id) linkedIncidentIds.add(action.incident_id)
+      }
+      if (!linkedActions || linkedActions.length < 500) break
+    }
+    const incidentIds = [...linkedIncidentIds]
+    if (!incidentIds.length) return { items: [], page, pageSize, total: 0 }
+    query = query.in('id', incidentIds)
+  }
 
   const { data, error, count } = await query
   if (error) throw new Error('Unable to load incident reports.')
@@ -274,6 +301,7 @@ export async function getIncident(client: SupabaseClient, incidentId: string): P
 
 // Translate the form's camelCase fields to database column names; empty optional values become SQL nulls.
 function toIncidentPayload(input: IncidentDraftInput) {
+  const contractorOrganization = input.contractorOrganization?.trim() || null
   return {
     report_type: input.reportType,
     draft_stage: input.draftStage ?? 0,
@@ -286,8 +314,8 @@ function toIncidentPayload(input: IncidentDraftInput) {
     department: input.department || null,
     shift: input.shift || null,
     work_activity_context: input.workActivityContext || null,
-    contractor_involved: input.contractorInvolved || false,
-    contractor_organization: input.contractorOrganization || null,
+    contractor_involved: Boolean(contractorOrganization),
+    contractor_organization: contractorOrganization,
     severity: input.severity || null,
     potential_severity: input.potentialSeverity || null,
     incident_category: input.incidentCategory || null,
@@ -308,11 +336,21 @@ function toIncidentPayload(input: IncidentDraftInput) {
   }
 }
 
+function normalizeContractorDetails<T extends IncidentDraftInput>(input: T): T {
+  const contractorOrganization = input.contractorOrganization?.trim() || undefined
+  return {
+    ...input,
+    contractorInvolved: Boolean(contractorOrganization),
+    contractorOrganization,
+  }
+}
+
 // Offline sync supplies a stable clientSubmissionId so a retry can receive the draft created by an earlier attempt.
 export async function createIncidentDraft(client: SupabaseClient, input: IncidentDraftInput, options: { clientSubmissionId?: string } = {}): Promise<IncidentSummary> {
+  const normalizedInput = normalizeContractorDetails(input)
   const { data, error } = await client.rpc('save_incident_draft', {
     p_incident_id: null,
-    p_input: input,
+    p_input: normalizedInput,
     p_client_submission_id: options.clientSubmissionId || null,
   }).single()
   if (error || !data) throw new Error(error?.message || 'Unable to save the incident draft.')
@@ -320,9 +358,10 @@ export async function createIncidentDraft(client: SupabaseClient, input: Inciden
 }
 
 export async function updateIncidentDraft(client: SupabaseClient, incidentId: string, input: IncidentDraftInput): Promise<IncidentSummary> {
+  const normalizedInput = normalizeContractorDetails(input)
   const { data, error } = await client.rpc('save_incident_draft', {
     p_incident_id: incidentId,
-    p_input: input,
+    p_input: normalizedInput,
     p_client_submission_id: null,
   }).single()
   if (error || !data) throw new Error(error?.message || 'Unable to update the incident draft.')
@@ -331,7 +370,7 @@ export async function updateIncidentDraft(client: SupabaseClient, incidentId: st
 
 // Submit an existing manual draft only after applying the stricter final-submission schema.
 export async function submitIncident(client: SupabaseClient, incidentId: string, input: IncidentSubmissionInput): Promise<IncidentSummary> {
-  const validated = incidentSubmissionSchema.safeParse(input)
+  const validated = incidentSubmissionSchema.safeParse(normalizeContractorDetails(input))
   if (!validated.success) throw new Error(validated.error.issues[0]?.message || 'Incident submission is invalid.')
   const context = await getOrganizationContext(client)
   const { data, error } = await client.from('incidents').update({ ...toIncidentPayload(validated.data), status: 'submitted', reported_at: new Date().toISOString() }).eq('id', incidentId).eq('organization_id', context.organizationId).eq('created_by', context.userId).eq('status', 'draft').select('*').single()
@@ -343,7 +382,7 @@ export async function submitIncident(client: SupabaseClient, incidentId: string,
 
 // A new online report with no saved draft is submitted directly through the database RPC.
 export async function submitNewIncident(client: SupabaseClient, input: IncidentSubmissionInput): Promise<IncidentSummary> {
-  const validated = incidentSubmissionSchema.safeParse(input)
+  const validated = incidentSubmissionSchema.safeParse(normalizeContractorDetails(input))
   if (!validated.success) throw new Error(validated.error.issues[0]?.message || 'Incident submission is invalid.')
   const { data, error } = await client.rpc('submit_new_incident', { p_input: validated.data }).single()
   if (error || !data) throw new Error(error?.message || 'Unable to submit the incident report.')

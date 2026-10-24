@@ -10,7 +10,6 @@ const sections = [
   ['Top risks this week', 'Top-risk analysis will appear when authorized incident and risk data is available.'],
   ['High-risk locations', 'Location-level risk analysis will appear when site and incident records are available.'],
   ['Most common hazards', 'Hazard patterns will appear when validated incident and observation records are available.'],
-  ['Safety recommendations', 'Recommendations will appear after the AI service is connected to approved QHSE data.'],
   ['Recent incident summary', 'Incident summaries will appear when incident records are available.'],
 ] as const
 

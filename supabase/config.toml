@@ -10,6 +10,10 @@ verify_jwt = true
 import_map = "./functions/knowledge-extraction/deno.json"
 entrypoint = "./functions/knowledge-extraction/index.ts"
 
+[functions.action-assignment-notification]
+enabled = true
+verify_jwt = true
+
 [api]
 enabled = true
 # Port to use for the API URL.

@@ -60,6 +60,7 @@ export const USER_MANAGEMENT_PERMISSION_CATALOG = [
   { key: 'view_analytics', label: 'View Analytics', description: 'Allows access to available analytics views.', group: 'Dashboard' },
   { key: 'report_incident', label: 'Report Incident', description: 'Allows the user to submit an incident report.', group: 'Incident Management' },
   { key: 'view_own_reports', label: 'View Own Reports', description: 'Allows the user to view reports they personally submitted.', group: 'Incident Management' },
+  { key: 'view_all_assigned_actions', label: 'View All Assigned Actions', description: 'Allows read-only access to assigned actions across the organization.', group: 'QHSE' },
   { key: 'view_all_incidents', label: 'View All Incidents', description: 'Allows access to incidents submitted by users across the organization where supported.', group: 'Incident Management' },
   { key: 'manage_incidents', label: 'Manage Incidents', description: 'Allows authorized incident management actions where supported.', group: 'Incident Management' },
   { key: 'review_incidents', label: 'Review Incidents', description: 'Allows the user to review incident records where supported.', group: 'Incident Management' },

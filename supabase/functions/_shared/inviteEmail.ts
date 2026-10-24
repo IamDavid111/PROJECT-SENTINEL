@@ -9,6 +9,17 @@ export type InviteEmailDetails = {
   expiresInHours: number
 }
 
+export type ActionAssignmentEmailDetails = {
+  assigneeEmail: string
+  assigneeName: string
+  organizationName: string
+  actionType: string
+  description: string
+  siteName: string
+  dueAt: string
+  incidentReference: string | null
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, '&amp;')
@@ -67,6 +78,33 @@ function renderInviteEmail(details: InviteEmailDetails) {
     </table>`
 }
 
+function renderActionAssignmentEmail(details: ActionAssignmentEmailDetails) {
+  const assigneeName = escapeHtml(details.assigneeName)
+  const organizationName = escapeHtml(details.organizationName)
+  const actionType = escapeHtml(details.actionType)
+  const description = escapeHtml(details.description)
+  const siteName = escapeHtml(details.siteName)
+  const dueAt = escapeHtml(details.dueAt)
+  const incidentReference = details.incidentReference ? escapeHtml(details.incidentReference) : null
+
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0;background:#eef2f6;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+      <tr><td align="center"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(16,32,48,0.08);">
+        <tr><td style="background:#16212e;padding:24px 32px;"><div style="color:#ffffff;font-size:18px;font-weight:700;">SentinelQHSE</div><div style="color:#8fa3b8;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;margin-top:4px;">Safety Intelligence</div></td></tr>
+        <tr><td style="padding:32px;"><h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;color:#16212e;">An action has been assigned to you</h1>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#3d4d5e;">Hello ${assigneeName}, ${organizationName} assigned a ${actionType.toLowerCase()} action to you.</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f8fa;border-radius:10px;padding:4px 16px;margin-bottom:24px;">
+            <tr><td style="padding:6px 0;color:#5b6b7c;font-size:14px;">Description</td><td style="padding:6px 0;color:#16212e;font-size:14px;font-weight:600;text-align:right;">${description}</td></tr>
+            <tr><td style="padding:6px 0;color:#5b6b7c;font-size:14px;">Site</td><td style="padding:6px 0;color:#16212e;font-size:14px;font-weight:600;text-align:right;">${siteName}</td></tr>
+            <tr><td style="padding:6px 0;color:#5b6b7c;font-size:14px;">Due</td><td style="padding:6px 0;color:#16212e;font-size:14px;font-weight:600;text-align:right;">${dueAt}</td></tr>
+            ${incidentReference ? `<tr><td style="padding:6px 0;color:#5b6b7c;font-size:14px;">Incident</td><td style="padding:6px 0;color:#16212e;font-size:14px;font-weight:600;text-align:right;">${incidentReference}</td></tr>` : ''}
+          </table>
+          <p style="margin:0;font-size:13px;color:#5b6b7c;">Sign in to SentinelQHSE and open Assigned Actions to review and complete this item.</p>
+        </td></tr>
+        <tr><td style="background:#f6f8fa;padding:18px 32px;border-top:1px solid #e3e9ef;"><p style="margin:0;font-size:12px;color:#8fa3b8;">This notification was sent because an action was assigned to your account.</p></td></tr>
+      </table></td></tr>
+    </table>`
+}
+
 export async function sendInviteEmail(details: InviteEmailDetails) {
   const serviceId = Deno.env.get('EMAILJS_SERVICE_ID')
   const templateId = Deno.env.get('EMAILJS_TEMPLATE_ID')
@@ -108,4 +146,36 @@ export async function sendInviteEmail(details: InviteEmailDetails) {
   }
 
   return { inviteUrl: details.inviteUrl }
+}
+
+export async function sendActionAssignmentEmail(details: ActionAssignmentEmailDetails) {
+  const serviceId = Deno.env.get('EMAILJS_SERVICE_ID')
+  const templateId = Deno.env.get('EMAILJS_TEMPLATE_ID')
+  const publicKey = Deno.env.get('EMAILJS_PUBLIC_KEY')
+  const privateKey = Deno.env.get('EMAILJS_PRIVATE_KEY')
+  if (!serviceId || !templateId || !publicKey || !privateKey) {
+    throw new Error('Action assignment email delivery is not configured')
+  }
+
+  const response = await fetch(EMAILJS_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: serviceId,
+      template_id: templateId,
+      user_id: publicKey,
+      accessToken: privateKey,
+      template_params: {
+        to_email: details.assigneeEmail,
+        to_name: details.assigneeName,
+        from_name: 'SentinelQHSE',
+        subject: `A ${details.actionType.toLowerCase()} action was assigned to you`,
+        message: renderActionAssignmentEmail(details),
+      },
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Action assignment email could not be sent (HTTP ${response.status})`)
+  }
 }
