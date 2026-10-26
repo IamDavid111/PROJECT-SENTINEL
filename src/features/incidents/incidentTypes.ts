@@ -139,6 +139,7 @@ export type IncidentListFilters = {
   severity?: string | 'all'
   siteId?: string | 'all'
   department?: string | 'all'
+  incidentFilter?: IncidentManagementFilter
   dateFrom?: string
   dateTo?: string
   page?: number
@@ -146,3 +147,4 @@ export type IncidentListFilters = {
 }
 
 export type IncidentListScope = 'own' | 'organization'
+export type IncidentManagementFilter = 'all' | 'draft' | 'submitted' | 'closed' | 'investigation' | 'corrective_action' | 'preventive_action'

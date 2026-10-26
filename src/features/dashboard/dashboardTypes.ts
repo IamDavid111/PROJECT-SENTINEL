@@ -52,6 +52,7 @@ export type DashboardSnapshot = {
   activities: DashboardActivity[]
   recentIncidents: DashboardIncident[]
   metrics: DashboardMetric[]
+  actionMetrics: DashboardMetric[]
   incidentTrend: DashboardTrendPoint[]
   incidentSeverity: DashboardDistributionPoint[]
   incidentTypes: DashboardDistributionPoint[]

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { TrendingUp } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import type { CorrectiveActionPoint, DashboardComparisonPoint, DashboardDistributionPoint, DashboardTrendPoint, InspectionSummary } from './dashboardTypes'
+import type { DashboardComparisonPoint, DashboardDistributionPoint, DashboardTrendPoint } from './dashboardTypes'
 
 const chartColors = ['#12a94f', '#f97316', '#3b82f6', '#8b5cf6', '#f59e0b', '#64748b']
 
@@ -32,15 +32,6 @@ export function ComparisonChart({ title, eyebrow, data, emptyMessage, configured
   return <ChartCard eyebrow={eyebrow} title={title}>{data.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" name="Incident count" fill="#3b82f6" /></BarChart></ResponsiveContainer> : <ChartEmpty message={emptyMessage} detail={detail} />}</ChartCard>
 }
 
-export function CorrectiveActionChart({ data }: { data: CorrectiveActionPoint[] }) {
-  return <ChartCard eyebrow="CORRECTIVE ACTIONS" title="Corrective action status">{data.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis dataKey="status" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" name="Actions" fill="#f97316" /></BarChart></ResponsiveContainer> : <ChartEmpty message="Corrective action data unavailable" detail="Status analytics will appear with the Corrective Actions module." />}</ChartCard>
-}
-
-export function InspectionPerformanceChart({ data }: { data: InspectionSummary | null }) {
-  const chartData = data ? [{ name: 'Scheduled', value: data.scheduled }, { name: 'Completed', value: data.completed }, { name: 'Overdue', value: data.overdue }, { name: 'Findings', value: data.findings }] : []
-  return <ChartCard eyebrow="COMPLIANCE" title="Inspection performance">{chartData.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={chartData}><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" name="Inspections" fill="#12a94f" /></BarChart></ResponsiveContainer> : <ChartEmpty message="Inspection data unavailable" detail="Completion rate will be calculated when inspection records exist." />}</ChartCard>
-}
-
 // These components display prepared chart points; query filtering and aggregation belong in the dashboard service.
 export default function DashboardCharts({ data }: { data: {
   incidentTrend: DashboardTrendPoint[]
@@ -48,11 +39,9 @@ export default function DashboardCharts({ data }: { data: {
   incidentTypes: DashboardDistributionPoint[]
   departmentComparison: DashboardComparisonPoint[]
   siteComparison: DashboardComparisonPoint[]
-  correctiveActions: CorrectiveActionPoint[]
-  inspections: InspectionSummary | null
   configuredIncidentTypes: string[]
   configuredDepartments: string[]
   configuredSites: string[]
 } }) {
-  return <div className="dashboard-charts-grid"><IncidentTrendChart data={data.incidentTrend} /><IncidentSeverityChart data={data.incidentSeverity} /><IncidentTypeChart data={data.incidentTypes} configuredTypes={data.configuredIncidentTypes} /><ComparisonChart title="Department comparison" eyebrow="PERFORMANCE" data={data.departmentComparison} configuredNames={data.configuredDepartments} emptyMessage="No department incident data available" /><ComparisonChart title="Site comparison" eyebrow="RISK" data={data.siteComparison} configuredNames={data.configuredSites} emptyMessage="No site incident data available" /><CorrectiveActionChart data={data.correctiveActions} /><InspectionPerformanceChart data={data.inspections} /></div>
+  return <div className="dashboard-charts-grid"><IncidentTrendChart data={data.incidentTrend} /><IncidentSeverityChart data={data.incidentSeverity} /><IncidentTypeChart data={data.incidentTypes} configuredTypes={data.configuredIncidentTypes} /><ComparisonChart title="Department comparison" eyebrow="PERFORMANCE" data={data.departmentComparison} configuredNames={data.configuredDepartments} emptyMessage="No department incident data available" /><ComparisonChart title="Site comparison" eyebrow="RISK" data={data.siteComparison} configuredNames={data.configuredSites} emptyMessage="No site incident data available" /></div>
 }
