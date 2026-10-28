@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { useState } from 'react'
-import type { SafetyScope } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
+import { useEffect, useState } from 'react'
+import type { SafetyFilters, SafetyScope } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
+import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions } from '../../lib/companyFilterOptions'
+import { incidentReportTypes, incidentStatuses } from '../incidents/incidentTypes'
 import { SafetyIntelligenceError } from './safetyIntelligenceService'
 import { useSafetyIntelligence } from './useSafetyIntelligence'
 import { SafetyKpiCards } from './SafetyKpiCards'
@@ -24,15 +26,67 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
   // Changing the window selects a separate authorized snapshot/cache entry, not locally filtered demo values.
   const [days, setDays] = useState<30 | 90 | 'all'>(90)
   const [trendPeriod, setTrendPeriod] = useState<30 | 90 | 'all' | 'reporting'>('reporting')
+  const [dateBasis, setDateBasis] = useState<'occurred' | 'reported'>('reported')
+  const [department, setDepartment] = useState('all')
+  const [shift, setShift] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [severityFilter, setSeverityFilter] = useState('all')
+  const [reportTypeFilter, setReportTypeFilter] = useState('all')
+  const [departmentOptions, setDepartmentOptions] = useState<string[]>([])
+  const [shiftOptions, setShiftOptions] = useState<string[]>([])
+  const [severityOptions, setSeverityOptions] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<SafetyTab>(null)
   const [exporting, setExporting] = useState(false)
   const setReportingPeriod = (period: 30 | 90 | 'all') => {
     setTrendPeriod(period)
     setDays(period)
   }
-  const filters = { days, ...(trendPeriod !== 'reporting' ? { trendDays: trendPeriod } : {}) }
+  const resetAnalyticsFilters = () => {
+    setDateBasis('reported')
+    setDepartment('all')
+    setShift('all')
+    setStatusFilter('all')
+    setSeverityFilter('all')
+    setReportTypeFilter('all')
+    setDays(90)
+    setTrendPeriod('reporting')
+  }
+  const filters: SafetyFilters = {
+    days,
+    ...(trendPeriod !== 'reporting' ? { trendDays: trendPeriod } : {}),
+    dateBasis,
+    ...(department !== 'all' ? { department } : {}),
+    ...(shift !== 'all' ? { shift } : {}),
+    ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+    ...(severityFilter !== 'all' ? { severity: severityFilter } : {}),
+    ...(reportTypeFilter !== 'all' ? { reportType: reportTypeFilter } : {}),
+  }
   const snapshot = useSafetyIntelligence(client, scope, filters, view === 'executive-analytics')
   const data = snapshot.data
+  const formatOption = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toUpperCase())
+  // Option lists come from company settings (same source as the Dashboard), not
+  // from the analytics snapshot, so they are populated before data loads.
+  useEffect(() => {
+    let active = true
+    const loadSettings = () => {
+      void client.from('company_settings')
+        .select('departments, severity_levels, working_hours')
+        .eq('organization_id', scope.organizationId)
+        .maybeSingle()
+        .then(({ data: settings }) => {
+          if (!active) return
+          setDepartmentOptions(buildDepartmentOptions(settings?.departments).filter((value) => value !== 'all'))
+          setShiftOptions(buildShiftOptions(settings?.working_hours).filter((value) => value !== 'all'))
+          setSeverityOptions(buildSeverityOptions(settings?.severity_levels).filter((value) => value !== 'all'))
+        })
+    }
+    void loadSettings()
+    window.addEventListener('company-settings-updated', loadSettings)
+    return () => {
+      active = false
+      window.removeEventListener('company-settings-updated', loadSettings)
+    }
+  }, [client, scope.organizationId])
   // Never display cached successful data after a failed permission/retrieval refresh.
   return <div className="safety-intelligence-page">
     {view === 'assistant' && <nav className="safety-section-links" aria-label="AI Safety Assistant sections">
@@ -66,6 +120,28 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
             if (!result.data) throw new Error('No authorized analytics snapshot is available for export.')
             return result.data
           }} />}
+      </div>
+      <div className="safety-filter-card">
+        <div className="safety-filter-card-heading">
+          <div><strong>Analytics filters</strong><span>Applies to the KPIs, trend and export.</span></div>
+          <button type="button" onClick={resetAnalyticsFilters} disabled={snapshot.isFetching || exporting}>Clear filters</button>
+        </div>
+        <div className="safety-filter-inline">
+          <span>Window by</span>
+          <div className="safety-window-toggle" role="group" aria-label="Window date basis">
+            {(['reported', 'occurred'] as const).map((basis) => <button type="button" key={basis}
+              className="button button-outline button-small" aria-pressed={dateBasis === basis}
+              disabled={snapshot.isFetching || exporting}
+              onClick={() => setDateBasis(basis)}>{basis === 'reported' ? 'Reported date' : 'Occurred date'}</button>)}
+          </div>
+        </div>
+        <div className="safety-filter-grid">
+          <label>Department<select value={department} disabled={snapshot.isFetching || exporting} onChange={(event) => setDepartment(event.target.value)}><option value="all">All departments</option>{departmentOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+          <label>Shift<select value={shift} disabled={snapshot.isFetching || exporting} onChange={(event) => setShift(event.target.value)}><option value="all">All shifts</option>{shiftOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+          <label>Status<select value={statusFilter} disabled={snapshot.isFetching || exporting} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All status</option><option value="open">Open</option>{incidentStatuses.map((status) => <option key={status} value={status}>{formatOption(status)}</option>)}</select></label>
+          <label>Severity<select value={severityFilter} disabled={snapshot.isFetching || exporting} onChange={(event) => setSeverityFilter(event.target.value)}><option value="all">All severity</option>{severityOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+          <label>Report type<select value={reportTypeFilter} disabled={snapshot.isFetching || exporting} onChange={(event) => setReportTypeFilter(event.target.value)}><option value="all">All types</option>{incidentReportTypes.map((type) => <option key={type} value={type}>{formatOption(type)}</option>)}</select></label>
+        </div>
       </div>
       {snapshot.isPending ? <p role="status" aria-live="polite">Loading authorized operational data...</p>
         : snapshot.isError ? <div className="auth-message error" role="alert">

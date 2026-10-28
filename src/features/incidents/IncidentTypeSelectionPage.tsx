@@ -36,16 +36,9 @@ const reportTypeDetails: Record<IncidentReportType, { label: string; description
   },
 }
 
-const roleReportTypes: Partial<Record<Role, IncidentReportType[]>> = {
-  'Super Administrator': [...incidentReportTypes],
-  'Organization Administrator': [...incidentReportTypes],
-  'QHSE Manager': [...incidentReportTypes],
-  'Site Supervisor': [...incidentReportTypes],
-  'Safety Officer / HSE Officer': [...incidentReportTypes],
-  'Maintenance Engineer': ['incident', 'near_miss', 'unsafe_act', 'unsafe_condition'],
-  'Field Worker': ['incident', 'near_miss', 'unsafe_act', 'unsafe_condition'],
-  Contractor: ['incident', 'near_miss', 'unsafe_act', 'unsafe_condition'],
-}
+// Report types are gated by the caller's report_incident permission, not by a
+// hardcoded role list: custom roles and management roles can report too.
+const defaultReportTypes: IncidentReportType[] = [...incidentReportTypes]
 
 export type QuickIncidentOption = {
   id: string
@@ -57,8 +50,8 @@ export type QuickIncidentOption = {
 
 // New reports start here: the user's role controls available report types, and active organization categories become quick options.
 // Choosing a quick option pre-fills the form; opening an existing draft skips this chooser and restores that report directly.
-export function IncidentTypeSelectionPage({ role, supabase, draftId }: { role: Role; supabase: SupabaseClient; draftId?: string | null }) {
-  const allowedTypes = useMemo(() => roleReportTypes[role] || [], [role])
+export function IncidentTypeSelectionPage({ role, supabase, draftId, reportTypes = defaultReportTypes }: { role: Role; supabase: SupabaseClient; draftId?: string | null; reportTypes?: IncidentReportType[] }) {
+  const allowedTypes = useMemo(() => reportTypes, [reportTypes])
   const organization = useIncidentOrganization(supabase)
   const [selectedType, setSelectedType] = useState<IncidentReportType | null>(allowedTypes[0] || null)
   const [selectedQuickId, setSelectedQuickId] = useState<string | null>(null)

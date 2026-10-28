@@ -5,7 +5,7 @@ export const incidentTrendViews = [
   { value: 'week', label: 'By Week', axis: 'Week starting Monday' },
   { value: 'site', label: 'By Site', axis: 'Site' },
   { value: 'department', label: 'By Department', axis: 'Department' },
-  { value: 'severity', label: 'By Severity', axis: 'Actual severity' },
+  { value: 'severity', label: 'By Severity', axis: 'Effective severity' },
   { value: 'category', label: 'By Incident Category', axis: 'Incident category' },
 ] as const
 export type IncidentTrendView = (typeof incidentTrendViews)[number]['value']
@@ -23,7 +23,8 @@ export function groupIncidentTrend(data: SafetyIncidentTrend, view: IncidentTren
     if (seen.has(record.id)) continue
     seen.add(record.id)
     const contributions: { series: 'incidents' | 'nearMisses' | 'closed'; at: string }[] = []
-    if (record.reportedAt && (record.reportType === 'incident' || record.reportType === 'near_miss')) {
+    if (record.reportedAt) {
+      // "Incidents" covers every non-near-miss report type, matching the dashboard.
       contributions.push({ series: record.reportType === 'near_miss' ? 'nearMisses' : 'incidents', at: record.reportedAt })
     }
     if (record.closedAt) contributions.push({ series: 'closed', at: record.closedAt })
@@ -46,9 +47,17 @@ export function groupIncidentTrend(data: SafetyIncidentTrend, view: IncidentTren
         position = date.getTime()
         key = String(position)
       } else if (view === 'site') {
-        label = record.siteId ? sites.get(record.siteId) : undefined
-        key = label ? record.siteId ?? undefined : undefined
-        position = data.settings.sites.findIndex((site) => site.id === key)
+        const siteId = record.siteId
+        const siteName = siteId ? sites.get(siteId) : undefined
+        if (siteName) {
+          label = siteName
+          key = siteId ?? undefined
+          position = data.settings.sites.findIndex((site) => site.id === key)
+        } else {
+          label = 'Unassigned'
+          key = '__unassigned'
+          position = data.settings.sites.length
+        }
       } else {
         const value = view === 'department' ? record.department : view === 'severity' ? record.severity : record.category
         const index = value?.trim() ? configured.findIndex((name) => name.toLowerCase() === value.trim().toLowerCase()) : -1
@@ -56,6 +65,11 @@ export function groupIncidentTrend(data: SafetyIncidentTrend, view: IncidentTren
           label = configured[index]
           key = label.toLowerCase()
           position = index
+        } else {
+          // Keep unmatched values visible instead of dropping them from the total.
+          label = view === 'severity' ? 'Unclassified' : 'Unassigned'
+          key = label.toLowerCase()
+          position = configured.length
         }
       }
       if (!key || !label) {

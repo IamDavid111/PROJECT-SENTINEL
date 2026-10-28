@@ -255,6 +255,7 @@ Deno.test('Grounded handler enforces caller retrieval, session/audit linkage and
             { request_id: id(800), role: 'assistant', content: 'Earlier verified answer' },
           ] : [])
         }
+        if (table === 'actions') return json([])
         const source = Object.entries(tableForSource).find(([, name]) => name === table)?.[0] as keyof typeof data.rows | undefined
         assert(source, `Unexpected endpoint ${table}`)
         equal(init?.method ?? 'GET', 'GET')

@@ -6,6 +6,7 @@ export type DashboardFilters = {
   site: string
   department: string
   dateRange: '7d' | '30d' | '90d' | 'all'
+  dateBasis: 'occurred' | 'reported'
   severity: string
   incidentType: string
   shift: string
@@ -15,6 +16,7 @@ export const defaultDashboardFilters: DashboardFilters = {
   site: 'all',
   department: 'all',
   dateRange: 'all',
+  dateBasis: 'occurred',
   severity: 'all',
   incidentType: 'all',
   shift: 'all',

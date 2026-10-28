@@ -7,7 +7,9 @@ import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, 
 import { useQuery } from '@tanstack/react-query'
 
 import { useIncidentOrganization, useIncidents } from './useIncidentData'
-import { incidentStatuses, type IncidentListFilters, type IncidentListScope, type IncidentManagementFilter, type IncidentStatus, type IncidentSummary } from './incidentTypes'
+import { getAllMatchingIncidents, getIncidentTypeCounts } from './incidentService'
+import { incidentReportTypes, incidentStatuses, type IncidentListFilters, type IncidentListScope, type IncidentManagementFilter, type IncidentStatus, type IncidentSummary } from './incidentTypes'
+import { effectiveIncidentSeverityLabel } from '../../../supabase/functions/_shared/incidentReportFilters'
 import { IncidentClosureForm } from './IncidentClosure'
 import { getActionsForIncidents } from '../qhse/inspectionActionService'
 import type { LinkedIncidentAction } from '../qhse/inspectionActionService'
@@ -49,6 +51,7 @@ type ExportFormat = 'xlsx' | 'pdf' | 'docx'
 type IncidentExportRow = {
   reference: string
   title: string
+  reportType: string
   category: string
   severity: string
   status: string
@@ -74,8 +77,9 @@ function exportRows(items: IncidentSummary[], sites: Array<{ id: string; name: s
   return items.map((incident) => ({
     reference: incident.referenceNumber,
     title: incident.title,
-    category: incident.incidentCategory || label(incident.reportType),
-    severity: incident.severity || incident.potentialSeverity || 'Not set',
+    reportType: label(incident.reportType),
+    category: incident.incidentCategory || 'Not set',
+    severity: effectiveIncidentSeverityLabel(incident.severity, incident.potentialSeverity),
     status: label(incident.status),
     site: sites.find((site) => site.id === incident.siteId)?.name || 'Not set',
     department: incident.department || 'Not set',
@@ -91,7 +95,7 @@ function exportFileName(format: ExportFormat, date: Date) {
 }
 
 function exportCsvLikeRows(rows: IncidentExportRow[]) {
-  return rows.map((row) => [row.reference, row.title, row.category, row.severity, row.status, row.site, row.department, row.occurredAt, row.submittedAt, row.reporter, row.location])
+  return rows.map((row) => [row.reference, row.title, row.reportType, row.category, row.severity, row.status, row.site, row.department, row.occurredAt, row.submittedAt, row.reporter, row.location])
 }
 
 function exportPdf(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
@@ -107,7 +111,7 @@ function exportPdf(rows: IncidentExportRow[], generatedAt: Date, administrator: 
   pdf.text(`Exported: ${generatedAt.toLocaleString()} | Records: ${rows.length}`, 14, 40)
   autoTable(pdf, {
     startY: 48,
-    head: [['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location']],
+    head: [['Reference', 'Title', 'Type', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location']],
     body: exportCsvLikeRows(rows),
     styles: { fontSize: 7, cellPadding: 2 },
     headStyles: { fillColor: [15, 74, 62] },
@@ -125,16 +129,16 @@ function exportPdf(rows: IncidentExportRow[], generatedAt: Date, administrator: 
 async function exportExcel(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet('Incident Register')
-  sheet.mergeCells('A1:K1')
+  sheet.mergeCells('A1:L1')
   sheet.getCell('A1').value = 'SentinelQHSE — Incident Management Register'
   sheet.getCell('A1').font = { bold: true, size: 16, color: { argb: '0F172A' } }
-  sheet.mergeCells('A2:K2')
+  sheet.mergeCells('A2:L2')
   sheet.getCell('A2').value = 'Filtered incident records currently visible to the authenticated user.'
   sheet.getCell('A3').value = 'Exported'
   sheet.getCell('B3').value = generatedAt.toLocaleString()
   sheet.getCell('D3').value = 'Records'
   sheet.getCell('E3').value = rows.length
-  const header = sheet.addRow(['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location'])
+  const header = sheet.addRow(['Reference', 'Title', 'Type', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location'])
   header.font = { bold: true, color: { argb: 'FFFFFF' } }
   header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '0F4A3E' } }
   rows.forEach((row) => sheet.addRow(exportCsvLikeRows([row])[0]))
@@ -142,14 +146,14 @@ async function exportExcel(rows: IncidentExportRow[], generatedAt: Date, adminis
   sheet.addRow(['AUTHORIZED EXPORT — ADMINISTRATOR SIGN-OFF'])
   sheet.addRow(['Authorized / Exported By', administrator])
   sheet.addRow(['Date and Time of Export', generatedAt.toLocaleString()])
-  sheet.columns = [{ width: 18 }, { width: 30 }, { width: 22 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 20 }, { width: 16 }, { width: 24 }, { width: 28 }, { width: 24 }]
+  sheet.columns = [{ width: 18 }, { width: 30 }, { width: 18 }, { width: 22 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 20 }, { width: 16 }, { width: 24 }, { width: 28 }, { width: 24 }]
   sheet.eachRow((row) => row.eachCell((cell) => { cell.alignment = { ...cell.alignment, vertical: 'top', wrapText: true } }))
   const buffer = await workbook.xlsx.writeBuffer()
   downloadExport(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), exportFileName('xlsx', generatedAt))
 }
 
 async function exportWord(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
-  const headers = ['Reference', 'Title', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location']
+  const headers = ['Reference', 'Title', 'Type', 'Category', 'Severity', 'Status', 'Site', 'Department', 'Occurred', 'Submitted', 'Reporter', 'Location']
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -185,6 +189,7 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
   const [selectedScope, setSelectedScope] = useState(scope)
   const [closingIncident, setClosingIncident] = useState<IncidentSummary | null>(null)
   const [filters, setFilters] = useState<IncidentListFilters>({ status: 'all', incidentCategory: 'all', severity: 'all', siteId: 'all', department: 'all', page: 1, pageSize })
+  const [typeCounts, setTypeCounts] = useState<{ byType: Record<string, number>; open: number; closed: number } | null>(null)
   const incidents = useIncidents(supabase, filters, canViewAll ? selectedScope : 'own')
   const incidentIds = incidents.data?.items.map((incident) => incident.id) || []
   const linkedActions = useQuery({
@@ -212,6 +217,14 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
     })
   }, [organization.data?.userId, supabase])
 
+  useEffect(() => {
+    let active = true
+    void getIncidentTypeCounts(supabase, filters, canViewAll ? selectedScope : 'own')
+      .then((counts) => { if (active) setTypeCounts(counts) })
+      .catch(() => { if (active) setTypeCounts(null) })
+    return () => { active = false }
+  }, [supabase, filters, canViewAll, selectedScope])
+
   const categories = activeSettingNames(settings.incident_categories)
   const severities = activeSettingNames(settings.severity_levels)
   const departments = activeSettingNames(settings.departments)
@@ -229,13 +242,14 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
     setExportError('')
     setExportMessage('')
     const generatedAt = new Date()
-    // incidents.data contains only the current page, so this export does not fetch other matching pages.
-    const rows = exportRows(incidents.data.items, sites)
     try {
+      // Export the full filtered set, not just the visible page.
+      const allIncidents = await getAllMatchingIncidents(supabase, filters, canViewAll ? selectedScope : 'own')
+      const rows = exportRows(allIncidents, sites)
       if (exportFormat === 'xlsx') await exportExcel(rows, generatedAt, administrator)
       if (exportFormat === 'pdf') exportPdf(rows, generatedAt, administrator)
       if (exportFormat === 'docx') await exportWord(rows, generatedAt, administrator)
-      setExportMessage(`${exportFormat.toUpperCase()} incident register downloaded.`)
+      setExportMessage(`${exportFormat.toUpperCase()} incident register downloaded · ${rows.length} incident${rows.length === 1 ? '' : 's'}.`)
     } catch (error) {
       setExportError(error instanceof Error ? error.message : 'Unable to generate the incident export.')
     } finally {
@@ -246,7 +260,7 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
   return (
     <div className="my-reports-page">
       <div className="my-reports-header">
-        <div><div className="eyebrow">OPERATIONS &amp; QHSE</div><h2>Incident Management</h2><p>{incidents.data?.total || 0} incidents match the current filters.</p></div>
+        <div><div className="eyebrow">OPERATIONS &amp; QHSE</div><h2>Incident Management</h2><p>{incidents.data?.total || 0} records match the current filters.</p>{typeCounts && <p className="reports-type-summary">{incidentReportTypes.map((type) => `${typeCounts.byType[type] ?? 0} ${label(type)}`).join(' · ')} · {typeCounts.open} {label('open')} · {typeCounts.closed} {label('closed')}</p>}</div>
         <div className="incident-management-actions">{canExport && <><select className="export-format-select" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)} aria-label="Incident export format"><option value="xlsx">Excel</option><option value="pdf">PDF</option><option value="docx">Word</option></select><button className="button button-outline button-small" type="button" onClick={() => void exportIncidents()} disabled={exportLoading || !incidents.data}>{exportLoading ? 'Generating...' : 'Export incidents'}</button></>}<a className="button button-green button-small" href="#report-incident">Report incident</a></div>
       </div>
       {exportError && <div className="auth-message error" role="alert">{exportError}</div>}
@@ -255,6 +269,7 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
       <div className="reports-toolbar">
         {canViewAll && <label>Reports view<select value={selectedScope} onChange={(event) => { setSelectedScope(event.target.value === 'own' ? 'own' : 'organization'); setFilters((current) => ({ ...current, page: 1 })); setClosingIncident(null) }}><option value="own">My reported incidents</option><option value="organization">All organization incidents</option></select></label>}
         <label>Search<input value={filters.search || ''} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Search reference, title, reporter, site..." /></label>
+        <label>Report type<select value={filters.reportType || 'all'} onChange={(event) => updateFilter('reportType', event.target.value)}><option value="all">All report types</option>{incidentReportTypes.map((type) => <option value={type} key={type}>{label(type)}</option>)}</select></label>
         <label>Severity<select value={filters.severity || 'all'} onChange={(event) => updateFilter('severity', event.target.value)}><option value="all">All configured severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select></label>
         <label>Status<select value={filters.status || 'all'} onChange={(event) => updateFilter('status', event.target.value)}><option value="all">All status</option><option value="open">All open reported incidents</option>{incidentStatuses.map((status) => <option value={status} key={status}>{label(status)}</option>)}</select></label>
         <label>Incident / action filter<select value={filters.incidentFilter || 'all'} onChange={(event) => updateFilter('incidentFilter', event.target.value as IncidentManagementFilter)}><option value="all">All</option><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="closed">Closed</option><option value="investigation">Investigation</option><option value="corrective_action">Corrective Action</option><option value="preventive_action">Preventive Action</option></select></label>
@@ -264,10 +279,10 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
         <div className="reports-toolbar-actions"><button className="button button-outline button-small" type="button" onClick={() => void incidents.refetch()} disabled={incidents.isFetching}>{incidents.isFetching ? 'Refreshing...' : 'Refresh'}</button><button className="button button-outline reports-clear" type="button" onClick={resetFilters}>Reset</button></div>
       </div>
       {incidents.isLoading ? <div className="workspace-empty">Loading incidents...</div> : incidents.isError ? <div className="auth-message error" role="alert">Unable to load incidents. Please try again.</div> : linkedActions.isError ? <div className="auth-message error" role="alert">{linkedActions.error.message}</div> : incidents.data?.items.length ? <>
-<div className="reports-table-wrap"><table className="reports-table"><thead><tr><th>Reference</th><th>Incident</th><th>Category</th><th>Severity</th><th>Status</th><th>Site</th><th>Department</th><th>Assigned Action</th><th>Occurred</th><th>Submitted</th></tr></thead><tbody>
+<div className="reports-table-wrap"><table className="reports-table"><thead><tr><th>Reference</th><th>Incident</th><th>Type</th><th>Category</th><th>Severity</th><th>Status</th><th>Site</th><th>Department</th><th>Assigned Action</th><th>Occurred</th><th>Submitted</th></tr></thead><tbody>
           {incidents.data.items.map((incident) => {
             const actions = actionsByIncident.get(incident.id) || []
-            return <tr key={incident.id}><td><a href={incidentHref(incident.id, incident.status)} className="report-reference">{incident.referenceNumber}</a></td><td><a href={incidentHref(incident.id, incident.status)}>{incident.title}</a><small className="report-subline">Reported by {incident.createdBy}</small></td><td>{incident.incidentCategory || label(incident.reportType)}</td><td>{incident.severity || incident.potentialSeverity || 'Not set'}</td><td><StatusBadge status={incident.status} />{incident.status === 'draft' && selectedScope === 'own' && <a className="button button-outline button-small" href={`#report-incident?draft=${incident.id}&submit=1`}>Submit</a>}{canClose && incident.status !== 'draft' && <button type="button" className="button button-outline button-small" disabled={Boolean(closingIncident) || incident.status === 'closed'} onClick={() => setClosingIncident(incident)}>{incident.status === 'closed' ? 'Closed' : 'Close incident'}</button>}</td><td>{sites.find((site) => site.id === incident.siteId)?.name || 'Not set'}</td><td>{incident.department || 'Not set'}</td><td>{actions.length ? <div>{actions.map((action) => <a key={action.id} className="button button-outline button-small" href={`#assigned-actions?action=${action.id}`}>{label(action.type)} action</a>)}</div> : 'Unassigned'}</td><td>{formatDate(incident.occurredAt)}</td><td>{formatDateTime(incident.reportedAt)}</td></tr>
+            return <tr key={incident.id}><td><a href={incidentHref(incident.id, incident.status)} className="report-reference">{incident.referenceNumber}</a></td><td><a href={incidentHref(incident.id, incident.status)}>{incident.title}</a><small className="report-subline">Reported by {incident.createdBy}</small></td><td>{label(incident.reportType)}</td><td>{incident.incidentCategory || 'Not set'}</td><td>{effectiveIncidentSeverityLabel(incident.severity, incident.potentialSeverity)}</td><td><StatusBadge status={incident.status} />{incident.status === 'draft' && selectedScope === 'own' && <a className="button button-outline button-small" href={`#report-incident?draft=${incident.id}&submit=1`}>Submit</a>}{canClose && incident.status !== 'draft' && <button type="button" className="button button-outline button-small" disabled={Boolean(closingIncident) || incident.status === 'closed'} onClick={() => setClosingIncident(incident)}>{incident.status === 'closed' ? 'Closed' : 'Close incident'}</button>}</td><td>{sites.find((site) => site.id === incident.siteId)?.name || 'Not set'}</td><td>{incident.department || 'Not set'}</td><td>{actions.length ? <div>{actions.map((action) => <a key={action.id} className="button button-outline button-small" href={`#assigned-actions?action=${action.id}`}>{label(action.type)} action</a>)}</div> : 'Unassigned'}</td><td>{formatDate(incident.occurredAt)}</td><td>{formatDateTime(incident.reportedAt)}</td></tr>
           })}
         </tbody></table></div>
         <div className="reports-pagination"><span>Page {filters.page || 1} of {totalPages} · {incidents.data.total} incidents</span><div><button className="button button-outline button-small" type="button" disabled={(filters.page || 1) <= 1} onClick={() => setFilters((current) => ({ ...current, page: (current.page || 1) - 1 }))}>Previous</button><button className="button button-outline button-small" type="button" disabled={(filters.page || 1) >= totalPages} onClick={() => setFilters((current) => ({ ...current, page: (current.page || 1) + 1 }))}>Next</button></div></div>

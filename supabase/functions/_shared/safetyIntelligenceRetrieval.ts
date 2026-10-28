@@ -3,11 +3,11 @@ import { z } from 'zod'
 import type { AiAccessContext } from '../ai-service/access.ts'
 import {
   safetyActionSchema, safetyCauseSchema, safetyClosureSchema, safetyFacilitySchema,
-  safetyFindingSchema, safetyIncidentSchema, safetyInvestigationSchema, safetySiteSchema,
+  safetyFindingSchema, safetyIncidentSchema, safetyInvestigationSchema, safetyNewActionSchema, safetySiteSchema,
   hasOrganizationIncidentVisibility, safetyCompanySettingsSchema, isExcludedSyntheticSafetyIncident,
   type SafetyCoverage, type SafetyDataset, type SafetyFilters, type SafetyScope,
 } from './safetyIntelligenceContracts.ts'
-import { isDraftIncidentStatus } from './incidentReportFilters.ts'
+import { isDraftIncidentStatus, matchesIncidentSeverity, normalizeIncidentReportType, normalizeIncidentStatus } from './incidentReportFilters.ts'
 
 export class SafetyRetrievalError extends Error {
   constructor() {
@@ -72,9 +72,10 @@ export async function retrieveSafetyDataset(
     || !Number.isInteger(limits.maxRows) || limits.maxRows < 1) throw new SafetyRetrievalError()
   const org = context.organizationId
   // Only the caller's anon-key/token client is accepted. No privileged client is created here.
-  const [incidents, actions, investigations, causes, findings, closures, sites, facilities, settingsResult] = await Promise.all([
-    readPages(client, org, 'incidents', 'id,organization_id,reference_number,title,report_type,status,occurred_at,reported_at,site_id,facility_id,department,severity,potential_severity,incident_category,client_submission_id,digital_signature', safetyIncidentSchema, 'id', limits),
+  const [incidents, legacyActions, newActions, investigations, causes, findings, closures, sites, facilities, settingsResult] = await Promise.all([
+    readPages(client, org, 'incidents', 'id,organization_id,reference_number,title,report_type,status,occurred_at,reported_at,updated_at,site_id,facility_id,department,shift,severity,potential_severity,incident_category,client_submission_id,digital_signature', safetyIncidentSchema, 'id', limits),
     readPages(client, org, 'corrective_actions', 'id,organization_id,incident_id,title,status,due_date', safetyActionSchema, 'id', limits),
+    readPages(client, org, 'actions', 'id,organization_id,incident_id,description,type,status,due_at', safetyNewActionSchema, 'id', limits),
     readPages(client, org, 'investigations', 'id,organization_id,incident_id,status,completed_at,findings_summary', safetyInvestigationSchema, 'id', limits),
     readPages(client, org, 'investigation_root_causes', 'id,organization_id,investigation_id,root_cause_statement,cause_category', safetyCauseSchema, 'id', limits),
     readPages(client, org, 'investigation_findings', 'id,organization_id,investigation_id,description,finding_type', safetyFindingSchema, 'id', limits),
@@ -87,12 +88,42 @@ export async function retrieveSafetyDataset(
   if (settingsResult.error) throw new SafetyRetrievalError()
   const settings = safetyCompanySettingsSchema.nullable().safeParse(settingsResult.data)
   if (!settings.success || (settings.data && settings.data.organization_id !== org)) throw new SafetyRetrievalError()
+  // Union the live Actions module (corrective + preventive) with the legacy
+  // corrective_actions table so historical and current actions are both counted.
+  const actions = {
+    rows: [
+      ...legacyActions.rows.map((row) => ({
+        ...row, type: row.type ?? 'corrective', source: row.source ?? 'corrective_actions',
+      })),
+      ...newActions.rows.map((row) => ({
+        id: row.id, organization_id: row.organization_id, incident_id: row.incident_id,
+        title: row.description, status: row.status,
+        due_date: row.due_at ? row.due_at.slice(0, 10) : null,
+        type: row.type, source: 'actions',
+      })),
+    ],
+    complete: legacyActions.complete && newActions.complete,
+  }
   const pages = { incidents, actions, investigations, causes, findings, closures, sites, facilities }
   // An organization-filter/RLS regression must fail, not silently turn foreign records into evidence.
   for (const page of Object.values(pages)) {
     if (page.rows.some((row) => row.organization_id !== org)) throw new SafetyRetrievalError()
   }
-  const scopedIncidents = incidents.rows.filter((row) => !filters.siteId || row.site_id === filters.siteId)
+  const matchesIncidentFilters = (row: SafetyDataset['rows']['incidents'][number]) => {
+    if (filters.department && row.department !== filters.department) return false
+    if (filters.shift && row.shift !== filters.shift) return false
+    if (filters.status && filters.status !== 'all'
+      && normalizeIncidentStatus(row.status) !== normalizeIncidentStatus(filters.status)) return false
+    if (filters.severity && filters.severity !== 'all'
+      && !matchesIncidentSeverity(row.severity, filters.severity)
+      && !matchesIncidentSeverity(row.potential_severity, filters.severity)) return false
+    if (filters.reportType && filters.reportType !== 'all'
+      && normalizeIncidentReportType(row.report_type) !== normalizeIncidentReportType(filters.reportType)) return false
+    return true
+  }
+  const scopedIncidents = incidents.rows
+    .filter((row) => !filters.siteId || row.site_id === filters.siteId)
+    .filter(matchesIncidentFilters)
   const syntheticCount = scopedIncidents.filter(isExcludedSyntheticSafetyIncident).length
   const visiblePlanningIncidents = scopedIncidents.filter((row) => !isExcludedSyntheticSafetyIncident(row))
   const visibleIncidents = visiblePlanningIncidents.filter((row) => !isDraftIncidentStatus(row.status))
@@ -107,7 +138,7 @@ export async function retrieveSafetyDataset(
   // Intersect both permissions before any such data can enter shared/model context.
   const rows = {
     incidents: visibleIncidents,
-    actions: actions.rows.filter((row) => incidentIds.has(row.incident_id)),
+    actions: actions.rows.filter((row) => row.incident_id !== null && incidentIds.has(row.incident_id)),
     investigations: visibleInvestigations,
     causes: causes.rows.filter((row) => investigationIds.has(row.investigation_id)),
     findings: findings.rows.filter((row) => investigationIds.has(row.investigation_id)),
@@ -116,7 +147,7 @@ export async function retrieveSafetyDataset(
     facilities: facilities.rows.filter((row) => facilityIds.has(row.id)
       && (!filters.siteId || row.site_id === filters.siteId)),
   }
-  const planningActions = actions.rows.filter((row) => planningIncidentIds.has(row.incident_id))
+  const planningActions = actions.rows.filter((row) => row.incident_id !== null && planningIncidentIds.has(row.incident_id))
   const coverage: SafetyCoverage[] = (Object.keys(pages) as Array<keyof typeof pages>).map((source) => ({
     source, retrieved: source === 'incidents' ? scopedIncidents.length : rows[source].length, included: rows[source].length,
     complete: pages[source].complete,

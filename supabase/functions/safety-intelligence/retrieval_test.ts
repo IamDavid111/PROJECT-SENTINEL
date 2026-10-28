@@ -40,6 +40,7 @@ function fixtureFetch(data = dataset(), scenario: Scenario = {}, seen: URL[] = [
       assert(!init?.method || init.method === 'GET', 'Settings retrieval attempted a write')
       return json(data.companySettings ?? null)
     }
+    if (table === 'actions') return json([])
     const source = Object.entries(tableForSource).find(([, name]) => name === table)?.[0]
     if (!source) throw new Error(`Unexpected endpoint ${url.pathname}`)
     assert(url.searchParams.get('organization_id') === `eq.${tenant}`, 'Missing trusted tenant predicate')

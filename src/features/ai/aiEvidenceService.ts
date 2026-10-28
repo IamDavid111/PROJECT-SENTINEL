@@ -12,7 +12,7 @@ const childSchema = z.object({
   investigation_id: z.uuid().optional(),
 })
 const sourceTables = {
-  actions: 'corrective_actions', investigations: 'investigations', causes: 'investigation_root_causes',
+  investigations: 'investigations', causes: 'investigation_root_causes',
   findings: 'investigation_findings', closures: 'incident_closures',
 } as const
 
@@ -62,6 +62,27 @@ export async function resolveAccessibleSources(client: SupabaseClient, organizat
       if (parent) { parents.set(`${source}:${row.id}`, parent); incidentIds.add(parent) }
     }
   }))
+  // Actions live in two tables: the live Actions module and the legacy
+  // corrective_actions archive. Resolve an actions:<id> key against both.
+  const actionKeys = keys.filter((key) => key.startsWith('actions:'))
+  if (actionKeys.length) {
+    const ids = actionKeys.map((key) => key.split(':')[1])
+    const [legacy, current] = await Promise.all([
+      client.from('corrective_actions').select('id,organization_id,incident_id').eq('organization_id', organizationId).in('id', ids),
+      client.from('actions').select('id,organization_id,incident_id').eq('organization_id', organizationId).in('id', ids),
+    ])
+    if (legacy.error || current.error) throw new Error('Unable to recheck source access. Source details are hidden.')
+    const rows = z.array(childSchema).parse([...(legacy.data || []), ...(current.data || [])])
+    if (rows.some((row) => row.organization_id !== organizationId || !actionKeys.includes(`actions:${row.id}`))) {
+      throw new Error('Source identity or organization mismatch.')
+    }
+    for (const row of rows) {
+      if (row.incident_id) {
+        parents.set(`actions:${row.id}`, row.incident_id)
+        incidentIds.add(row.incident_id)
+      }
+    }
+  }
   if (!incidentIds.size) return []
   const result = await client.from('incidents').select('id,organization_id,reference_number,title,reported_at')
     .eq('organization_id', organizationId).in('id', [...incidentIds]).neq('status', 'draft')
