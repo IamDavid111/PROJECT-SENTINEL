@@ -6,6 +6,14 @@ export const safetyFiltersSchema = z.object({
   days: z.union([z.literal(30), z.literal(90), z.literal('all')]).default(90),
   siteId: z.uuid().optional(),
   trendDays: z.union([z.literal(30), z.literal(90), z.literal('all')]).optional(),
+  // The reporting window can be based on when the event happened or when it was
+  // reported. Both explicit ranges are also available and apply together (AND).
+  dateBasis: z.enum(['occurred', 'reported']).optional(),
+  department: z.string().min(1).optional(),
+  shift: z.string().min(1).optional(),
+  status: z.string().min(1).optional(),
+  severity: z.string().min(1).optional(),
+  reportType: z.string().min(1).optional(),
 }).strict()
 export type SafetyFilters = z.infer<typeof safetyFiltersSchema>
 
@@ -16,16 +24,25 @@ const status = z.string().transform(normalizeIncidentStatus)
 export const safetyIncidentSchema = z.object({
   id: uuid, organization_id: uuid, reference_number: z.string(), title: z.string(),
   report_type: z.string().min(1),
-  status, occurred_at: text, reported_at: text, site_id: uuid.nullable(), facility_id: uuid.nullable(),
+  status, occurred_at: text, reported_at: text, updated_at: text.optional(),
+  site_id: uuid.nullable(), facility_id: uuid.nullable(),
   severity: text, potential_severity: text, incident_category: text,
-  department: text.optional(),
+  department: text.optional(), shift: text.optional(),
   client_submission_id: text.optional(),
   digital_signature: text.optional(),
 })
 export const safetyActionSchema = z.object({
-  id: uuid, organization_id: uuid, incident_id: uuid, title: z.string(),
+  id: uuid, organization_id: uuid, incident_id: uuid.nullable(), title: z.string(),
   status: z.string(),
   due_date: text,
+  type: z.enum(['corrective', 'preventive']).optional(),
+  source: z.string().optional(),
+})
+// The live Actions module stores both corrective and preventive actions with a
+// different shape; retrieval maps it into safetyActionSchema.
+export const safetyNewActionSchema = z.object({
+  id: uuid, organization_id: uuid, incident_id: uuid.nullable(), description: z.string(),
+  type: z.enum(['corrective', 'preventive']), status: z.string(), due_at: text,
 })
 export const safetyInvestigationSchema = z.object({
   id: uuid, organization_id: uuid, incident_id: uuid,

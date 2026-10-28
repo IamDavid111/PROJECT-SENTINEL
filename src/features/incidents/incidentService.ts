@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { incidentEvidenceMetadataSchema, incidentSubmissionSchema } from './incidentSchemas'
 import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentPerson, IncidentStatus, IncidentSummary, IncidentSubmissionInput } from './incidentTypes'
+import { incidentReportTypes } from './incidentTypes'
 import { incidentSeverityFilterPatterns, openIncidentStatuses } from '../../../supabase/functions/_shared/incidentReportFilters'
 
 const defaultPageSize = 25
@@ -204,8 +205,10 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   if (filters.incidentCategory && filters.incidentCategory !== 'all') query = query.eq('incident_category', filters.incidentCategory)
   if (filters.severity && filters.severity !== 'all') {
     const patterns = incidentSeverityFilterPatterns(filters.severity)
-    if (patterns.length === 1) query = query.ilike('severity', patterns[0])
-    else if (patterns.length > 1) query = query.or(patterns.map((pattern) => `severity.ilike.${pattern}`).join(','))
+    // Effective severity: match either the actual or the potential severity
+    // column, matching Executive Analytics and the dashboard.
+    const orPatterns = patterns.flatMap((pattern) => [`severity.ilike.${pattern}`, `potential_severity.ilike.${pattern}`])
+    if (orPatterns.length) query = query.or(orPatterns.join(','))
   }
   if (filters.siteId && filters.siteId !== 'all') query = query.eq('site_id', filters.siteId)
   if (filters.department && filters.department !== 'all') query = query.eq('department', filters.department)
@@ -240,6 +243,45 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   const { data, error, count } = await query
   if (error) throw new Error('Unable to load incident reports.')
   return { items: (data || []).map(toIncidentSummary), page, pageSize, total: count || 0 }
+}
+
+// Fetch every incident matching the current filters/scope (not just one page).
+// Used by exports so a register always reflects the full filtered dataset.
+// Pages at 500 to stay under PostgREST's row cap while reusing getIncidents, so
+// all filter, scope, and RLS behaviour is identical to the table view.
+export async function getAllMatchingIncidents(
+  client: SupabaseClient,
+  filters: IncidentListFilters = {},
+  scope: IncidentListScope = 'organization',
+): Promise<IncidentSummary[]> {
+  const exportPageSize = 500
+  const all: IncidentSummary[] = []
+  for (let page = 1; ; page += 1) {
+    const result = await getIncidents(client, { ...filters, page, pageSize: exportPageSize }, scope)
+    all.push(...result.items)
+    if (all.length >= result.total || result.items.length < exportPageSize) break
+  }
+  return all
+}
+
+// Counts per report type for the current filters, plus the status-closed total.
+// Ignores the reportType filter itself so the split stays visible while one type
+// is selected. Uses pageSize 1 count queries rather than loading every row.
+export async function getIncidentTypeCounts(
+  client: SupabaseClient,
+  filters: IncidentListFilters = {},
+  scope: IncidentListScope = 'organization',
+): Promise<{ byType: Record<string, number>; open: number; closed: number }> {
+  const base = { ...filters, page: 1, pageSize: 1 }
+  const [typeEntries, openResult, closedResult] = await Promise.all([
+    Promise.all(incidentReportTypes.map(async (reportType) => {
+      const result = await getIncidents(client, { ...base, reportType }, scope)
+      return [reportType, result.total] as const
+    })),
+    getIncidents(client, { ...base, status: 'open' }, scope),
+    getIncidents(client, { ...base, status: 'closed' }, scope),
+  ])
+  return { byType: Object.fromEntries(typeEntries), open: openResult.total, closed: closedResult.total }
 }
 
 // Offline sync checks this organization-scoped server record before retrying a saved draft's submission.

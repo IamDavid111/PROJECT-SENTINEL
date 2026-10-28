@@ -3,7 +3,7 @@ import { CheckCircle2, CircleAlert, ClipboardCheck, ClipboardList, Eye, FileWarn
 import type { LucideIcon } from 'lucide-react'
 
 import type { DashboardActivity, DashboardFilters, DashboardIncident, DashboardMetric, DashboardSnapshot } from './dashboardTypes'
-import { normalizeIncidentReportType, normalizeIncidentSeverity } from '../../../supabase/functions/_shared/incidentReportFilters'
+import { effectiveIncidentSeverityLabel, incidentSeverityFilterPatterns, normalizeIncidentReportType, normalizeIncidentSeverity } from '../../../supabase/functions/_shared/incidentReportFilters'
 
 const dateRangeDays: Record<DashboardFilters['dateRange'], number | null> = {
   '7d': 7,
@@ -66,6 +66,7 @@ type DashboardIncidentRow = {
   report_type: string
   status: string
   occurred_at: string | null
+  reported_at: string | null
   created_at: string
   location: string | null
   site_id: string | null
@@ -156,15 +157,19 @@ export async function getDashboardSnapshot(
 
   let filteredIncidentQuery = client
     .from('incidents')
-    .select('id, reference_number, title, report_type, status, occurred_at, created_at, location, site_id, department, shift, severity, potential_severity, incident_category')
+    .select('id, reference_number, title, report_type, status, occurred_at, reported_at, created_at, location, site_id, department, shift, severity, potential_severity, incident_category')
     .eq('organization_id', organizationId)
     .neq('status', 'draft')
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
-  if (since) filteredIncidentQuery = filteredIncidentQuery.gte('occurred_at', since)
+  const dateColumn = filters.dateBasis === 'reported' ? 'reported_at' : 'occurred_at'
+  if (since) filteredIncidentQuery = filteredIncidentQuery.gte(dateColumn, since)
   if (selectedSiteId) filteredIncidentQuery = filteredIncidentQuery.eq('site_id', selectedSiteId)
   if (filters.department !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('department', filters.department)
-  if (filters.severity !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('severity', filters.severity)
+  if (filters.severity !== 'all') {
+    const severityPatterns = incidentSeverityFilterPatterns(filters.severity)
+    filteredIncidentQuery = filteredIncidentQuery.or(severityPatterns.flatMap((pattern) => [`severity.ilike.${pattern}`, `potential_severity.ilike.${pattern}`]).join(','))
+  }
   if (filters.incidentType !== 'all') filteredIncidentQuery = filteredIncidentQuery.in('incident_category', incidentCategoryValues(filters.incidentType))
   if (filters.shift !== 'all') filteredIncidentQuery = filteredIncidentQuery.eq('shift', filters.shift)
 
@@ -265,8 +270,9 @@ export async function getDashboardSnapshot(
   // Group timestamps by the browser's local calendar month; rows without a valid occurrence time are skipped.
   const trendBuckets = new Map<string, { label: string; incidents: number; nearMisses: number }>()
   incidentRows.forEach((incident) => {
-    if (!incident.occurred_at) return
-    const date = new Date(incident.occurred_at)
+    const trendDate = filters.dateBasis === 'reported' ? incident.reported_at : incident.occurred_at
+    if (!trendDate) return
+    const date = new Date(trendDate)
     if (Number.isNaN(date.getTime())) return
     const key = `${date.getFullYear()}-${date.getMonth()}`
     const bucket = trendBuckets.get(key) || { label: monthLabel(date), incidents: 0, nearMisses: 0 }
@@ -275,7 +281,10 @@ export async function getDashboardSnapshot(
     trendBuckets.set(key, bucket)
   })
   const incidentTrend = [...trendBuckets.entries()].sort(([first], [second]) => first.localeCompare(second)).map(([, value]) => value)
-  const incidentSeverity = configuredDistribution(configuredSeverities, incidentRows.map((incident) => incident.severity))
+  const incidentSeverity = configuredDistribution(configuredSeverities, incidentRows.map((incident) => {
+    const label = effectiveIncidentSeverityLabel(incident.severity, incident.potential_severity)
+    return label === 'Not set' ? null : label
+  }))
   const incidentTypes = configuredDistribution(configuredIncidentTypes, incidentRows.map((incident) => incident.incident_category))
   const departmentComparison = configuredDistribution(configuredDepartments, incidentRows.map((incident) => incident.department))
   const siteComparison = configuredDistribution(configuredSites, incidentRows.map((incident) => incident.site_id ? siteNames.get(incident.site_id) : null))

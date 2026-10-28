@@ -18,6 +18,23 @@ export function normalizeIncidentSeverity(value: unknown) {
   return severityAliases[normalizeLabel(value)] ?? null
 }
 
+const severityRank = { low: 1, medium: 2, high: 3, critical: 4 } as const
+
+// Effective severity is the worse of the actual and potential values, matching
+// Executive Analytics and the dashboard risk calculations. Near misses carry
+// potential_severity, incidents carry severity; either can satisfy a filter.
+export function effectiveIncidentSeverity(actual: unknown, potential: unknown) {
+  const candidates = [normalizeIncidentSeverity(actual), normalizeIncidentSeverity(potential)]
+    .filter((value): value is keyof typeof severityRank => value !== null)
+  if (!candidates.length) return null
+  return candidates.sort((a, b) => severityRank[b] - severityRank[a])[0]
+}
+
+export function effectiveIncidentSeverityLabel(actual: unknown, potential: unknown) {
+  const severity = effectiveIncidentSeverity(actual, potential)
+  return severity ? severity[0].toUpperCase() + severity.slice(1) : 'Not set'
+}
+
 export function matchesIncidentSeverity(value: unknown, selected: unknown) {
   const severity = normalizeIncidentSeverity(value)
   return severity !== null && severity === normalizeIncidentSeverity(selected)
@@ -56,7 +73,7 @@ export function openIncidentStatuses(includeDrafts = false) {
 }
 
 export function isUnfinishedCorrectiveActionStatus(status: unknown) {
-  return !['verified', 'closed', 'resolved', 'complete', 'completed'].includes(normalizeLabel(status))
+  return !['verified', 'closed', 'resolved', 'complete', 'completed', 'rejected'].includes(normalizeLabel(status))
 }
 
 export function isActionDueNotPassed(dueDate: unknown, asOf: Date) {

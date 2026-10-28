@@ -5233,3 +5233,119 @@ button.workspace-placeholder-action:disabled {
 @media (max-width: 700px) {
   .global-search-button { flex: 1 1 100%; width: 100%; }
 }
+
+/* ------------------------------------------------------------------
+   Executive Analytics filter card - mirrors .dashboard-filters /
+   .reports-toolbar so analytics uses the same control language.
+------------------------------------------------------------------- */
+.safety-filter-card {
+  margin-top: 20px;
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+}
+.safety-filter-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.safety-filter-card-heading div {
+  display: grid;
+  gap: 3px;
+}
+.safety-filter-card-heading strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+}
+.safety-filter-card-heading span {
+  color: #71819a;
+  font-size: 12px;
+}
+.safety-filter-card-heading button {
+  border: 0;
+  color: var(--green-dark);
+  background: transparent;
+  font-weight: 750;
+  cursor: pointer;
+}
+.safety-filter-card-heading button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.safety-filter-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.safety-filter-inline > span {
+  color: #71819a;
+  font-size: 11px;
+  font-weight: 750;
+}
+.safety-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.safety-filter-grid label {
+  display: grid;
+  gap: 6px;
+  color: #71819a;
+  font-size: 11px;
+  font-weight: 750;
+}
+.safety-filter-grid input,
+.safety-filter-grid select {
+  min-height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid #cdd7e3;
+  border-radius: 8px;
+  color: #0f172a;
+  background: #f7f9fb;
+  font: inherit;
+}
+.safety-filter-grid input:focus-visible,
+.safety-filter-grid select:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+.safety-filter-grid input:disabled,
+.safety-filter-grid select:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.dark-theme .safety-filter-card {
+  border-color: #26364d;
+  background: #101e33;
+}
+.dark-theme .safety-filter-card-heading strong {
+  color: #edf3fb;
+}
+.dark-theme .safety-filter-card-heading span,
+.dark-theme .safety-filter-inline > span,
+.dark-theme .safety-filter-grid label {
+  color: #aab8cb;
+}
+.dark-theme .safety-filter-grid input,
+.dark-theme .safety-filter-grid select {
+  color: #edf3fb;
+  border-color: #2b3c54;
+  background: #0b172b;
+}
+@media (max-width: 1100px) {
+  .safety-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .safety-filter-grid { grid-template-columns: 1fr; }
+  .safety-filter-card-heading { align-items: flex-start; flex-direction: column; }
+}
+@media print {
+  .safety-filter-card { display: none !important; }
+}

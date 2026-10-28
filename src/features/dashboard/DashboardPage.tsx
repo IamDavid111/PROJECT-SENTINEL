@@ -4,6 +4,7 @@ import { ArrowRight } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { defaultDashboardFilters, type DashboardFilters, type DashboardMetric, type DashboardPageProps } from './dashboardTypes'
+import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions, buildShiftSettings, type CompanyShift } from '../../lib/companyFilterOptions'
 import { invalidateDashboardData, useDashboardData } from './useDashboardData'
 import { AiSafetySummary } from './AiSafetySummary'
 const DashboardCharts = lazy(() => import('./DashboardCharts'))
@@ -50,63 +51,6 @@ function buildIncidentCategoryOptions(value: unknown): string[] {
   return names.length ? ['all', ...names] : fallbackFilterOptions.incidentType
 }
 
-function buildSeverityOptions(value: unknown): string[] {
-  const candidate = Array.isArray(value)
-    ? value
-    : value && typeof value === 'object'
-      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
-        ?? ((value as Record<string, unknown>).levels as unknown[] | undefined)
-        ?? ((value as Record<string, unknown>).severity_levels as unknown[] | undefined)
-        ?? []
-      : []
-
-  const names = candidate.flatMap((entry) => {
-    if (typeof entry === 'string') {
-      const name = entry.trim()
-      return name && name !== 'all' ? [name] : []
-    }
-    if (!entry || typeof entry !== 'object') return []
-    const item = entry as Record<string, unknown>
-    const name = typeof item.name === 'string' ? item.name.trim() : ''
-    return name && name.toLowerCase() !== 'all' && item.active !== false ? [name] : []
-  })
-
-  return ['all', ...names]
-}
-
-function buildDepartmentOptions(value: unknown): string[] {
-  const candidate = Array.isArray(value)
-    ? value
-    : value && typeof value === 'object'
-      ? ((value as Record<string, unknown>).items as unknown[] | undefined)
-        ?? ((value as Record<string, unknown>).departments as unknown[] | undefined)
-        ?? []
-      : []
-  const names = candidate.flatMap((entry) => {
-    const rawName = typeof entry === 'string' ? entry : entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).name === 'string' ? (entry as Record<string, unknown>).name as string : ''
-    if (!rawName || (typeof entry === 'object' && entry !== null && 'active' in entry && (entry as Record<string, unknown>).active === false)) return []
-    return rawName.trim() ? [rawName.trim()] : []
-  })
-  return ['all', ...names]
-}
-
-type DashboardShift = { name: string; start: string; end: string; active: boolean }
-
-function buildShiftSettings(value: unknown): DashboardShift[] {
-  const candidate = Array.isArray(value) ? value : value && typeof value === 'object' && Array.isArray((value as Record<string, unknown>).shifts) ? (value as Record<string, unknown>).shifts as unknown[] : []
-  return candidate.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object') return []
-    const item = entry as Record<string, unknown>
-    const name = typeof item.name === 'string' ? item.name.trim() : ''
-    if (!name || item.active === false) return []
-    return [{ name, start: typeof item.start === 'string' ? item.start : '07:00', end: typeof item.end === 'string' ? item.end : '19:00', active: true }]
-  })
-}
-
-function buildShiftOptions(value: unknown): string[] {
-  return ['all', ...buildShiftSettings(value).map((shift) => shift.name)]
-}
-
 function buildSiteOptions(value: unknown): string[] {
   const candidate = Array.isArray(value)
     ? value
@@ -145,6 +89,7 @@ function DashboardFilters({ filters, onChange, onReset, options }: { filters: Da
     { key: 'site', label: 'Site', options: options.site },
     { key: 'department', label: 'Department', options: options.department },
     { key: 'dateRange', label: 'Date range', options: ['7d', '30d', '90d', 'all'] },
+    { key: 'dateBasis', label: 'Window by', options: ['occurred', 'reported'] },
     { key: 'severity', label: 'Severity', options: options.severity },
     { key: 'incidentType', label: 'Incident category', options: options.incidentType },
     { key: 'shift', label: 'Shift', options: options.shift },
@@ -165,7 +110,7 @@ export function DashboardPage({ organizationId, currentUserId, organizationName,
 
   const [filters, setFilters] = useState(defaultDashboardFilters)
   const [filterOptions, setFilterOptions] = useState(fallbackFilterOptions)
-  const [shiftSettings, setShiftSettings] = useState<DashboardShift[]>([])
+  const [shiftSettings, setShiftSettings] = useState<CompanyShift[]>([])
   const [shiftStart, setShiftStart] = useState('07:00')
   const [shiftEnd, setShiftEnd] = useState('19:00')
   const [settingsError, setSettingsError] = useState('')

@@ -18,7 +18,7 @@ export function effectiveSafetySeverity(actual: string | null, potential: string
 }
 
 const validTimestamp = z.iso.datetime({ offset: true })
-function timestamp(value: string | null) {
+function timestamp(value: string | null | undefined) {
   if (!value || !validTimestamp.safeParse(value).success) return null
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : null
@@ -29,6 +29,10 @@ function between(value: string | null, start: number, end: number) {
 }
 function isOpen(incident: SafetyIncident) { return isOpenIncidentStatus(incident.status) }
 function severity(incident: SafetyIncident) { return effectiveSafetySeverity(incident.severity, incident.potential_severity) }
+function severityLabel(incident: SafetyIncident) {
+  const rank = severity(incident)
+  return rank === null ? null : (['Low', 'Medium', 'High', 'Critical'][rank - 1] ?? null)
+}
 function isHigh(incident: SafetyIncident) { return (severity(incident) ?? 0) >= 3 }
 function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null }
 const iso = (time: number) => new Date(time).toISOString()
@@ -40,9 +44,13 @@ export function calculateSafetySnapshot(
   if (scope.siteId !== filters.siteId) throw new Error('Snapshot site filter mismatch.')
   const end = asOf.getTime()
   const allTime = filters.days === 'all'
+  // The reporting window can be based on occurrence or reporting date. Every
+  // metric below reads through this single accessor so KPIs, lists and trends agree.
+  const dateBasis = filters.dateBasis ?? 'reported'
+  const basisValue = (row: SafetyIncident) => dateBasis === 'occurred' ? row.occurred_at : row.reported_at
   const historyDates = allTime ? [
     ...dataset.rows.incidents.filter((row) => row.status !== 'draft' && !isExcludedSyntheticSafetyIncident(row)
-      && (!scope.siteId || row.site_id === scope.siteId)).map((row) => timestamp(row.reported_at)),
+      && (!scope.siteId || row.site_id === scope.siteId)).map((row) => timestamp(basisValue(row))),
     ...dataset.rows.closures.map((row) => timestamp(row.closed_at)),
   ].filter((time): time is number => time !== null && time < end) : []
   const start = filters.days === 'all' ? Math.min(end, ...historyDates) : end - filters.days * day
@@ -75,16 +83,17 @@ export function calculateSafetySnapshot(
     !isExcludedSyntheticSafetyIncident(row) && (!scope.siteId || row.site_id === scope.siteId))
   const planningActions = dataset.planningActions ?? rows.actions
   const observed = incidents.filter((row) => {
-    const reported = timestamp(row.reported_at)
-    return reported === null || reported < end
+    const value = timestamp(basisValue(row))
+    return value === null || value < end
   })
   const byId = new Map(observed.map((row) => [row.id, row]))
-  const actions = rows.actions.filter((row) => byId.has(row.incident_id))
+  const actions = rows.actions.filter((row) => row.incident_id && byId.has(row.incident_id))
+  const closureDates = new Map(rows.closures.map((closure) => [closure.incident_id, timestamp(closure.closed_at)]))
   const sourceComplete = (...sources: SafetyDataset['coverage'][number]['source'][]) =>
     sources.every((source) => coverage.some((entry) => entry.source === source && entry.complete))
-  const missingReportedAt = incidents.filter((row) => timestamp(row.reported_at) === null).length
-  const futureReportedAt = incidents.filter((row) => (timestamp(row.reported_at) ?? -Infinity) >= end).length
-  const selected = observed.filter((row) => between(row.reported_at, start, end))
+  const missingReportedAt = incidents.filter((row) => timestamp(basisValue(row)) === null).length
+  const futureReportedAt = incidents.filter((row) => (timestamp(basisValue(row)) ?? -Infinity) >= end).length
+  const selected = observed.filter((row) => between(basisValue(row), start, end))
   const unclassified = selected.filter((row) => severity(row) === null).length
   const uncategorized = selected.filter((row) => !row.incident_category?.trim()).length
   const highRisk = selected.filter(isHigh)
@@ -97,14 +106,14 @@ export function calculateSafetySnapshot(
   const uncertainReporting = !sourceComplete('incidents') || missingReportedAt > 0
   const incidentListRows = [...new Map((dataset.incidentList ?? dataset.planningIncidents ?? rows.incidents)
     .filter((row) => (!scope.siteId || row.site_id === scope.siteId)
-      && (allTime || between(row.occurred_at, start, end)))
+      && (allTime || between(basisValue(row), start, end)))
     .map((row) => [row.id, row])).values()]
   const draftCount = incidentListRows.filter((row) => isDraftIncidentStatus(row.status)).length
   const nearMissCount = incidentListRows.filter((row) => normalizeIncidentReportType(row.report_type) === 'near_miss').length
   // Outstanding means unfinished under the existing workflow, including work awaiting verification.
   // It is a current backlog, not actions attached only to newly reported incidents.
   const outstandingActions = [...new Map(actions.map((row) => [row.id, row])).values()]
-    .filter((row) => row.status !== 'verified' && row.status !== 'closed')
+    .filter((row) => isUnfinishedCorrectiveActionStatus(row.status))
   const actionReasons = [
     ...(!sourceComplete('incidents', 'actions') ? ['Incident or action retrieval is incomplete; known counts only.'] : []),
     ...(coverage.some((entry) => entry.source === 'actions' && entry.access === 'caller_visible')
@@ -122,8 +131,8 @@ export function calculateSafetySnapshot(
     ? (70 * highRisk.length + 30 * openHighRisk.length) / selected.length : null
   const riskBand = score === null ? null : score < 30 ? 'Low' : score < 60 ? 'Medium' : 'High'
 
-  const nearMissCurrent = incidents.filter((row) => row.report_type === 'near_miss' && between(row.reported_at, allTime ? start : currentMonth, end)).length
-  const nearMissPrevious = allTime ? 0 : incidents.filter((row) => row.report_type === 'near_miss' && between(row.reported_at, previousMonth, previousMonthEnd)).length
+  const nearMissCurrent = incidents.filter((row) => normalizeIncidentReportType(row.report_type) === 'near_miss' && between(basisValue(row), allTime ? start : currentMonth, end)).length
+  const nearMissPrevious = allTime ? 0 : incidents.filter((row) => normalizeIncidentReportType(row.report_type) === 'near_miss' && between(basisValue(row), previousMonth, previousMonthEnd)).length
   const percentageChange = !allTime && !uncertainReporting && nearMissPrevious
     ? 100 * (nearMissCurrent - nearMissPrevious) / nearMissPrevious : null
   const direction = allTime ? nearMissCurrent ? 'unchanged' : 'no_reports' : nearMissPrevious === 0
@@ -140,11 +149,12 @@ export function calculateSafetySnapshot(
   const durations: number[] = []
   const previousDurations: number[] = []
   let invalidDurations = 0
-  for (const closure of rows.closures) {
-    const incident = byId.get(closure.incident_id)
-    if (!incident || incident.status !== 'closed') continue
-    validClosureIds.add(incident.id)
-    const closedAt = timestamp(closure.closed_at)
+  // Closed is status-based. Use the structured closure date when available and
+  // fall back to updated_at (approximate) for legacy closed reports.
+  for (const incident of observed.filter((row) => row.status === 'closed')) {
+    const structured = closureDates.get(incident.id)
+    if (structured != null) validClosureIds.add(incident.id)
+    const closedAt = structured ?? timestamp(incident.updated_at)
     const reportedAt = timestamp(incident.reported_at)
     if (closedAt === null || reportedAt === null || closedAt < reportedAt) { invalidDurations++; continue }
     if (closedAt >= start && closedAt < end) durations.push((closedAt - reportedAt) / day)
@@ -156,24 +166,24 @@ export function calculateSafetySnapshot(
   const legacyClosedWithoutEvidence = observed.filter((row) => row.status === 'closed' && !validClosureIds.has(row.id)).length
   const resolutionReasons = [
     ...(!resolutionComplete ? ['Incident or closure retrieval is incomplete.'] : []),
-    ...(legacyClosedWithoutEvidence ? ['Legacy closed reports without structured evidence are excluded.'] : []),
+    ...(legacyClosedWithoutEvidence ? [`${legacyClosedWithoutEvidence} closed reports use their last-updated time because structured closure evidence is missing.`] : []),
     ...(invalidDurations ? ['Missing, invalid or negative closure durations are excluded.'] : []),
     ...(!durations.length ? ['No valid closure durations in this window.'] : []),
   ]
 
   const location = (level: 'facility' | 'site', id: string, name: string) => {
     const atLocation = observed.filter((row) => row.site_id === id)
-    const atLocationIncidents = atLocation.filter((row) => row.report_type === 'incident')
-    const windowReports = atLocation.filter((row) => between(row.reported_at, start, end))
-    const windowIncidents = atLocationIncidents.filter((row) => between(row.reported_at, start, end))
-    const incidentIndicatorReports = atLocationIncidents.filter((row) => between(row.reported_at, indicatorStart, end))
+    const atLocationIncidents = atLocation.filter((row) => normalizeIncidentReportType(row.report_type) !== 'near_miss')
+    const windowReports = atLocation.filter((row) => between(basisValue(row), start, end))
+    const windowIncidents = atLocationIncidents.filter((row) => between(basisValue(row), start, end))
+    const incidentIndicatorReports = atLocationIncidents.filter((row) => between(basisValue(row), indicatorStart, end))
     const locationIds = new Set(atLocationIncidents.map((row) => row.id))
-    const locationActions = actions.filter((row) => locationIds.has(row.incident_id))
+    const locationActions = actions.filter((row) => row.incident_id !== null && locationIds.has(row.incident_id))
     const planningAtLocation = planningIncidents.filter((row) => row.site_id === id)
     const planningById = new Map(planningAtLocation.map((row) => [row.id, row]))
     let invalidActionDueDates = 0
     const overdue = locationActions.filter((row) => {
-      if (row.status === 'verified' || row.status === 'closed') return false
+      if (!isUnfinishedCorrectiveActionStatus(row.status)) return false
       // PostgreSQL due_date is date-only: work becomes overdue after that UTC day finishes.
       const due = row.due_date && /^\d{4}-\d{2}-\d{2}$/.test(row.due_date)
         ? timestamp(`${row.due_date}T00:00:00.000Z`) : null
@@ -187,14 +197,14 @@ export function calculateSafetySnapshot(
       openCriticalCount: windowReports.filter((row) => isOpen(row) && severity(row) === 4).length,
       overdueActions: overdue.length,
       unclassified: incidentIndicatorReports.filter((row) => severity(row) === null).length,
-      recentHighRiskCount: atLocationIncidents.filter((row) => isHigh(row) && between(row.reported_at, recentStart, end)).length,
+      recentHighRiskCount: atLocationIncidents.filter((row) => isHigh(row) && between(basisValue(row), recentStart, end)).length,
       indicatorSampleSize: incidentIndicatorReports.filter((row) => severity(row) !== null).length,
       backlogOpenCritical: atLocationIncidents.filter((row) => isOpen(row) && severity(row) === 4).length,
       backlogOpenHigh: atLocationIncidents.filter((row) => isOpen(row) && severity(row) === 3).length,
       backlogUnclassified: atLocationIncidents.filter((row) => isOpen(row) && severity(row) === null).length,
-      missingReportedAt: atLocationIncidents.filter((row) => timestamp(row.reported_at) === null).length,
+      missingReportedAt: atLocationIncidents.filter((row) => timestamp(basisValue(row)) === null).length,
       overdueCriticalActions: overdue.filter((row) => {
-        const parent = byId.get(row.incident_id)
+        const parent = row.incident_id ? byId.get(row.incident_id) : undefined
         return parent && severity(parent) === 4
       }).length,
       invalidActionDueDates,
@@ -214,7 +224,7 @@ export function calculateSafetySnapshot(
     const reportIds = new Set(reports.map((row) => row.id))
     const openCriticalIds = new Set(reports.filter((row) => isOpenIncidentStatus(row.status, true)
       && normalizeIncidentSeverity(row.severity) === 'critical').map((row) => row.id))
-    const unfinished = planningActions.filter((row) => reportIds.has(row.incident_id)
+    const unfinished = planningActions.filter((row) => reportIds.has(row.incident_id ?? '')
       && isUnfinishedCorrectiveActionStatus(row.status))
     const missingDue = (dueDate: string | null) => {
       if (typeof dueDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return true
@@ -228,7 +238,7 @@ export function calculateSafetySnapshot(
       openHigh: reports.filter((row) => isOpenIncidentStatus(row.status, true)
         && normalizeIncidentSeverity(row.severity) === 'high').length,
       nonOverdueUnfinishedActions: unfinished.filter((row) => isActionDueNotPassed(row.due_date, asOf)).length,
-      criticalLinkedUnfinishedActions: unfinished.filter((row) => openCriticalIds.has(row.incident_id)).length,
+      criticalLinkedUnfinishedActions: unfinished.filter((row) => openCriticalIds.has(row.incident_id ?? '')).length,
       unfinishedActionsMissingDueDate: unfinished.filter((row) => missingDue(row.due_date)).length,
     }
   })
@@ -243,13 +253,13 @@ export function calculateSafetySnapshot(
     evidence.push(item)
     characters += size
   }
-  const relevant = new Set(observed.filter((row) => isOpen(row) || between(row.reported_at, indicatorStart, end)
+  const relevant = new Set(observed.filter((row) => isOpen(row) || between(basisValue(row), indicatorStart, end)
     || rows.closures.some((closure) => closure.incident_id === row.id && between(closure.closed_at, previousStart, end)))
     .map((row) => row.id))
   for (const row of observed.filter((row) => relevant.has(row.id)).sort((a, b) => a.id.localeCompare(b.id))) {
     addEvidence('incidents', row.id, row.id, row.reference_number, row.title)
   }
-  for (const row of actions.filter((row) => relevant.has(row.incident_id))) addEvidence('actions', row.id, row.incident_id, 'Corrective action', row.title)
+  for (const row of actions.filter((row) => row.incident_id && relevant.has(row.incident_id))) addEvidence('actions', row.id, row.incident_id ?? undefined, row.type === 'preventive' ? 'Preventive action' : 'Corrective action', row.title)
   const investigations = rows.investigations.filter((row) => relevant.has(row.incident_id))
   const investigationMap = new Map(investigations.map((row) => [row.id, row]))
   for (const row of investigations) addEvidence('investigations', row.id, row.incident_id, `Investigation (${row.status})`, row.findings_summary ?? '')
@@ -265,10 +275,9 @@ export function calculateSafetySnapshot(
     addEvidence('closures', row.incident_id, row.incident_id, 'Human-authored closure evidence', `${row.root_cause}\n${row.corrective_action}`)
   }
   const companySettings = dataset.companySettings
-  const closureDates = new Map(rows.closures.map((closure) => [closure.incident_id, timestamp(closure.closed_at)]))
   const missingClosureDates = incidents.filter((row) => {
     if (row.status !== 'closed') return false
-    const closedAt = closureDates.get(row.id)
+    const closedAt = closureDates.get(row.id) ?? timestamp(row.updated_at)
     const reportedAt = timestamp(row.reported_at)
     return closedAt == null || (reportedAt !== null && closedAt < reportedAt)
   }).length
@@ -276,26 +285,26 @@ export function calculateSafetySnapshot(
     ...(!sourceComplete('incidents', 'closures', 'sites') ? ['Incident, closure or site retrieval is incomplete.'] : []),
     ...(!companySettings ? ['Company settings are unavailable.'] : []),
   ]
-  const missingTrendReportingDates = incidents.filter((row) =>
-    (row.report_type === 'incident' || row.report_type === 'near_miss') && timestamp(row.reported_at) === null).length
+  const missingTrendReportingDates = incidents.filter((row) => timestamp(basisValue(row)) === null).length
   const trendWarnings = [
     ...coverage.filter((source) => source.source === 'incidents').flatMap((source) =>
       source.reasons.filter((reason) => reason.includes('confirmed synthetic incident records'))),
-    ...(missingClosureDates ? [`${missingClosureDates} closed records have missing or invalid actual closure dates and are excluded from Closed. Valid reporting dates still count toward Incidents or Near Misses.`] : []),
-    ...(missingTrendReportingDates ? [`${missingTrendReportingDates} incident or near-miss records have missing or invalid reporting dates and are excluded from their reporting-date series.`] : []),
+    ...(missingClosureDates ? [`${missingClosureDates} closed records have no valid closure or update date and are excluded from Closed.`] : []),
+    ...(missingTrendReportingDates ? [`${missingTrendReportingDates} records have missing or invalid dates for the selected window and are excluded from their reporting-date series.`] : []),
   ]
   const trendPeriod = filters.trendDays ?? filters.days
   const trendStart = trendPeriod === 'all' ? -Infinity : end - trendPeriod * day
   const trendRecords = incidents.flatMap((row) => {
-    const reportedTime = timestamp(row.reported_at)
-    const closureTime = row.status === 'closed' ? closureDates.get(row.id) : null
-    const reportedAt = (row.report_type === 'incident' || row.report_type === 'near_miss')
-      && reportedTime !== null && reportedTime >= trendStart && reportedTime < end ? iso(reportedTime) : null
+    const basisTime = timestamp(basisValue(row))
+    // Closed is status-based; use the structured closure date, falling back to
+    // the last update for legacy closed reports.
+    const closureTime = row.status === 'closed' ? (closureDates.get(row.id) ?? timestamp(row.updated_at)) : null
+    const reportedAt = basisTime !== null && basisTime >= trendStart && basisTime < end ? iso(basisTime) : null
     const closedAt = closureTime != null && closureTime >= trendStart && closureTime < end
-      && (reportedTime === null || closureTime >= reportedTime) ? iso(closureTime) : null
+      && (basisTime === null || closureTime >= basisTime) ? iso(closureTime) : null
     return reportedAt || closedAt ? [{
-      id: row.id, reportType: row.report_type, reportedAt, closedAt,
-      siteId: row.site_id, department: row.department ?? null, severity: row.severity, category: row.incident_category,
+      id: row.id, reportType: normalizeIncidentReportType(row.report_type), reportedAt, closedAt,
+      siteId: row.site_id, department: row.department ?? null, severity: severityLabel(row), category: row.incident_category,
     }] : []
   })
   return safetySnapshotSchema.parse({
