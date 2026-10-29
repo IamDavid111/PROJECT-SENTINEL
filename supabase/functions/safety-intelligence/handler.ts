@@ -54,7 +54,7 @@ export async function handleSafetyRequest(request: Request, runtime: SafetyRunti
     let body: unknown
     try { body = await request.json() } catch { return fail(400, 'invalid_request', 'A valid JSON request body is required.') }
     const filters = safetyFiltersSchema.safeParse(body)
-    if (!filters.success) return fail(400, 'invalid_request', 'Use a 30/90/all reporting period, an optional site ID, and an optional 30/90/all trend period only.')
+    if (!filters.success) return fail(400, 'invalid_request', 'Invalid analytics filters. Use a 30/90/all period, a window basis, and optional site, department, shift, status, severity, report type and trend period.')
     const scope = await resolveSafetyScope(client, context, filters.data)
     const asOf = runtime.now()
     const dataset = await retrieveSafetyDataset(client, context, filters.data)

@@ -14,7 +14,7 @@ export const safetyFiltersSchema = z.object({
   status: z.string().min(1).optional(),
   severity: z.string().min(1).optional(),
   reportType: z.string().min(1).optional(),
-}).strict()
+})
 export type SafetyFilters = z.infer<typeof safetyFiltersSchema>
 
 const uuid = z.uuid()
@@ -35,14 +35,14 @@ export const safetyActionSchema = z.object({
   id: uuid, organization_id: uuid, incident_id: uuid.nullable(), title: z.string(),
   status: z.string(),
   due_date: text,
-  type: z.enum(['corrective', 'preventive']).optional(),
+  type: z.enum(['corrective', 'preventive', 'investigation']).optional(),
   source: z.string().optional(),
 })
 // The live Actions module stores both corrective and preventive actions with a
 // different shape; retrieval maps it into safetyActionSchema.
 export const safetyNewActionSchema = z.object({
   id: uuid, organization_id: uuid, incident_id: uuid.nullable(), description: z.string(),
-  type: z.enum(['corrective', 'preventive']), status: z.string(), due_at: text,
+  type: z.enum(['corrective', 'preventive', 'investigation']), status: z.string(), due_at: text,
 })
 export const safetyInvestigationSchema = z.object({
   id: uuid, organization_id: uuid, incident_id: uuid,
