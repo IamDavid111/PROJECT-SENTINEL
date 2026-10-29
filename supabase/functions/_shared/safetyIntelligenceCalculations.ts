@@ -259,7 +259,7 @@ export function calculateSafetySnapshot(
   for (const row of observed.filter((row) => relevant.has(row.id)).sort((a, b) => a.id.localeCompare(b.id))) {
     addEvidence('incidents', row.id, row.id, row.reference_number, row.title)
   }
-  for (const row of actions.filter((row) => row.incident_id && relevant.has(row.incident_id))) addEvidence('actions', row.id, row.incident_id ?? undefined, row.type === 'preventive' ? 'Preventive action' : 'Corrective action', row.title)
+  for (const row of actions.filter((row) => row.incident_id && relevant.has(row.incident_id))) addEvidence('actions', row.id, row.incident_id ?? undefined, row.type === 'preventive' ? 'Preventive action' : row.type === 'investigation' ? 'Investigation action' : 'Corrective action', row.title)
   const investigations = rows.investigations.filter((row) => relevant.has(row.incident_id))
   const investigationMap = new Map(investigations.map((row) => [row.id, row]))
   for (const row of investigations) addEvidence('investigations', row.id, row.incident_id, `Investigation (${row.status})`, row.findings_summary ?? '')
