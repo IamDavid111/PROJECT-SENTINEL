@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { ArrowRight, Camera, ClipboardCheck, Drill, Factory, FileDown, FlaskConical, ListChecks, Menu, Radar, ShieldCheck, Ship, Smartphone, Sparkles, TrendingUp, Waypoints, Zap } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { Alert, Button, Field, Input, Textarea } from './components/ui'
 import { CommandPalette, type CommandItem } from './components/ui/command-palette'
 import { Icon } from './components/ui/icon'
@@ -12,7 +11,6 @@ import autoTable from 'jspdf-autotable'
 import ExcelJS from 'exceljs'
 import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from 'docx'
 
-import customerBenefitsDashboard from './assets/srcassetscustomer-benefits-dashboard.png'
 import authIllustration from './assets/auth-illustration.jpg'
 import heroFacility from './assets/hero-facility.jpg'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
@@ -22,6 +20,8 @@ import type { Role } from './types'
 import { BASELINE_PERMISSION_KEYS, BUILT_IN_BACKEND_ROLES, SUPER_ADMINISTRATOR_PERMISSION_KEYS, USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_PERMISSION_CATALOG, USER_MANAGEMENT_ROLE_DEFINITIONS, USER_MANAGEMENT_ROLE_PERMISSION_MATRIX, hasPermission, permissionsForRole } from './data/userManagementConfig'
 import { starnetMockUserBatch } from './data/starnetMockUserBatch'
 import type { PermissionKey } from './data/userManagementConfig'
+import { BrandMark } from './components/brand'
+import { LandingPage } from './features/landing/LandingPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
 import { MyReportsPage } from './features/incidents/MyReportsPage'
@@ -33,40 +33,10 @@ import { useIncidentClosureAccess, useIncidentOfflineSync } from './features/inc
 import { IncidentClosureSettings } from './features/incidents/IncidentClosure'
 import { SafetyIntelligencePage } from './features/safety-intelligence/SafetyIntelligencePage'
 import { KnowledgePage } from './features/knowledge/KnowledgePage'
+import { UiBuilderPage } from './features/ui-builder/UiBuilderPage'
 import { hasOrganizationIncidentVisibility } from '../supabase/functions/_shared/safetyIntelligenceContracts'
 
-const navItems = ['Platform', 'Industries', 'Outcomes', 'Product']
 const executiveAnalyticsAccessMessage = 'You do not have permission to view Executive Analytics. Please ask your Super Admin to grant you access.'
-
-const featureCards: { icon: LucideIcon; title: string; text: string }[] = [
-  { icon: Camera, title: 'Digital incident reporting', text: 'Capture near misses to fatalities in the field with GPS, photo, video and voice evidence — online or offline.' },
-  { icon: ClipboardCheck, title: 'Inspections & audits', text: 'Digital inspection types, custom templates, pass/fail checklists and audit programmes with a live calendar.' },
-  { icon: ListChecks, title: 'Corrective action control', text: 'Every finding becomes a tracked action with owners, due dates, evidence and verification sign-off.' },
-  { icon: Radar, title: 'Predictive risk intelligence', text: 'Risk scores per facility using historical incidents, observations and operating context.' },
-  { icon: Sparkles, title: 'AI safety copilot', text: 'Ask plain-language questions about your safety data and get summaries, charts and recommendations.' },
-  { icon: ShieldCheck, title: 'Enterprise governance', text: 'Multi-tenant organisations, granular roles, full activity logging and exportable audit trails.' },
-]
-
-const benefitItems: { icon: LucideIcon; title: string; text: string }[] = [
-  { icon: Smartphone, title: 'Frontline adoption', text: 'Glove-friendly mobile reporting with offline sync means events get captured when they happen.' },
-  { icon: TrendingUp, title: 'Executive visibility', text: 'A single safety score, trend and forecast per site, department and contractor.' },
-  { icon: FileDown, title: 'Assurance on demand', text: 'Generate inspection, audit and corrective action reports as PDF or Excel in seconds.' },
-]
-
-function BrandMark() {
-  return (
-    <span className="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none">
-        <path d="M12 3.5 19 6v5.7c0 4.2-2.7 7.9-7 9.3-4.3-1.4-7-5.1-7-9.3V6l7-2.5Z" stroke="currentColor" strokeWidth="1.8" />
-        <path d="m9.2 12 1.8 1.8 3.9-4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  )
-}
-
-function ThemeToggleIcon({ dark }: { dark: boolean }) {
-  return <Icon name={dark ? 'sun' : 'moon'} size={17} />
-}
 
 type AuthRoute = 'sign-in' | 'register' | 'forgot-password' | 'reset-password' | 'change-password' | 'invite-signup' | 'demo'
 
@@ -699,6 +669,15 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
           onSelect: () => { window.location.hash = '#knowledge' },
         }]
       : []),
+    ...(import.meta.env.DEV
+      ? [{
+          id: 'route-ui-builder',
+          label: 'UI Builder',
+          hint: 'ui-builder',
+          icon: 'layers' as const,
+          onSelect: () => { window.location.hash = '#ui-builder' },
+        }]
+      : []),
   ]
 
   useEffect(() => {
@@ -836,7 +815,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
             <a className="workspace-header-action" href="#activity-log" title="Notifications" aria-label="Notifications"><Icon name="notifications" size={17} /></a>
             {canAccess('view_executive_analytics') && <a className="workspace-header-action" href="#executive-analytics" title="Executive Analytics" aria-label="Executive Analytics"><Icon name="executiveAnalytics" size={17} /></a>}
             <button className="workspace-header-action" type="button" title="Messages coming soon" aria-label="Messages coming soon"><Icon name="messages" size={17} /></button>
-            <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><ThemeToggleIcon dark={isDarkMode} /></button>
+            <button type="button" className="theme-button" onClick={onToggleTheme} aria-label="Toggle theme"><Icon name={isDarkMode ? 'sun' : 'moon'} size={17} /></button>
             <a className="workspace-user" href="#profile">{profileName}</a>
           </div>
         </header>
@@ -3009,6 +2988,10 @@ export default function App() {
   if (authRoute === 'demo') return <DemoRequestPage />
 
   const requestedRoute = getHashRoute()
+  const isUiBuilderPath = window.location.pathname.replace(/\/+$/, '').endsWith('/ui-builder')
+  if (requestedRoute === 'ui-builder' || isUiBuilderPath) {
+    return <UiBuilderPage isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
+  }
   if (requestedRoute === 'mfa') {
     window.location.hash = '#dashboard'
     return <div className="protected-state">Opening your workspace...</div>
@@ -3022,403 +3005,5 @@ export default function App() {
     return <ProtectedApp session={session} isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
   }
 
-  return (
-    <div className={`app-shell${isDarkMode ? ' dark-theme' : ''}`}>
-      <header className="site-header">
-        <div className="container nav-wrap">
-          <a className="brand" href="#top" aria-label="SentinelQHSE home">
-            <BrandMark />
-            <span className="brand-copy">
-              <strong>
-                SentinelQHSE<sup>™</sup>
-              </strong> 
-              <small>SAFETY INTELLIGENCE</small>
-            </span>
-          </a> 
-
-          <nav className="desktop-nav" aria-label="Primary navigation">
-            {navItems.map((item) => (
-              <a key={item} href={`#${item.toLowerCase()}`}>
-                {item}
-              </a>
-            ))}
-          </nav>
-
-          <div className="nav-actions">
-            <button
-              className="theme-button"
-              type="button"
-              aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-              aria-pressed={isDarkMode}
-              onClick={toggleTheme}
-            >
-              <ThemeToggleIcon dark={isDarkMode} />
-            </button>
-            <a className="signup-link" href="#register">
-              Sign Up
-            </a>
-            <a className="signin-link" href="#sign-in">
-              Sign In
-            </a>
-            <a className="button button-green button-small" href="#demo">
-              Request Demo
-            </a>
-          </div>
-
-          <details className="mobile-menu">
-            <summary aria-label="Open navigation"><Menu size={22} /></summary>
-            <div className="mobile-menu-panel">
-              {navItems.map((item) => (
-                <a key={item} href={`#${item.toLowerCase()}`}>
-                  {item}
-                </a>
-              ))}
-              <a href="#register">Sign Up</a>
-              <a href="#sign-in">Sign In</a>
-              <a className="button button-green" href="#demo">
-                Request Demo
-              </a>
-            </div>
-          </details>
-        </div>
-      </header>
-
-      <main id="top">
-        <section className="hero">
-          <div className="hero-overlay" />
-          <div className="container hero-grid">
-            <div className="hero-copy">
-              <div className="eyebrow hero-eyebrow">AI-Powered Operational Safety Intelligence Platform</div>
-              <h1>From reactive incident reports to predictive safety intelligence.</h1>
-              <p className="hero-text">
-                SentinelQHSE™ helps energy companies capture every event in the field, close every corrective action,
-                and forecast where the next incident is most likely to happen.
-              </p>
-
-              <div className="hero-actions">
-                <a className="button button-green button-large" href="#demo">
-                  Request Demo
-                  <ArrowRight size={19} aria-hidden="true" />
-                </a>
-                <a className="button button-outline button-large" href="#sign-in">
-                  Sign In
-                </a>
-                <a className="text-link" href="#demo">
-                  Contact Sales
-                </a>
-              </div>
-
-              <div className="hero-metrics" aria-label="Platform outcomes">
-                <div>
-                  <strong>48%</strong>
-                  <span>reduction in recordable incidents within four quarters</span>
-                </div>
-                <div>
-                  <strong>3.1x</strong>
-                  <span>increase in near-miss reporting from frontline crews</span>
-                </div>
-                <div>
-                  <strong>62%</strong>
-                  <span>faster corrective action closure across operating teams</span>
-                </div>
-                <div>
-                  <strong>100%</strong>
-                  <span>auditable trail for regulator and client assurance</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="dashboard-frame" aria-label="SentinelQHSE dashboard preview">
-              <div className="dashboard-window">
-                <div className="dash-sidebar">
-                  <div className="dash-brand">
-                    <span className="mini-mark"><ShieldCheck size={11} /></span>
-                    <span>
-                      Sentinel<span>QHSE</span>
-                    </span>
-                  </div>
-                  <div className="dash-nav active">Overview</div>
-                  <div className="dash-nav">Incidents</div>
-                  <div className="dash-nav">Observations</div>
-                  <div className="dash-nav">Risk Management</div>
-                  <div className="dash-nav">Audits &amp; Inspections</div>
-                  <div className="dash-nav">Training</div>
-                  <div className="dash-nav">Reports</div>
-                  <div className="dash-nav">Analytics</div>
-                  <div className="dash-nav">Alerts</div>
-                </div>
-
-                <div className="dash-main">
-                  <div className="dash-top">
-                    <strong>Overview</strong>
-                    <span>All Locations</span>
-                    <span>May 12 – Jun 8, 2026</span>
-                    <span className="dash-filter">Filters</span>
-                  </div>
-
-                  <div className="stat-row">
-                    <div className="stat-card">
-                      <small>Total Recordable Incidents</small>
-                      <b>0.73</b>
-                      <em>↓ 18% vs prior period</em>
-                    </div>
-                    <div className="stat-card">
-                      <small>Lost Time Incident Rate</small>
-                      <b>0.23</b>
-                      <em>↓ 23% vs prior period</em>
-                    </div>
-                    <div className="stat-card">
-                      <small>Near Misses</small>
-                      <b>152</b>
-                      <em>↑ 12% vs prior period</em>
-                    </div>
-                    <div className="stat-card">
-                      <small>Safety Observations</small>
-                      <b>621</b>
-                      <em>↑ 8% vs prior period</em>
-                    </div>
-                    <div className="stat-card warning-stat">
-                      <small>High Risks</small>
-                      <b>28</b>
-                      <em>Needs attention</em>
-                    </div>
-                  </div>
-
-                  <div className="dash-grid">
-                    <div className="dash-card trend-card">
-                      <div className="card-heading">
-                        <strong>Safety trend</strong>
-                        <span>Q2</span>
-                      </div>
-                      <div className="fake-chart">
-                        <span className="chart-line line-one" />
-                        <span className="chart-line line-two" />
-                        <span className="chart-label l1">J</span>
-                        <span className="chart-label l2">F</span>
-                        <span className="chart-label l3">M</span>
-                        <span className="chart-label l4">A</span>
-                      </div>
-                    </div>
-
-                    <div className="dash-card donut-card">
-                      <div className="card-heading">
-                        <strong>Risk mix</strong>
-                        <span>Live</span>
-                      </div>
-                      <div className="donut-wrap">
-                        <div className="donut">
-                          <span>34%</span>
-                        </div>
-                        <div className="legend">
-                          <div>
-                            <i style={{ background: '#20c96b' }} /> Operating
-                          </div>
-                          <div>
-                            <i style={{ background: '#f4a51a' }} /> Process
-                          </div>
-                          <div>
-                            <i style={{ background: '#8261d7' }} /> Culture
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="dash-card heat-card">
-                      <div className="card-heading">
-                        <strong>Hotspots</strong>
-                        <span>Sites</span>
-                      </div>
-                      <div className="heat-map">
-                        <span>1</span>
-                        <span>2</span>
-                        <span>3</span>
-                        <span>4</span>
-                        <span>5</span>
-                        <span>6</span>
-                        <span>7</span>
-                        <span>8</span>
-                        <span>9</span>
-                        <span>10</span>
-                        <span>11</span>
-                        <span>12</span>
-                        <span>13</span>
-                        <span>14</span>
-                        <span>15</span>
-                      </div>
-                    </div>
-
-                    <div className="dash-card bars-card">
-                      <div className="card-heading">
-                        <strong>Closure rate</strong>
-                        <span>30d</span>
-                      </div>
-                      <div className="bars">
-                        <i style={{ height: '45%' }} />
-                        <i style={{ height: '58%' }} />
-                        <i style={{ height: '62%' }} />
-                        <i style={{ height: '74%' }} />
-                        <i style={{ height: '82%' }} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="dash-alerts">
-                    <strong>Safety alerts</strong>
-                    <span>3 high-priority actions due this week</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="platform" className="section section-light">
-          <div className="container">
-            <div className="section-intro">
-              <div className="eyebrow">PLATFORM</div>
-              <h2>One operating system for QHSE performance</h2>
-              <p>
-                Built to the workflows international oil and gas operators already run — and to the standards their
-                regulators and clients audit against.
-              </p>
-            </div>
-
-            <div className="feature-grid">
-              {featureCards.map((card) => (
-                <article key={card.title} className="feature-card">
-                  <div className="icon-tile"><card.icon size={24} /></div>
-                  <h3>{card.title}</h3>
-                  <p>{card.text}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="industries" className="section industries">
-          <div className="container">
-            <div className="section-intro compact">
-              <h2>Industries served</h2>
-            </div>
-            <div className="industry-grid">
-              <div className="industry-card">
-                <span><Factory size={24} /></span>
-                <strong>Upstream E&amp;P</strong>
-              </div>
-              <div className="industry-card">
-                <span><Ship size={24} /></span>
-                <strong>Offshore &amp; Marine</strong>
-              </div>
-              <div className="industry-card">
-                <span><FlaskConical size={24} /></span>
-                <strong>
-                  Refining &amp;
-                  <br />
-                  Petrochemical
-                </strong>
-              </div>
-              <div className="industry-card">
-                <span><Waypoints size={24} /></span>
-                <strong>Pipelines &amp; Terminals</strong>
-              </div>
-              <div className="industry-card">
-                <span><Drill size={24} /></span>
-                <strong>Drilling Operations</strong>
-              </div>
-              <div className="industry-card">
-                <span><Zap size={24} /></span>
-                <strong>Energy Services</strong>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="outcomes" className="section outcomes">
-          <div className="container outcome-grid">
-            <div className="outcome-copy">
-              <div className="eyebrow">CUSTOMER BENEFITS</div>
-              <h2>Safety leaders get answers, not archives</h2>
-
-              {benefitItems.map((item) => (
-                <div className="benefit" key={item.title}>
-                  <span className="benefit-icon"><item.icon size={19} /></span>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.text}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="outcome-dashboard">
-              <img
-                className="customer-benefits-image"
-                src={customerBenefitsDashboard}
-                alt="SentinelQHSE safety analytics dashboard"
-              />
-            </div>
-          </div>
-        </section>
-
-        <section id="product" className="section testimonials">
-          <div className="container quote-grid">
-            <blockquote>
-              <p>
-                “We stopped chasing spreadsheets. Every finding now has an owner, a due date and evidence attached to it
-                before it closes.”
-              </p>
-              <footer>
-                <strong>HSE Director</strong>
-                <span>West African upstream operator (placeholder)</span>
-              </footer>
-            </blockquote>
-            <blockquote>
-              <p>
-                “The risk forecast flagged heat stress at our flow station a week before we would have noticed the pattern
-                ourselves.”
-              </p>
-              <footer>
-                <strong>Operations Manager</strong>
-                <span>Gas processing joint venture (placeholder)</span>
-              </footer>
-            </blockquote>
-          </div>
-        </section>
-      </main>
-
-      <footer id="contact" className="site-footer">
-        <div className="container footer-grid">
-          <div>
-            <a className="brand footer-brand" href="#top">
-              <BrandMark />
-              <span className="brand-copy">
-                <strong>
-                  SentinelQHSE<sup>™</sup>
-                </strong>
-                <small>SAFETY INTELLIGENCE</small>
-              </span>
-            </a>
-            <p>AI-Powered Operational Safety Intelligence Platform for the energy industry.</p>
-          </div>
-          <div>
-            <h4>Platform</h4>
-            <a href="#sign-in">Dashboard</a>
-            <a href="#sign-in">Incidents</a>
-            <a href="#sign-in">Audits</a>
-          </div>
-          <div>
-            <h4>Company</h4>
-            <a href="#demo">Contact sales</a>
-            <a href="#register">Register organization</a>
-          </div>
-          <div>
-            <h4>Access</h4>
-            <a href="#sign-in">Sign in</a>
-            <a href="#forgot-password">Forgot password</a>
-          </div>
-        </div>
-        <div className="container footer-bottom">© 2026 SentinelQHSE™. All rights reserved.</div>
-      </footer>
-    </div>
-  )
+  return <LandingPage isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
 }

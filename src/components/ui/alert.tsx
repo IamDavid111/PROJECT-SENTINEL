@@ -10,7 +10,7 @@ const alertVariants = cva(
     variants: {
       tone: {
         success: 'border-brand/25 bg-brand/10 text-brand-dark',
-        info: 'border-ink/20 bg-ink/5 text-ink-2',
+        info: 'border-line bg-ink/5 text-foreground',
         warning: 'border-caution/30 bg-caution/10 text-foreground',
         danger: 'border-danger/25 bg-danger/10 text-danger',
       },

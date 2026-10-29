@@ -33,7 +33,7 @@ export const ICONS = {
   // —— Chrome / affordances ——
   search: 'hugeicons:search-01',
   menu: 'hugeicons:menu-01',
-  close: 'hugeicons:delete-01',
+  close: 'hugeicons:cancel-01',
   more: 'hugeicons:more-01',
   externalLink: 'hugeicons:external-link',
   link: 'hugeicons:link-01',
@@ -149,7 +149,7 @@ export const ICONS = {
   smartphone: 'hugeicons:smartphone',
 
   // —— Loading ——
-  spinner: 'hugeicons:loading-01',
+  spinner: 'hugeicons:loading-02',
   loader: 'hugeicons:loader',
 } as const
 

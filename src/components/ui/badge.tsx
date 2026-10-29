@@ -15,7 +15,7 @@ const badgeVariants = cva(
         warning: 'border-caution/30 bg-caution/10 text-foreground',
         danger: 'border-danger/25 bg-danger/10 text-danger',
         accent: 'border-accent/30 bg-accent/10 text-foreground',
-        info: 'border-ink/20 bg-ink/5 text-ink-2',
+        info: 'border-line bg-ink/5 text-foreground',
       },
     },
     defaultVariants: {

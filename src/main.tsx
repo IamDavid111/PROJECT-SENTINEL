@@ -11,6 +11,7 @@ import '@fontsource/ibm-plex-mono/500.css'
 import '@fontsource/ibm-plex-mono/600.css'
 
 import './index.css'
+import { ToastProvider } from './components/ui'
 import App from './App.tsx'
 
 // Keep one TanStack Query client for the whole app. Feature pages then share the same data cache,
@@ -20,7 +21,9 @@ const queryClient = new QueryClient()
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <ToastProvider>
+        <App />
+      </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

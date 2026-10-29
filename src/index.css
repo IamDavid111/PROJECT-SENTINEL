@@ -50,6 +50,16 @@
   --radius: 18px;
 }
 
+/* Semantic token swap for dark surfaces. New kit primitives consume these;
+   the legacy `.dark-theme` overrides stay until the migration retires them. */
+.dark-theme {
+  --color-foreground: #e7eef8;
+  --color-muted: #93a4bb;
+  --color-line: #26364d;
+  --color-surface: #0b172b;
+  --color-surface-soft: #101e33;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -73,9 +83,11 @@ svg {
   max-width: 100%;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 :where(a, button, input, select, textarea):focus-visible {
@@ -95,8 +107,10 @@ a {
   border: 0;
 }
 
-button {
-  font: inherit;
+@layer base {
+  button {
+    font: inherit;
+  }
 }
 
 #root {
