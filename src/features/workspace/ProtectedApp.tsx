@@ -267,7 +267,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} />
       <aside className="workspace-sidebar">
         <a className="brand workspace-brand" href="#dashboard" onClick={() => handleNavClick('dashboard')}>   
-          <BrandMark />
+          <BrandMark size="md" className="rounded-lg" />
           <span className="brand-copy"><strong>SentinelQHSE<sup>™</sup></strong><small>SAFETY INTELLIGENCE</small></span>
         </a>
         <nav className="workspace-nav" aria-label="Workspace navigation">
@@ -313,7 +313,6 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       <main className="workspace-main">
         <header className="workspace-topbar">
           <div className="workspace-topbar-left">
-            <div className="workspace-topbar-title"><small>SECURE WORKSPACE</small><h1>{currentNavigation?.label || 'Dashboard'}</h1><span className="workspace-breadcrumb">{route === 'ai-assistant' ? 'Operations / Safety Intelligence' : route === 'executive-analytics' ? 'Operations / Executive Analytics' : route === 'knowledge' ? 'Operations / QHSE Knowledge' : 'Operations / Safety Overview'}</span></div>
             {primaryEmergencyContact && (
               <div className="workspace-emergency-panel">
                 <div className="workspace-emergency-label">FOR EMERGENCY RESPONSE CALL:</div>

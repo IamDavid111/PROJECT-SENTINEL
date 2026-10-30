@@ -1,17 +1,27 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { ArrowRight } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { defaultDashboardFilters, type DashboardFilters, type DashboardMetric, type DashboardPageProps } from './types'
+import { Alert } from '../../components/ui/alert'
+import { Skeleton } from '../../components/ui/skeleton'
+import { cn } from '../../lib/utils'
 import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions, buildShiftSettings, type CompanyShift } from '../../lib/companyFilterOptions'
 import { normalizeIncidentCategoryName } from '../../lib/incidentCategory'
-import { invalidateDashboardData, useDashboardData } from './useDashboardData'
 import { AiSafetySummary } from './AiSafetySummary'
-const DashboardCharts = lazy(() => import('./DashboardCharts'))
+import { DashboardCommandStrip, type DashboardStripStat } from './DashboardCommandStrip'
+import { DashboardFilterBar } from './DashboardFilterBar'
+import { ActionRegister, IncidentRegister } from './DashboardRegisters'
+import { RecentIncidentsCard } from './RecentIncidentsCard'
+import { invalidateDashboardData, useDashboardData } from './useDashboardData'
+import { defaultDashboardFilters, type DashboardFilterOptions, type DashboardFilters, type DashboardPageProps } from './types'
+
+const IncidentTrendChart = lazy(() => import('./DashboardCharts').then((module) => ({ default: module.IncidentTrendChart })))
+const IncidentSeverityChart = lazy(() => import('./DashboardCharts').then((module) => ({ default: module.IncidentSeverityChart })))
+const IncidentTypeChart = lazy(() => import('./DashboardCharts').then((module) => ({ default: module.IncidentTypeChart })))
+const DashboardComparisons = lazy(() => import('./DashboardCharts').then((module) => ({ default: module.DashboardComparisons })))
 const SafetyMapCard = lazy(() => import('./SafetyMapCard').then((module) => ({ default: module.SafetyMapCard })))
 
-const fallbackFilterOptions = {
+const fallbackFilterOptions: DashboardFilterOptions = {
   site: ['all'],
   department: ['all'],
   severity: ['all'],
@@ -60,42 +70,29 @@ function buildSiteOptions(value: unknown): string[] {
   return ['all', ...names]
 }
 
-function formatFilterLabel(value: string) {
-  if (value === 'all') return 'All'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+function ChartSkeleton({ className }: { className?: string }) {
+  return <Skeleton className={cn('rounded-card', className)} />
 }
 
-function DashboardHeader({ userName, organizationName, role }: Pick<DashboardPageProps, 'userName' | 'organizationName' | 'role'>) {
-  const greeting = new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 18 ? 'Good Afternoon' : 'Good Evening'
-  return <div className="dashboard-header"><div><div className="eyebrow">OPERATIONAL SAFETY OVERVIEW</div><h2>{greeting}, {userName}</h2><p>Monitor what requires attention across your safety operation.</p></div><div className="dashboard-context"><strong>{organizationName}</strong><span>{role}</span><span>{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></div></div>
-}
-
-function DashboardFilters({ filters, onChange, onReset, options }: { filters: DashboardFilters; onChange: (key: keyof DashboardFilters, value: string) => void; onReset: () => void; options: typeof fallbackFilterOptions }) {
-  const fields: { key: keyof DashboardFilters; label: string; options: string[] }[] = [
-    { key: 'site', label: 'Site', options: options.site },
-    { key: 'department', label: 'Department', options: options.department },
-    { key: 'dateRange', label: 'Date range', options: ['7d', '30d', '90d', 'all'] },
-    { key: 'dateBasis', label: 'Window by', options: ['occurred', 'reported'] },
-    { key: 'severity', label: 'Severity', options: options.severity },
-    { key: 'incidentType', label: 'Incident category', options: options.incidentType },
-    { key: 'shift', label: 'Shift', options: options.shift },
-  ]
-  return <div className="dashboard-filters"><div className="dashboard-filters-heading"><div><strong>Dashboard filters</strong><span>Filters are applied to available organization data.</span></div><button type="button" onClick={onReset}>Clear filters</button></div><div className="dashboard-filter-grid">{fields.map((field) => <label key={field.key}>{field.label}<select value={filters[field.key]} onChange={(event) => onChange(field.key, event.target.value)}>{field.options.map((option) => <option key={option} value={option}>{field.key === 'dateRange' ? formatFilterLabel(option.replace('d', ' days')) : formatFilterLabel(option)}</option>)}</select></label>)}</div></div>
-}
-
-function KpiCard({ metric }: { metric: DashboardMetric }) {
-  return <article className={`dashboard-kpi tone-${metric.tone}`}><span className="dashboard-kpi-icon" aria-hidden="true"><metric.icon size={16} /></span><span>{metric.label}</span><strong>{metric.value}</strong><a href={metric.href}>View details <ArrowRight size={12} /></a></article>
-}
-
-function DashboardKpiGrid({ metrics, title = 'Safety at a glance', eyebrow = 'CRITICAL ISSUES' }: { metrics: DashboardMetric[]; title?: string; eyebrow?: string }) {
-  return <section><div className="dashboard-section-heading"><div><div className="eyebrow">{eyebrow}</div><h3>{title}</h3></div></div><div className="dashboard-kpi-grid">{metrics.map((metric) => <KpiCard key={metric.key} metric={metric} />)}</div></section>
+function DashboardSkeleton() {
+  return (
+    <div className="grid gap-5 xl:grid-cols-12">
+      <ChartSkeleton className="h-[360px] xl:col-span-7" />
+      <ChartSkeleton className="h-[360px] xl:col-span-5" />
+      <ChartSkeleton className="h-[520px] xl:col-span-7" />
+      <ChartSkeleton className="h-[520px] xl:col-span-5" />
+      <ChartSkeleton className="h-[300px] xl:col-span-4" />
+      <ChartSkeleton className="h-[300px] xl:col-span-4" />
+      <ChartSkeleton className="h-[300px] xl:col-span-4" />
+    </div>
+  )
 }
 
 // This page combines the filtered metrics with filter choices from organization settings.
 export function DashboardPage({ organizationId, currentUserId, organizationName, userName, role, canCreateCorrectiveAction, supabase }: DashboardPageProps & { supabase: SupabaseClient }) {
-
-  const [filters, setFilters] = useState(defaultDashboardFilters)
-  const [filterOptions, setFilterOptions] = useState(fallbackFilterOptions)
+  const [filters, setFilters] = useState<DashboardFilters>(defaultDashboardFilters)
+  const [filterOptions, setFilterOptions] = useState<DashboardFilterOptions>(fallbackFilterOptions)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [shiftSettings, setShiftSettings] = useState<CompanyShift[]>([])
   const [shiftStart, setShiftStart] = useState('07:00')
   const [shiftEnd, setShiftEnd] = useState('19:00')
@@ -156,13 +153,104 @@ export function DashboardPage({ organizationId, currentUserId, organizationName,
       }
     }
   }
+
   const resetFilters = () => {
     setFilters(defaultDashboardFilters)
     setShiftStart('07:00')
     setShiftEnd('19:00')
   }
-  const visibleMetrics = snapshot.data?.metrics.map((metric) => !canCreateCorrectiveAction && ['open-actions', 'overdue-actions'].includes(metric.key)
-    ? { ...metric, href: '#assigned-actions' }
-    : metric)
-  return <div className="dashboard-page"><DashboardHeader userName={userName} organizationName={organizationName} role={role} />{settingsError && <div className="auth-message error" role="alert">{settingsError}</div>}<DashboardFilters filters={filters} options={filterOptions} onChange={updateFilter} onReset={resetFilters} />{filters.shift !== 'all' && <div className="dashboard-shift-times"><strong>{filters.shift} shift timing</strong><label>Start time<input type="time" value={shiftStart} onChange={(event) => setShiftStart(event.target.value)} /></label><label>End time<input type="time" value={shiftEnd} onChange={(event) => setShiftEnd(event.target.value)} /></label></div>}{snapshot.isLoading && <div className="dashboard-loading">Loading operational dashboard data...</div>}{snapshot.isError && <div className="auth-message error">Unable to load dashboard data. Please try again.</div>}{snapshot.data && visibleMetrics && <><DashboardKpiGrid metrics={visibleMetrics} /><DashboardKpiGrid metrics={snapshot.data.actionMetrics} title="Actions" eyebrow="ACTION REGISTER" /><Suspense fallback={<div className="dashboard-loading">Loading analytics modules...</div>}><section className="dashboard-charts-section"><div className="dashboard-section-heading"><div><div className="eyebrow">ANALYTICS</div><h3>Operational performance and risk</h3></div></div><DashboardCharts data={snapshot.data} /><SafetyMapCard sites={snapshot.data.sites} /></section></Suspense><AiSafetySummary organizationId={organizationId} role={role} hasAuthorizedQhseData={snapshot.data.hasOperationalData} /></>}</div>
+
+  const metrics = snapshot.data?.metrics ?? []
+  const actionMetrics = snapshot.data?.actionMetrics ?? []
+  const metricByKey = new Map(metrics.map((metric) => [metric.key, metric]))
+  const actionByKey = new Map(actionMetrics.map((metric) => [metric.key, metric]))
+  const openActions = ['open-corrective-actions', 'open-preventive-actions', 'open-investigations']
+    .reduce((total, key) => total + Number(actionByKey.get(key)?.value ?? 0), 0)
+  const actionHref = canCreateCorrectiveAction ? '#corrective-actions' : '#assigned-actions'
+  const windowLabel = filters.dateRange === 'all' ? 'All time' : `${filters.dateRange.replace('d', '')} days`
+  const statValue = (key: string) => metricByKey.get(key)?.value ?? '—'
+
+  const stats: DashboardStripStat[] = [
+    { key: 'open-incidents', label: 'Open incidents', value: statValue('open-incidents'), hint: 'Submitted, not yet closed', href: '#incidents' },
+    { key: 'open-high-risk', label: 'High-risk open', value: statValue('open-high-risk-incidents'), hint: 'High or critical severity', href: '#incidents', tone: 'danger' },
+    { key: 'near-misses', label: 'Near misses', value: statValue('near-misses'), hint: 'Reported in this window', href: '#report-incident' },
+    { key: 'open-actions', label: 'Open actions', value: actionMetrics.length ? String(openActions) : '—', hint: 'Corrective, preventive, investigation', href: actionHref },
+  ]
+
+  return (
+    <div className="grid -mt-6 gap-5">
+      <section className="border-y border-line bg-surface">
+        <DashboardCommandStrip
+          userName={userName}
+          organizationName={organizationName}
+          role={role}
+          stats={stats}
+        />
+        <DashboardFilterBar
+          filters={filters}
+          options={filterOptions}
+          open={filtersOpen}
+          onChange={updateFilter}
+          onReset={resetFilters}
+          onToggle={() => setFiltersOpen((current) => !current)}
+          shiftStart={shiftStart}
+          shiftEnd={shiftEnd}
+          onShiftStart={setShiftStart}
+          onShiftEnd={setShiftEnd}
+        />
+      </section>
+
+      {settingsError && <Alert tone="danger">{settingsError}</Alert>}
+      {snapshot.isLoading && <DashboardSkeleton />}
+      {snapshot.isError && <Alert tone="danger">Unable to load dashboard data. Please try again.</Alert>}
+
+      {snapshot.data && (
+        <>
+          <div className="grid gap-5 xl:grid-cols-12">
+            <div className="min-w-0 xl:col-span-7">
+              <Suspense fallback={<ChartSkeleton className="h-[360px]" />}>
+                <IncidentTrendChart data={snapshot.data.incidentTrend} />
+              </Suspense>
+            </div>
+            <div className="min-w-0 xl:col-span-5">
+              <RecentIncidentsCard incidents={snapshot.data.recentIncidents} />
+            </div>
+
+            <div className="min-w-0 xl:col-span-7">
+              <Suspense fallback={<ChartSkeleton className="h-[620px]" />}>
+                <SafetyMapCard sites={snapshot.data.sites} />
+              </Suspense>
+            </div>
+            <div className="grid min-w-0 gap-5 xl:col-span-5">
+              <Suspense fallback={<ChartSkeleton className="h-[280px]" />}>
+                <IncidentSeverityChart data={snapshot.data.incidentSeverity} />
+              </Suspense>
+              <Suspense fallback={<ChartSkeleton className="h-[300px]" />}>
+                <IncidentTypeChart data={snapshot.data.incidentTypes} configuredTypes={snapshot.data.configuredIncidentTypes} />
+              </Suspense>
+            </div>
+
+            <div className="min-w-0 xl:col-span-4">
+              <IncidentRegister metrics={metrics} windowLabel={windowLabel} />
+            </div>
+            <div className="min-w-0 xl:col-span-4">
+              <ActionRegister metrics={actionMetrics} actionHref={actionHref} windowLabel={windowLabel} />
+            </div>
+            <div className="min-w-0 xl:col-span-4">
+              <Suspense fallback={<ChartSkeleton className="h-[300px]" />}>
+                <DashboardComparisons
+                  department={snapshot.data.departmentComparison}
+                  site={snapshot.data.siteComparison}
+                  configuredDepartments={snapshot.data.configuredDepartments}
+                  configuredSites={snapshot.data.configuredSites}
+                />
+              </Suspense>
+            </div>
+          </div>
+
+          <AiSafetySummary organizationId={organizationId} role={role} hasAuthorizedQhseData={snapshot.data.hasOperationalData} />
+        </>
+      )}
+    </div>
+  )
 }

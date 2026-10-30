@@ -22,6 +22,14 @@ export const defaultDashboardFilters: DashboardFilters = {
   shift: 'all',
 }
 
+export type DashboardFilterOptions = {
+  site: string[]
+  department: string[]
+  severity: string[]
+  incidentType: string[]
+  shift: string[]
+}
+
 export type DashboardActivity = {
   id: string
   createdAt: string
