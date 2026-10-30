@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+
+import { Button, Checkbox, Field, FormMessage, Textarea } from '../../components/ui'
 import {
   closeIncident, getIncidentClosureCandidates,
   incidentClosureInputSchema, searchIncidentClosureCandidates, setIncidentClosureDelegate,
@@ -49,11 +51,14 @@ export function IncidentClosureSettings({ client, organizationId, userId }: {
   </section>
 }
 
-export function IncidentClosureForm({ client, incident, onDismiss }: {
-  client: SupabaseClient; incident: IncidentSummary; onDismiss: () => void;
+export function IncidentClosureForm({ client, incident, onDismiss, variant = 'panel' }: {
+  client: SupabaseClient; incident: IncidentSummary; onDismiss: () => void; variant?: 'panel' | 'dialog';
 }) {
   const formRef = useRef<HTMLElement>(null)
-  useEffect(() => { formRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, [])
+  const isDialog = variant === 'dialog'
+  useEffect(() => {
+    if (!isDialog) formRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }, [isDialog])
   const [rootCause, setRootCause] = useState('')
   const [correctiveAction, setCorrectiveAction] = useState('')
   const [actionCompleted, setActionCompleted] = useState(false)
@@ -83,19 +88,58 @@ export function IncidentClosureForm({ client, incident, onDismiss }: {
     if (!parsed.success) { setValidationError(parsed.error.issues[0].message); return }
     closure.mutate()
   }
+
+  const form = (
+    <form className="grid gap-4" onSubmit={submit}>
+      <Field label="Root cause" htmlFor="incident-closure-root-cause" required hint="What caused the incident?">
+        <Textarea
+          id="incident-closure-root-cause"
+          data-autofocus
+          value={rootCause}
+          onChange={(event) => setRootCause(event.target.value)}
+          required
+          minLength={3}
+          maxLength={5000}
+          rows={3}
+          disabled={closure.isPending}
+        />
+      </Field>
+      <Field label="Completed corrective action" htmlFor="incident-closure-corrective-action" required hint="What was done to prevent recurrence?">
+        <Textarea
+          id="incident-closure-corrective-action"
+          value={correctiveAction}
+          onChange={(event) => setCorrectiveAction(event.target.value)}
+          required
+          minLength={3}
+          maxLength={5000}
+          rows={3}
+          disabled={closure.isPending}
+        />
+      </Field>
+      <Checkbox
+        checked={actionCompleted}
+        onChange={setActionCompleted}
+        label="I confirm this corrective action has been completed."
+        disabled={closure.isPending}
+      />
+      <FormMessage error={validationError || closure.error?.message || ''} />
+      <div className="flex flex-wrap justify-end gap-2 pt-1">
+        <Button type="button" variant="outline" size="sm" onClick={onDismiss} disabled={closure.isPending}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="danger" size="sm" loading={closure.isPending}>
+          {closure.isPending ? 'Closing…' : 'Confirm closure'}
+        </Button>
+      </div>
+    </form>
+  )
+
+  if (isDialog) return form
+
   return <section ref={formRef} className="workspace-panel" aria-label={`Close incident ${incident.referenceNumber}`}>
     <h3>Close incident {incident.referenceNumber}</h3>
     <p>{incident.title}</p>
     <p>A root cause and completed corrective action are required. Linked corrective actions must already be verified or closed. An investigation is not required.</p>
-    <form className="settings-form" onSubmit={submit}>
-      <label>Root cause<textarea value={rootCause} onChange={(event) => setRootCause(event.target.value)} required minLength={3} maxLength={5000} rows={3} disabled={closure.isPending} /></label>
-      <label>Completed corrective action<textarea value={correctiveAction} onChange={(event) => setCorrectiveAction(event.target.value)} required minLength={3} maxLength={5000} rows={3} disabled={closure.isPending} /></label>
-      <label className="preference-row"><span>I confirm this corrective action has been completed.</span><input type="checkbox" checked={actionCompleted} onChange={(event) => setActionCompleted(event.target.checked)} required disabled={closure.isPending} /></label>
-      {(validationError || closure.isError) && <div className="auth-message error" role="alert">{validationError || closure.error?.message}</div>}
-      <div className="incident-management-actions">
-        <button type="button" className="button button-outline button-small" onClick={onDismiss} disabled={closure.isPending}>Cancel</button>
-        <button type="submit" className="button button-green button-small" disabled={closure.isPending}>{closure.isPending ? 'Closing...' : 'Confirm closure'}</button>
-      </div>
-    </form>
+    {form}
   </section>
 }

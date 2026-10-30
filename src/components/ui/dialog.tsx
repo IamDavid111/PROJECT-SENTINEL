@@ -44,7 +44,7 @@ export function Dialog({
     document.body.style.overflow = 'hidden'
     const panel = panelRef.current
     // Move focus into the dialog and keep Esc handling attached.
-    const focusTarget = panel?.querySelector<HTMLElement>('[data-autofocus], button')
+    const focusTarget = panel?.querySelector<HTMLElement>('[data-autofocus]') ?? panel?.querySelector<HTMLElement>('input, textarea, select, button')
     focusTarget?.focus()
     return () => {
       document.body.style.overflow = previous
