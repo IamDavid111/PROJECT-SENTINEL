@@ -179,7 +179,7 @@ export function DashboardPage({ organizationId, currentUserId, organizationName,
 
   return (
     <div className="grid -mt-6 gap-5">
-      <section className="border-y border-line bg-surface">
+      <section className="border-y border-line">
         <DashboardCommandStrip
           userName={userName}
           organizationName={organizationName}

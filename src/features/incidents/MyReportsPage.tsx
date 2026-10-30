@@ -250,7 +250,7 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
       {incidents.isError && <Alert tone="danger">Unable to load incidents. Please try again.</Alert>}
       {linkedActions.isError && <Alert tone="danger">{linkedActions.error.message}</Alert>}
 
-      <section className="border-y border-line bg-surface">
+      <section className="border-y border-line">
         <div className="grid grid-cols-2 gap-4 py-4 sm:grid-cols-3">
           <SummaryStat label="Total records" value={incidents.data?.total ?? '—'} />
           <SummaryStat label="Open" value={typeCounts ? typeCounts.open : '—'} />

@@ -219,7 +219,7 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
       {error && <Alert tone="danger">{error}</Alert>}
       {message && <Alert tone="success">{message}</Alert>}
 
-      <section className="border-y border-line bg-surface">
+      <section className="border-y border-line">
         <div className="grid grid-cols-2 gap-4 py-4 sm:grid-cols-4">
           <SummaryStat label="Actions" value={String(actions.length)} />
           <SummaryStat label="Open" value={String(openCount)} />

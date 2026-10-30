@@ -22,7 +22,7 @@ import { ProfileWorkspace } from '../administration/ProfileWorkspace'
 import { RolesPermissionsWorkspace } from '../administration/roles/RolesPermissionsWorkspace'
 import { UsersWorkspace } from '../administration/users/UsersWorkspace'
 import { DashboardPage } from '../dashboard/DashboardPage'
-import { IncidentClosureSettings } from '../incidents/IncidentClosure'
+import { SettingsPage } from '../settings/SettingsPage'
 import { IncidentDetailPage } from '../incidents/IncidentDetailPage'
 import { IncidentTypeSelectionPage } from '../incidents/IncidentTypeSelectionPage'
 import { MyReportsPage } from '../incidents/MyReportsPage'
@@ -31,7 +31,7 @@ import { KnowledgePage } from '../knowledge/KnowledgePage'
 import { ActionsWorkspace } from '../qhse/ActionsWorkspace'
 import { InspectionNavigationOnly, InspectionWorkspace } from '../qhse/InspectionWorkspace'
 import { SafetyIntelligencePage } from '../safety-intelligence/SafetyIntelligencePage'
-import { CompanySettingsWorkspace, normalizeEmergencyContacts, type EmergencyContact } from '../settings/CompanySettingsWorkspace'
+import { normalizeEmergencyContacts, type EmergencyContact } from '../settings/companySettingsTypes'
 import { OrganizationSetupPage } from '../setup/OrganizationSetupPage'
 import { WorkspaceLoadingState } from './WorkspaceLoadingState'
 import { WorkspacePlaceholder } from './WorkspacePlaceholder'
@@ -390,7 +390,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           {route === 'profile' && <ProfileWorkspace userId={session.user.id} organizationId={organizationId} email={session.user.email || ''} />}
           {route === 'preferences' && <NotificationPreferencesWorkspace userId={session.user.id} organizationId={organizationId} />}
           {route === 'activity-log' && canAccess('view_activity') && <ActivityLogWorkspace organizationId={organizationId} />}
-          {route === 'settings' && canManageCompanySettings && <><IncidentClosureSettings client={supabase} organizationId={organizationId} userId={session.user.id} /><CompanySettingsWorkspace organizationId={organizationId} userId={session.user.id} /></>}
+          {route === 'settings' && canManageCompanySettings && <SettingsPage client={supabase} organizationId={organizationId} userId={session.user.id} />}
         </section>
       </main>
     </div>

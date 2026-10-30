@@ -94,7 +94,7 @@ export function FileUpload({
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           className={cn(
-            'flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-5 py-7 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50',
+            'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-5 py-7 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50',
             dragging ? 'border-brand bg-brand/10' : 'border-line bg-surface-soft hover:border-brand/50 hover:bg-brand/5',
           )}
         >
@@ -111,7 +111,7 @@ export function FileUpload({
           type="button"
           disabled={disabled}
           onClick={() => inputRef.current?.click()}
-          className="inline-flex h-9 w-fit items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm font-medium text-foreground hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 w-fit cursor-pointer items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm font-medium text-foreground hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Icon name="upload" size={15} />
           {label}

@@ -126,7 +126,7 @@ export function ActivityLogWorkspace({ organizationId }: { organizationId: strin
         description="Every recorded action in this organization, retained with its actor, time, and context."
       />
 
-      <section className="border-y border-line bg-surface">
+      <section className="border-y border-line">
         <div className="grid grid-cols-2 gap-4 py-4 sm:grid-cols-4">
           <SummaryStat label="Events loaded" value={String(logs.length)} />
           <SummaryStat label="People" value={String(peopleCount)} />

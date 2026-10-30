@@ -20,8 +20,14 @@ export function SearchField({
   className,
 }: SearchFieldProps) {
   return (
-    <div className={cn('relative w-full', className)}>
-      <Icon name="search" size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+    <div
+      className={cn(
+        'flex h-9 w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm text-foreground transition-colors focus-within:border-brand',
+        disabled && 'cursor-not-allowed opacity-50',
+        className,
+      )}
+    >
+      <Icon name="search" size={16} className="shrink-0 text-muted" />
       <input
         type="search"
         value={value}
@@ -29,14 +35,14 @@ export function SearchField({
         aria-label={label}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-9 w-full rounded-xl border border-line bg-surface pl-9 pr-9 text-sm text-foreground placeholder:text-muted transition-colors focus:border-brand focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-search-cancel-button]:hidden"
+        className="h-full min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button
           type="button"
           aria-label="Clear search"
           onClick={() => onChange('')}
-          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted hover:bg-surface-soft hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-soft hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
         >
           <Icon name="close" size={14} />
         </button>
