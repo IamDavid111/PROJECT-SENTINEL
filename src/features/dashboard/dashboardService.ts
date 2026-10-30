@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { CheckCircle2, CircleAlert, ClipboardCheck, ClipboardList, Eye, FileWarning, Flame, Gauge } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
-import type { DashboardActivity, DashboardFilters, DashboardIncident, DashboardMetric, DashboardSnapshot } from './dashboardTypes'
+import type { DashboardActivity, DashboardFilters, DashboardIncident, DashboardMetric, DashboardSnapshot } from './types'
 import { effectiveIncidentSeverityLabel, incidentSeverityFilterPatterns, normalizeIncidentReportType, normalizeIncidentSeverity } from '../../../supabase/functions/_shared/incidentReportFilters'
 
 const dateRangeDays: Record<DashboardFilters['dateRange'], number | null> = {

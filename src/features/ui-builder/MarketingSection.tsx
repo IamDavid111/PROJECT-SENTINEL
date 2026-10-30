@@ -1,5 +1,5 @@
 import { Badge, Button, Icon, type IconProps } from '../../components/ui'
-import { ColumnGrid, Demo, Row, Section, Stack } from './shared'
+import { ColumnGrid, Demo, Row, Section, Stack } from './Shared'
 
 const FEATURES: { icon: IconProps['name']; title: string; text: string }[] = [
   { icon: 'camera', title: 'Digital incident reporting', text: 'Capture near misses to fatalities in the field with GPS, photo, video and voice evidence — online or offline.' },

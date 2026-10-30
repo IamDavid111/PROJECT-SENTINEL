@@ -1,6 +1,6 @@
 import { Button, Icon, PageHeader } from '../../components/ui'
 import { ICONS, type IconName } from '../../lib/icons'
-import { ColumnGrid, Demo, Row, Section, Swatch, TypeSpec } from './shared'
+import { ColumnGrid, Demo, Row, Section, Swatch, TypeSpec } from './Shared'
 
 const PALETTE = [
   { name: 'brand', value: '#12a94f', role: 'Primary action · success' },

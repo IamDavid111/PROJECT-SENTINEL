@@ -14,7 +14,7 @@ import {
   Tooltip,
   type CommandItem,
 } from '../../components/ui'
-import { Demo, Row, Section, Stack } from './shared'
+import { Demo, Row, Section, Stack } from './Shared'
 
 const COMMANDS: CommandItem[] = [
   { id: 'dashboard', label: 'Dashboard', hint: 'dashboard', icon: 'dashboard', onSelect: () => undefined },

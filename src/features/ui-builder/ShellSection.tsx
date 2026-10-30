@@ -19,7 +19,7 @@ import {
   Tabs,
   Topbar,
 } from '../../components/ui'
-import { Demo, Row, Section, Stack } from './shared'
+import { Demo, Row, Section, Stack } from './Shared'
 
 export function ShellSection() {
   const [page, setPage] = useState(1)

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 import authIllustration from '../../assets/auth-illustration.jpg'
-import { BrandLockup } from '../../components/brand'
+import { BrandLockup } from '../../components/brand/BrandLockup'
 import { Icon } from '../../components/ui'
 import { cn } from '../../lib/utils'
 

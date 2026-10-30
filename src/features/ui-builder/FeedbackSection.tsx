@@ -8,7 +8,7 @@ import {
   SpinnerCenter,
   useToast,
 } from '../../components/ui'
-import { ColumnGrid, Demo, Row, Section, Stack } from './shared'
+import { ColumnGrid, Demo, Row, Section, Stack } from './Shared'
 
 export function FeedbackSection() {
   const { toast } = useToast()

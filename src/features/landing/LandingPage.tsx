@@ -1,8 +1,8 @@
 import { useState } from 'react'
 
-import customerBenefitsDashboard from '../../assets/srcassetscustomer-benefits-dashboard.png'
+import customerBenefitsDashboard from '../../assets/benefits-dashboard.png'
 import heroFacility from '../../assets/hero-facility.jpg'
-import { BrandLockup } from '../../components/brand'
+import { BrandLockup } from '../../components/brand/BrandLockup'
 import { Icon, IconButton, buttonVariants } from '../../components/ui'
 import type { IconName } from '../../lib/icons'
 import { cn } from '../../lib/utils'

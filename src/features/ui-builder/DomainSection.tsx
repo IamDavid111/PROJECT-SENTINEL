@@ -35,7 +35,7 @@ import {
   type PermissionGroup,
 } from '../../components/ui'
 import { cn } from '../../lib/utils'
-import { Demo, Row, Section, Stack } from './shared'
+import { Demo, Row, Section, Stack } from './Shared'
 
 const REPORT_TYPES = [
   { id: 'incident', label: 'Incident', description: 'An event that caused or could have caused harm.', icon: 'reportIncident' as const },

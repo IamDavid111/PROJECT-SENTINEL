@@ -20,7 +20,7 @@ import {
   Toggle,
   type FileUploadItem,
 } from '../../components/ui'
-import { Demo, Section, Stack } from './shared'
+import { Demo, Section, Stack } from './Shared'
 
 export function FormsSection() {
   const [notes, setNotes] = useState('')

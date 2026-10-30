@@ -1,0 +1,1 @@
+export const executiveAnalyticsAccessMessage = 'You do not have permission to view Executive Analytics. Please ask your Super Admin to grant you access.'

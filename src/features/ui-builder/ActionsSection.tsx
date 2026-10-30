@@ -10,7 +10,7 @@ import {
   buttonVariants,
 } from '../../components/ui'
 import { cn } from '../../lib/utils'
-import { Demo, Row, Section, Stack } from './shared'
+import { Demo, Row, Section, Stack } from './Shared'
 
 const WINDOW_OPTIONS = [
   { value: '30', label: '30 days' },

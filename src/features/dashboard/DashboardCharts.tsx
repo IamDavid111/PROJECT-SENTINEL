@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { TrendingUp } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import type { DashboardComparisonPoint, DashboardDistributionPoint, DashboardTrendPoint } from './dashboardTypes'
+import type { DashboardComparisonPoint, DashboardDistributionPoint, DashboardTrendPoint } from './types'
 
 const chartColors = ['#12a94f', '#f97316', '#3b82f6', '#8b5cf6', '#f59e0b', '#64748b']
 

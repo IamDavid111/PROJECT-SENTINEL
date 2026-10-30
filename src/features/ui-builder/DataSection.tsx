@@ -49,7 +49,7 @@ import {
   type DataTableSort,
 } from '../../components/ui'
 import { SEVERITY_LEVELS } from '../../components/ui/severity'
-import { ColumnGrid, Demo, Row, Section, Stack } from './shared'
+import { ColumnGrid, Demo, Row, Section, Stack } from './Shared'
 
 const TREND = [
   { label: 'Jun', incidents: 14, nearMisses: 22, closed: 9 },

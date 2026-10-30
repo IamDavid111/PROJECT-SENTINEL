@@ -13,6 +13,7 @@ import { effectiveIncidentSeverityLabel } from '../../../supabase/functions/_sha
 import { IncidentClosureForm } from './IncidentClosure'
 import { getActionsForIncidents } from '../qhse/inspectionActionService'
 import type { LinkedIncidentAction } from '../qhse/inspectionActionService'
+import { buildExportFileName, downloadExport } from '../../lib/download'
 
 const pageSize = 10
 
@@ -63,16 +64,6 @@ type IncidentExportRow = {
   location: string
 }
 
-function downloadExport(blob: Blob, fileName: string) {
-  // Browsers download generated files through a temporary object URL; revoke it after the anchor starts the download.
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
 function exportRows(items: IncidentSummary[], sites: Array<{ id: string; name: string }>): IncidentExportRow[] {
   return items.map((incident) => ({
     reference: incident.referenceNumber,
@@ -88,10 +79,6 @@ function exportRows(items: IncidentSummary[], sites: Array<{ id: string; name: s
     reporter: incident.createdBy,
     location: incident.location || 'Not set',
   }))
-}
-
-function exportFileName(format: ExportFormat, date: Date) {
-  return `SentinelQHSE_Incident_Management_${date.toISOString().slice(0, 10)}.${format}`
 }
 
 function exportCsvLikeRows(rows: IncidentExportRow[]) {
@@ -123,7 +110,7 @@ function exportPdf(rows: IncidentExportRow[], generatedAt: Date, administrator: 
   pdf.setFontSize(8)
   pdf.text(`Authorized / Exported By: ${administrator}`, 14, finalY + 22)
   pdf.text(`Date and Time of Export: ${generatedAt.toLocaleString()}`, 14, finalY + 29)
-  pdf.save(exportFileName('pdf', generatedAt))
+  pdf.save(buildExportFileName('Incident_Management', 'pdf', generatedAt))
 }
 
 async function exportExcel(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
@@ -149,7 +136,7 @@ async function exportExcel(rows: IncidentExportRow[], generatedAt: Date, adminis
   sheet.columns = [{ width: 18 }, { width: 30 }, { width: 18 }, { width: 22 }, { width: 14 }, { width: 18 }, { width: 22 }, { width: 20 }, { width: 16 }, { width: 24 }, { width: 28 }, { width: 24 }]
   sheet.eachRow((row) => row.eachCell((cell) => { cell.alignment = { ...cell.alignment, vertical: 'top', wrapText: true } }))
   const buffer = await workbook.xlsx.writeBuffer()
-  downloadExport(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), exportFileName('xlsx', generatedAt))
+  downloadExport(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), buildExportFileName('Incident_Management', 'xlsx', generatedAt))
 }
 
 async function exportWord(rows: IncidentExportRow[], generatedAt: Date, administrator: string) {
@@ -172,7 +159,7 @@ async function exportWord(rows: IncidentExportRow[], generatedAt: Date, administ
     new Paragraph({ text: `Date and Time of Export: ${generatedAt.toLocaleString()}` }),
   ] }] })
   const buffer = await Packer.toBlob(document)
-  downloadExport(buffer, exportFileName('docx', generatedAt))
+  downloadExport(buffer, buildExportFileName('Incident_Management', 'docx', generatedAt))
 }
 
 // The own view lists the current user's reports; the organization view lists incidents across the organization.

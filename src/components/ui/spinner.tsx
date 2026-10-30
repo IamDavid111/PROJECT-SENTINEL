@@ -4,13 +4,13 @@ export interface SpinnerProps {
   size?: number | string
   label?: string
   className?: string
-  /** Fill colour for the spinner body. Defaults to white for use on brand/dark surfaces. */
+  /** Stroke colour for the spinner ring. Defaults to white for brand/dark surfaces. */
   fill?: string
 }
 
 /**
- * Solid arc spinner. The default fill is white because spinners most often sit
- * on brand/dark buttons; pass `fill="currentColor"` for light surfaces.
+ * Ring spinner: a faint full track with a bright sweeping arc. Deliberately
+ * stroked (not a filled wedge) so it reads as a conventional loading spinner.
  */
 export function Spinner({ size = 20, label = 'Loading…', className, fill = '#fff' }: SpinnerProps) {
   return (
@@ -23,7 +23,19 @@ export function Spinner({ size = 20, label = 'Loading…', className, fill = '#f
         aria-hidden="true"
         focusable="false"
       >
-        <path d="M12 2a10 10 0 1 1-7.071 2.929L12 12Z" fill={fill} />
+        {/* Track */}
+        <circle cx="12" cy="12" r="9" fill="none" stroke={fill} strokeOpacity="0.22" strokeWidth="2.5" />
+        {/* Sweeping arc (~1/4 of the circumference) */}
+        <circle
+          cx="12"
+          cy="12"
+          r="9"
+          fill="none"
+          stroke={fill}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray="14 43"
+        />
       </svg>
     </span>
   )

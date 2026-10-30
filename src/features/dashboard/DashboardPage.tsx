@@ -3,8 +3,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ArrowRight } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { defaultDashboardFilters, type DashboardFilters, type DashboardMetric, type DashboardPageProps } from './dashboardTypes'
+import { defaultDashboardFilters, type DashboardFilters, type DashboardMetric, type DashboardPageProps } from './types'
 import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions, buildShiftSettings, type CompanyShift } from '../../lib/companyFilterOptions'
+import { normalizeIncidentCategoryName } from '../../lib/incidentCategory'
 import { invalidateDashboardData, useDashboardData } from './useDashboardData'
 import { AiSafetySummary } from './AiSafetySummary'
 const DashboardCharts = lazy(() => import('./DashboardCharts'))
@@ -16,21 +17,6 @@ const fallbackFilterOptions = {
   severity: ['all'],
   incidentType: ['all'],
   shift: ['all'],
-}
-
-function normalizeIncidentCategoryName(value: string) {
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ')
-  const legacyMap: Record<string, string> = {
-    'near miss': 'Near Miss',
-    'near-miss': 'Near Miss',
-    'unsafe condition': 'Unsafe Condition',
-    'unsafe act': 'Unsafe Act',
-    'environmental incident': 'Environmental Incident',
-    'environmental event': 'Environmental Incident',
-    'slip trip fall': 'Slip/Trip/Fall',
-    'slip/trip/fall': 'Slip/Trip/Fall',
-  }
-  return legacyMap[normalized] || value.trim()
 }
 
 function buildIncidentCategoryOptions(value: unknown): string[] {
