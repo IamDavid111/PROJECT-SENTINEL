@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { ArrowRight } from 'lucide-react'
-import { Alert, Button, Field, Input, Textarea } from './components/ui'
+import { Alert, Button, Checkbox, Field, Input, SegmentedControl, Textarea } from './components/ui'
 import { CommandPalette, type CommandItem } from './components/ui/command-palette'
 import { Icon } from './components/ui/icon'
 import type { IconName } from './lib/icons'
@@ -11,16 +11,17 @@ import autoTable from 'jspdf-autotable'
 import ExcelJS from 'exceljs'
 import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from 'docx'
 
-import authIllustration from './assets/auth-illustration.jpg'
 import heroFacility from './assets/hero-facility.jpg'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
-import { registrationSchema } from './lib/schemas'
-import { countries, worldRegions } from './lib/locations'
+import { companyCodeSchema, registrationSchema } from './lib/schemas'
 import type { Role } from './types'
 import { BASELINE_PERMISSION_KEYS, BUILT_IN_BACKEND_ROLES, SUPER_ADMINISTRATOR_PERMISSION_KEYS, USER_ACTION_OPTIONS, USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_PERMISSION_CATALOG, USER_MANAGEMENT_ROLE_DEFINITIONS, USER_MANAGEMENT_ROLE_PERMISSION_MATRIX, hasPermission, permissionsForRole } from './data/userManagementConfig'
 import { starnetMockUserBatch } from './data/starnetMockUserBatch'
 import type { PermissionKey } from './data/userManagementConfig'
 import { BrandMark } from './components/brand'
+import { SiteCodeField } from './features/settings/SiteCodeField'
+import { AuthLayout } from './features/auth/AuthLayout'
+import { PasswordInput } from './features/auth/PasswordInput'
 import { LandingPage } from './features/landing/LandingPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { IncidentTypeSelectionPage } from './features/incidents/IncidentTypeSelectionPage'
@@ -28,7 +29,8 @@ import { MyReportsPage } from './features/incidents/MyReportsPage'
 import { IncidentDetailPage } from './features/incidents/IncidentDetailPage'
 import { ActionsWorkspace } from './features/qhse/ActionsWorkspace'
 import { InspectionNavigationOnly, InspectionWorkspace } from './features/qhse/InspectionWorkspace'
-import { OrganizationSetupPage, pendingRegistrationKey } from './features/setup/OrganizationSetupPage'
+import { OrganizationSetupPage } from './features/setup/OrganizationSetupPage'
+import { RegisterPage } from './features/auth/RegisterPage'
 import { useIncidentClosureAccess, useIncidentOfflineSync } from './features/incidents/useIncidentData'
 import { IncidentClosureSettings } from './features/incidents/IncidentClosure'
 import { SafetyIntelligencePage } from './features/safety-intelligence/SafetyIntelligencePage'
@@ -86,36 +88,6 @@ function pinAuthRouteToHash(route: AuthRoute) {
   window.history.replaceState(null, '', `${url.pathname}${url.hash}`)
 }
 
-function AuthShell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
-  return (
-    <main className="auth-page">
-      <div className="auth-visual" style={{ backgroundImage: `linear-gradient(110deg, rgba(7, 18, 37, 0.78), rgba(7, 18, 37, 0.32)), url(${authIllustration})` }}>
-        <a className="brand auth-brand" href="#top">
-          <BrandMark />
-          <span className="brand-copy">
-            <strong>SentinelQHSE<sup>™</sup></strong>
-            <small>SAFETY INTELLIGENCE</small>
-          </span>
-        </a>
-        <div className="auth-visual-copy">
-          <div className="eyebrow">SECURE OPERATIONS</div>
-          <h1>Safety intelligence for every shift, site and decision.</h1>
-          <p>Secure access to the operational workflows your teams rely on.</p>
-        </div>
-      </div>
-      <section className="auth-panel">
-        <a className="auth-back" href="#top"><Icon name="arrowLeft" size={14} /> Back to home</a>
-        <div className="auth-card">
-          <div className="eyebrow">SENTINELQHSE PORTAL</div>
-          <h2>{title}</h2>
-          <p className="auth-subtitle">{subtitle}</p>
-          {children}
-        </div>
-      </section>
-    </main>
-  )
-}
-
 function AuthMessage({ error, success }: { error?: string; success?: string }) {
   if (!error && !success) return null
   return <Alert tone={error ? 'danger' : 'success'}>{error || success}</Alert>
@@ -146,6 +118,7 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
   const [resendingConfirmation, setResendingConfirmation] = useState(false)
   const [loading, setLoading] = useState(false)
   const [signInType, setSignInType] = useState<'admin' | 'user'>('user')
+  const [rememberMe, setRememberMe] = useState(true)
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -153,7 +126,7 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
     setConfirmationEmail('')
     setConfirmationMessage('')
     const form = new FormData(event.currentTarget)
-    const selectedSignInType = String(form.get('signInType') || 'user')
+    const selectedSignInType = signInType
     const email = String(form.get('email') || '')
     const password = String(form.get('password') || '')
     const companyCode = selectedSignInType === 'admin' ? String(form.get('companyCode') || '').trim().toUpperCase() : ''
@@ -162,7 +135,7 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
       return
     }
     if (selectedSignInType === 'admin') {
-      const companyCodeResult = registrationSchema.shape.companyCode.safeParse(companyCode)
+      const companyCodeResult = companyCodeSchema.safeParse(companyCode)
       if (!companyCodeResult.success) {
         setError(companyCodeResult.error.issues[0]?.message || 'Company code is required.')
         return
@@ -214,44 +187,91 @@ function SignInPage({ userOnly = false }: { userOnly?: boolean }) {
   }
 
   return (
-    <AuthShell title="Sign in" subtitle="Use your organization credentials to access the safety intelligence platform.">
-      <form className="auth-form auth-form-kit" onSubmit={submit}>
-        {!userOnly && <fieldset className="auth-sign-in-type">
-          <legend>Sign in as</legend>
-          <label className={signInType === 'admin' ? 'selected' : ''}>
-            <input type="radio" name="signInType" value="admin" checked={signInType === 'admin'} onChange={() => setSignInType('admin')} />
-            <span>Admin</span>
-          </label>
-          <label className={signInType === 'user' ? 'selected' : ''}>
-            <input type="radio" name="signInType" value="user" checked={signInType === 'user'} onChange={() => setSignInType('user')} />
-            <span>User</span>
-          </label>
-        </fieldset>}
-        {signInType === 'admin' && (
-          <Field label="Company Code" htmlFor="companyCode">
-            <Input id="companyCode" name="companyCode" placeholder="ABC-123" autoComplete="organization" />
+    <AuthLayout
+      title="Sign in to your workspace"
+      subtitle="Use your organization credentials to access safety operations."
+      footer={
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] text-muted">
+          {['Organization-scoped', 'Encrypted session', 'Audited access'].map((item) => (
+            <span key={item} className="inline-flex items-center gap-1.5">
+              <span className="h-1 w-1 rounded-full bg-brand" />
+              {item}
+            </span>
+          ))}
+        </div>
+      }
+    >
+      <form className="grid gap-4" onSubmit={submit}>
+        {!userOnly && (
+          <div className="grid gap-1.5">
+            <span className="text-sm font-medium text-foreground">Sign in as</span>
+            <SegmentedControl
+              label="Sign in as"
+              options={[
+                { value: 'user', label: 'Team member' },
+                { value: 'admin', label: 'Organization admin' },
+              ]}
+              value={signInType}
+              onChange={setSignInType}
+              className="w-full"
+            />
+          </div>
+        )}
+
+        {signInType === 'admin' && !userOnly && (
+          <Field label="Company code" htmlFor="companyCode" hint="Provided in your organization welcome email.">
+            <Input
+              id="companyCode"
+              name="companyCode"
+              placeholder="SENT-XXXXXX"
+              autoComplete="organization"
+              className="font-mono uppercase tracking-[0.08em]"
+            />
           </Field>
         )}
+
         <Field label="Work email" htmlFor="email">
           <Input id="email" name="email" type="email" placeholder="you@company.com" autoComplete="email" />
         </Field>
+
         <Field label="Password" htmlFor="password">
-          <Input id="password" name="password" type="password" placeholder="Enter your password" autoComplete="current-password" />
+          <PasswordInput id="password" name="password" placeholder="Enter your password" autoComplete="current-password" />
         </Field>
-        <div className="auth-options">
-          <label className="checkbox-label"><input name="rememberMe" type="checkbox" defaultChecked /> Remember me</label>
-          <a href="#forgot-password">Forgot password?</a>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Checkbox checked={rememberMe} onChange={setRememberMe} label="Remember me" />
+          <a href="#forgot-password" className="text-sm font-medium text-brand-dark underline-offset-4 hover:underline">
+            Forgot password?
+          </a>
         </div>
+
         <AuthMessage error={error} success={confirmationMessage} />
-        {confirmationEmail && <p className="auth-footer-copy"><button type="button" onClick={() => void resendConfirmation()} disabled={resendingConfirmation || loading}>
-          {resendingConfirmation ? 'Sending confirmation email…' : 'Resend confirmation email'}
-        </button></p>}
-        <Button type="submit" className="auth-submit" loading={loading}>
-          {loading ? 'Signing in…' : <>Sign In <Icon name="arrowRight" size={16} /></>}
+
+        {confirmationEmail && (
+          <p className="text-xs text-muted">
+            <button
+              type="button"
+              onClick={() => void resendConfirmation()}
+              disabled={resendingConfirmation || loading}
+              className="font-medium text-brand-dark underline underline-offset-4 disabled:opacity-50"
+            >
+              {resendingConfirmation ? 'Sending confirmation email…' : 'Resend confirmation email'}
+            </button>
+          </p>
+        )}
+
+        <Button type="submit" className="w-full" loading={loading}>
+          {loading ? 'Signing in…' : <><span>Sign in</span><Icon name="arrowRight" size={15} /></>}
         </Button>
-        <p className="auth-footer-copy">New organization? <a href="#register">Register your company</a></p>
       </form>
-    </AuthShell>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4 text-sm">
+        <span className="text-muted">New organization?</span>
+        <a href="#register" className="font-medium text-brand-dark underline-offset-4 hover:underline">
+          Register your company
+        </a>
+      </div>
+    </AuthLayout>
   )
 }
 
@@ -268,16 +288,23 @@ function ForgotPasswordPage() {
     else setMessage('If an account exists for that email, a password reset link has been sent.')
   }
   return (
-    <AuthShell title="Forgot password?" subtitle="Enter your work email and we will send a secure reset link.">
-      <form className="auth-form auth-form-kit" onSubmit={submit}>
+    <AuthLayout
+      title="Forgot your password?"
+      subtitle="Enter your work email and we will send a secure reset link."
+    >
+      <form className="grid gap-4" onSubmit={submit}>
         <Field label="Work email" htmlFor="email">
           <Input id="email" name="email" type="email" placeholder="you@company.com" autoComplete="email" />
         </Field>
         <AuthMessage error={error} success={message} />
-        <Button type="submit" className="auth-submit">Send reset link <Icon name="arrowRight" size={16} /></Button>
-        <p className="auth-footer-copy"><a href="#sign-in">Return to sign in</a></p>
+        <Button type="submit" className="w-full">
+          Send reset link <Icon name="arrowRight" size={15} />
+        </Button>
       </form>
-    </AuthShell>
+      <p className="mt-5 text-center text-sm text-muted">
+        <a href="#sign-in" className="font-medium text-brand-dark underline-offset-4 hover:underline">Return to sign in</a>
+      </p>
+    </AuthLayout>
   )
 }
 
@@ -296,23 +323,28 @@ function PasswordPage({ reset = false }: { reset?: boolean }) {
     else setMessage(reset ? 'Your password has been reset successfully.' : 'Your password has been changed successfully.')
   }
   return (
-    <AuthShell title={reset ? 'Reset password' : 'Change password'} subtitle="Create a strong password for your SentinelQHSE account.">
-      <form className="auth-form auth-form-kit" onSubmit={submit}>
+    <AuthLayout
+      title={reset ? 'Set a new password' : 'Change your password'}
+      subtitle="Create a strong password for your SentinelQHSE account."
+    >
+      <form className="grid gap-4" onSubmit={submit}>
         {!reset && (
           <Field label="Current password" htmlFor="currentPassword">
-            <Input id="currentPassword" name="currentPassword" type="password" autoComplete="current-password" />
+            <PasswordInput id="currentPassword" name="currentPassword" autoComplete="current-password" />
           </Field>
         )}
-        <Field label="New password" htmlFor="password">
-          <Input id="password" name="password" type="password" autoComplete="new-password" />
+        <Field label="New password" htmlFor="password" hint="At least 8 characters.">
+          <PasswordInput id="password" name="password" autoComplete="new-password" />
         </Field>
         <Field label="Confirm new password" htmlFor="confirmation">
-          <Input id="confirmation" name="confirmation" type="password" autoComplete="new-password" />
+          <PasswordInput id="confirmation" name="confirmation" autoComplete="new-password" />
         </Field>
         <AuthMessage error={error} success={message} />
-        <Button type="submit" className="auth-submit">Update password <Icon name="arrowRight" size={16} /></Button>
+        <Button type="submit" className="w-full">
+          Update password <Icon name="arrowRight" size={15} />
+        </Button>
       </form>
-    </AuthShell>
+    </AuthLayout>
   )
 }
 
@@ -408,21 +440,63 @@ function InviteSignupPage() {
   }
 
   return (
-    <AuthShell title="Set Up Your Account" subtitle="Confirm your invitation details and create your account password.">
-      {loading ? <div className="workspace-empty">Validating invitation...</div> : details ? (
-        <form className="auth-form auth-form-kit" onSubmit={completeSignup}>
-          <Field label="Work email" htmlFor="inviteeEmail"><Input id="inviteeEmail" value={details.inviteeEmail} readOnly /></Field>
-          <Field label="Organization" htmlFor="organizationName"><Input id="organizationName" value={details.organizationName} readOnly /></Field>
-          <Field label="Department" htmlFor="department"><Input id="department" value={details.department || 'Not assigned'} readOnly /></Field>
-          <Field label="Role" htmlFor="role"><Input id="role" value={details.role} readOnly /></Field>
-          <Field label="Full name" htmlFor="fullName"><Input id="fullName" value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required /></Field>
-          <Field label="Password" htmlFor="password"><Input id="password" value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" required /></Field>
-          <Field label="Confirm password" htmlFor="confirmPassword"><Input id="confirmPassword" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" required /></Field>
+    <AuthLayout
+      title="Set up your account"
+      subtitle="Confirm your invitation details and create your account password."
+    >
+      {loading ? (
+        <div className="flex items-center justify-center py-10 text-sm text-muted" role="status">
+          Validating invitation…
+        </div>
+      ) : details ? (
+        <form className="grid gap-4" onSubmit={completeSignup}>
+          <Field label="Work email" htmlFor="inviteeEmail">
+            <Input id="inviteeEmail" value={details.inviteeEmail} readOnly />
+          </Field>
+          <Field label="Organization" htmlFor="organizationName">
+            <Input id="organizationName" value={details.organizationName} readOnly />
+          </Field>
+          <Field label="Department" htmlFor="department">
+            <Input id="department" value={details.department || 'Not assigned'} readOnly />
+          </Field>
+          <Field label="Role" htmlFor="role">
+            <Input id="role" value={details.role} readOnly />
+          </Field>
+          <Field label="Full name" htmlFor="fullName">
+            <Input id="fullName" value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" required />
+          </Field>
+          <Field label="Password" htmlFor="password" hint="At least 8 characters.">
+            <PasswordInput
+              id="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="new-password"
+              required
+            />
+          </Field>
+          <Field label="Confirm password" htmlFor="confirmPassword">
+            <PasswordInput
+              id="confirmPassword"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              autoComplete="new-password"
+              required
+            />
+          </Field>
           <AuthMessage error={error} success={message} />
-          <Button type="submit" className="auth-submit" loading={submitting}>{submitting ? 'Setting up account…' : 'Set up account'}</Button>
+          <Button type="submit" className="w-full" loading={submitting}>
+            {submitting ? 'Setting up account…' : 'Set up account'}
+          </Button>
         </form>
-      ) : <div className="auth-form"><AuthMessage error={error} /><Button variant="outline" className="auth-submit" onClick={() => { window.location.hash = '#sign-in' }}>Return to sign in</Button></div>}
-    </AuthShell>
+      ) : (
+        <div className="grid gap-4">
+          <AuthMessage error={error} />
+          <Button variant="outline" className="w-full" onClick={() => { window.location.hash = '#sign-in' }}>
+            Return to sign in
+          </Button>
+        </div>
+      )}
+    </AuthLayout>
   )
 }
 
@@ -433,23 +507,40 @@ function DemoRequestPage() {
     setSubmitted(true)
   }
   return (
-    <AuthShell title="Contact sales & request a demo" subtitle="Tell us about your operation and our team will arrange a SentinelQHSE walkthrough or commercial consultation.">
+    <AuthLayout
+      title="Contact sales & request a demo"
+      subtitle="Tell us about your operation and our team will arrange a SentinelQHSE walkthrough or commercial consultation."
+    >
       {submitted ? (
-        <div className="auth-form">
+        <div className="grid gap-4">
           <AuthMessage success="Thanks. Your request has been recorded for follow-up." />
-          <Button type="button" className="auth-submit" onClick={() => { window.location.hash = '#top' }}>Return to landing page</Button>
+          <Button type="button" className="w-full" onClick={() => { window.location.hash = '#top' }}>
+            Return to landing page
+          </Button>
         </div>
       ) : (
-        <form className="auth-form auth-form-kit" onSubmit={submit}>
-          <Field label="Full name" htmlFor="name"><Input id="name" name="name" placeholder="Your full name" required /></Field>
-          <Field label="Work email" htmlFor="email"><Input id="email" name="email" type="email" placeholder="you@company.com" required /></Field>
-          <Field label="Company" htmlFor="company"><Input id="company" name="company" placeholder="Company name" required /></Field>
-          <Field label="What would you like to explore?" htmlFor="message"><Textarea id="message" name="message" rows={4} placeholder="Sites, teams, pricing, or QHSE workflows" /></Field>
-          <Button type="submit" className="auth-submit">Submit request <Icon name="arrowRight" size={16} /></Button>
-          <p className="auth-footer-copy"><a href="#top">Return to landing page</a></p>
+        <form className="grid gap-4" onSubmit={submit}>
+          <Field label="Full name" htmlFor="name">
+            <Input id="name" name="name" placeholder="Your full name" required />
+          </Field>
+          <Field label="Work email" htmlFor="email">
+            <Input id="email" name="email" type="email" placeholder="you@company.com" required />
+          </Field>
+          <Field label="Company" htmlFor="company">
+            <Input id="company" name="company" placeholder="Company name" required />
+          </Field>
+          <Field label="What would you like to explore?" htmlFor="message">
+            <Textarea id="message" name="message" rows={4} placeholder="Sites, teams, pricing, or QHSE workflows" />
+          </Field>
+          <Button type="submit" className="w-full">
+            Submit request <Icon name="arrowRight" size={15} />
+          </Button>
+          <p className="text-center text-sm text-muted">
+            <a href="#top" className="font-medium text-brand-dark underline-offset-4 hover:underline">Return to landing page</a>
+          </p>
         </form>
       )}
-    </AuthShell>
+    </AuthLayout>
   )
 }
 
@@ -670,13 +761,15 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
         }]
       : []),
     ...(import.meta.env.DEV
-      ? [{
-          id: 'route-ui-builder',
-          label: 'UI Builder',
-          hint: 'ui-builder',
-          icon: 'layers' as const,
-          onSelect: () => { window.location.hash = '#ui-builder' },
-        }]
+      ? [
+          {
+            id: 'route-ui-builder',
+            label: 'UI Builder',
+            hint: 'ui-builder',
+            icon: 'layers' as const,
+            onSelect: () => { window.location.hash = '#ui-builder' },
+          },
+        ]
       : []),
   ]
 
@@ -740,7 +833,7 @@ function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session
 
   if (loading || !loadingGateComplete || !proceedToWorkspace) return <WorkspaceLoadingState backgroundImage={heroFacility} canProceed={loadingGateComplete} secondsUntilAuto={autoProceedSeconds} onProceed={() => setProceedToWorkspace(true)} />
   if (error) return <div className="protected-state"><div className="auth-message error">Unable to load your organization access: {error}</div></div>
-  if (needsSetup) return <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}><main className="workspace-main"><section className="workspace-content"><OrganizationSetupPage email={session.user.email || ''} /></section></main></div>
+  if (needsSetup) return <OrganizationSetupPage email={session.user.email || ''} />
   if (!role) return <div className="protected-state"><div className="auth-message error">Your account is not assigned to an organization yet.</div><a className="button button-green" href="#top">Return to home</a></div>
 
   return (
@@ -1021,6 +1114,7 @@ type DepartmentOption = {
 type SiteOption = {
   name: string
   active: boolean
+  code?: string
 }
 
 type EmergencyContact = {
@@ -1088,6 +1182,7 @@ function normalizeSiteSettings(value: unknown): SiteOption[] {
     return [{
       name,
       active: item.active !== false,
+      ...(typeof item.code === 'string' && item.code.trim() ? { code: item.code.trim() } : {}),
     }]
   })
 }
@@ -1217,11 +1312,6 @@ function isValidEmail(value: string) {
   return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
-function siteCodeSeed(name: string) {
-  const slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  return slug || 'site'
-}
-
 // Administrators edit organization reference lists here, including departments, sites, shifts, and incident categories.
 // Other pages read these saved settings to populate their filters and forms.
 function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: string; userId: string }) {
@@ -1234,6 +1324,7 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
   const [incidentCategorySettings, setIncidentCategorySettings] = useState<IncidentCategoryOption[]>(defaultIncidentCategorySuggestions.map((name) => ({ name, active: true })))
   const [departmentDraft, setDepartmentDraft] = useState('')
   const [siteDraft, setSiteDraft] = useState('')
+  const [siteCodeDraft, setSiteCodeDraft] = useState('')
   const [severityDraft, setSeverityDraft] = useState('')
   const [incidentCategoryDraft, setIncidentCategoryDraft] = useState('')
   const [contactDraft, setContactDraft] = useState<EmergencyContact>({ id: '', name: '', role: '', phone: '', email: '', active: true })
@@ -1320,10 +1411,15 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
       setError('That site already exists.')
       return
     }
+    if (!siteCodeDraft) {
+      setError('Generate a site code before adding the site.')
+      return
+    }
 
-    const next = [...siteSettings, { name, active: true }]
+    const next = [...siteSettings, { name, active: true, code: siteCodeDraft }]
     syncSiteSettings(next)
     setSiteDraft('')
+    setSiteCodeDraft('')
     setSiteModalOpen(false)
     setMessage('Site added.')
   }
@@ -1533,7 +1629,7 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
       const { error: siteSyncError } = await supabase.from('sites').insert(sitesToCreate.map((site) => ({
         organization_id: organizationId,
         name: site.name.trim(),
-        code: `${siteCodeSeed(site.name)}-${crypto.randomUUID().slice(0, 8)}`,
+        ...(site.code ? { code: site.code } : {}),
       })))
       if (siteSyncError) {
         setError(`Unable to synchronize organization sites: ${siteSyncError.message}`)
@@ -1554,7 +1650,7 @@ function CompanySettingsWorkspace({ organizationId, userId }: { organizationId: 
 
   const fields: [keyof CompanySettingsState, string][] = []
 
-  return <div className="workspace-panel settings-panel"><div className="eyebrow">ORGANIZATION CONFIGURATION</div><h2>Company Settings</h2><p>Maintain the organization reference data used by operational workflows. Values are stored as structured JSON.</p><form className="settings-form" onSubmit={saveSettings}><label>Shift<div className="shift-config-list">{shiftSettings.length ? shiftSettings.map((shift) => <div className="shift-config-item" key={shift.id}><div><strong>{shift.name}</strong><small>{shift.active ? 'Enabled' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={shift.active} onChange={() => setShiftSettings((current) => current.map((item) => item.id === shift.id ? { ...item, active: !item.active } : item))} /><span /></label><button className="button button-outline button-small" type="button" onClick={() => openShiftEditor(shift)}>Change shift</button></div></div>) : <div className="workspace-empty">No shifts configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => openShiftEditor()}>Add shift</button></div></label><label>Departments<div className="shift-config-list">{departmentSettings.length ? departmentSettings.map((department) => <div className="shift-config-item" key={department.name}><div><strong>{department.name}</strong><small>{department.active ? 'Active' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={department.active} onChange={() => toggleDepartment(department.name)} /><span /></label></div></div>) : <div className="workspace-empty">No departments configured.</div>}</div><div className="shift-config-footer"><input value={departmentDraft} onChange={(event) => setDepartmentDraft(event.target.value)} placeholder="Add custom department" /><button className="button button-outline button-small" type="button" onClick={addDepartment}>Add department</button></div></label><label>Sites<div className="shift-config-list">{siteSettings.length ? siteSettings.map((site) => <div className="shift-config-item" key={site.name}><div><strong>{site.name}</strong><small>{site.active ? 'Active' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={site.active} onChange={() => toggleSite(site.name)} /><span /></label></div></div>) : <div className="workspace-empty">No sites configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => { setSiteDraft(''); setError(''); setMessage(''); setSiteModalOpen(true) }}>Add site</button></div></label><label>Emergency contacts<div className="shift-config-list">{emergencyContacts.length ? emergencyContacts.map((contact) => <div className="shift-config-item" key={contact.id}><div><strong>{contact.name}</strong><small>{[contact.role, contact.phone].filter(Boolean).join(' · ') || 'Contact details not set'}{contact.active ? '' : ' · Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={contact.active} onChange={() => setEmergencyContacts((current) => current.map((item) => item.id === contact.id ? { ...item, active: !item.active } : item))} /><span /></label><button className="button button-outline button-small" type="button" onClick={() => openContactEditor(contact)}>Edit</button><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(contact)}>Remove</button></div></div>) : <div className="workspace-empty">No emergency contacts configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => openContactEditor()}>Add contact</button></div></label><label>Severity levels<div className="shift-config-list">{severitySettings.map((severity) => <div className="shift-config-item" key={severity.name}><div><strong>{severity.name}</strong><small>{severity.active ? 'Enabled' : 'Disabled'}</small></div><label className="switch"><input type="checkbox" checked={severity.active} onChange={() => toggleSeverity(severity.name)} /><span /></label></div>)}</div><div className="shift-config-footer"><input value={severityDraft} onChange={(event) => setSeverityDraft(event.target.value)} placeholder="Add custom severity" /><button className="button button-outline button-small" type="button" onClick={addSeverity}>Add severity</button></div></label><label>Incident categories<div className="shift-config-list">{incidentCategorySettings.map((category) => <div className="shift-config-item" key={category.name}><div><strong>{category.name}</strong><small>{category.active ? "Enabled" : "Disabled"}</small></div><label className="switch"><input type="checkbox" checked={category.active} onChange={() => toggleIncidentCategory(category.name)} /><span /></label></div>)}</div><div className="shift-config-footer"><input value={incidentCategoryDraft} onChange={(event) => setIncidentCategoryDraft(event.target.value)} placeholder="Add custom category" /><button className="button button-outline button-small" type="button" onClick={addIncidentCategory}>Add category</button></div></label>{fields.map(([key, label]) => <label key={key}>{label}<textarea value={settings[key]} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} rows={4} spellCheck={false} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save company settings</button></form>{shiftModalOpen && <div className="role-creator-backdrop" onClick={() => setShiftModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">SHIFT SETTINGS</div><h3>{editingShiftId ? 'Edit shift' : 'Add shift'}</h3></div><button className="button button-outline button-small" type="button" onClick={() => setShiftModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Shift name<input value={shiftDraft.name} onChange={(event) => setShiftDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Day" required /></label><label className="preference-row"><span><strong>Enabled</strong><small>Show this shift in active options</small></span><input type="checkbox" checked={shiftDraft.active} onChange={(event) => setShiftDraft((current) => ({ ...current, active: event.target.checked }))} /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setShiftModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={saveShift}>Save shift</button></div></div></div>}{siteModalOpen && <div className="role-creator-backdrop" onClick={() => setSiteModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">SITE SETTINGS</div><h3>New site</h3></div><button className="button button-outline button-small" type="button" onClick={() => setSiteModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Site name<input value={siteDraft} onChange={(event) => setSiteDraft(event.target.value)} placeholder="Main Plant" required /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setSiteModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={addSite}>Add site</button></div></div></div>}{contactModalOpen && <div className="role-creator-backdrop" onClick={() => setContactModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">EMERGENCY CONTACTS</div><h3>{contactDraft.id ? 'Edit contact' : 'Add contact'}</h3></div><button className="button button-outline button-small" type="button" onClick={() => setContactModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Contact name<input value={contactDraft.name} onChange={(event) => setContactDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Control room" required /></label><label>Role or service<input value={contactDraft.role} onChange={(event) => setContactDraft((current) => ({ ...current, role: event.target.value }))} placeholder="Emergency response" /></label><label>Phone number<input value={contactDraft.phone} onChange={(event) => setContactDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="+234 ..." required /></label><label>Email address<input value={contactDraft.email} onChange={(event) => setContactDraft((current) => ({ ...current, email: event.target.value }))} type="email" placeholder="control-room@company.com" /></label><label className="preference-row"><span><strong>Enabled</strong><small>Show this contact on the dashboard</small></span><input type="checkbox" checked={contactDraft.active} onChange={(event) => setContactDraft((current) => ({ ...current, active: event.target.checked }))} /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setContactModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={saveContact}>Save contact</button></div></div></div>}{contactToRemove && <div className="role-creator-backdrop" onClick={() => setContactToRemove(null)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">CONFIRM REMOVAL</div><h3>Remove {contactToRemove.name}?</h3></div><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(null)}>Close</button></div><div className="role-creator-body"><p>This contact will be removed from the organization emergency contacts list.</p></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(null)}>Cancel</button><button className="button button-green button-small" type="button" onClick={removeContact}>Remove contact</button></div></div></div>}</div>
+  return <div className="workspace-panel settings-panel"><div className="eyebrow">ORGANIZATION CONFIGURATION</div><h2>Company Settings</h2><p>Maintain the organization reference data used by operational workflows. Values are stored as structured JSON.</p><form className="settings-form" onSubmit={saveSettings}><label>Shift<div className="shift-config-list">{shiftSettings.length ? shiftSettings.map((shift) => <div className="shift-config-item" key={shift.id}><div><strong>{shift.name}</strong><small>{shift.active ? 'Enabled' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={shift.active} onChange={() => setShiftSettings((current) => current.map((item) => item.id === shift.id ? { ...item, active: !item.active } : item))} /><span /></label><button className="button button-outline button-small" type="button" onClick={() => openShiftEditor(shift)}>Change shift</button></div></div>) : <div className="workspace-empty">No shifts configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => openShiftEditor()}>Add shift</button></div></label><label>Departments<div className="shift-config-list">{departmentSettings.length ? departmentSettings.map((department) => <div className="shift-config-item" key={department.name}><div><strong>{department.name}</strong><small>{department.active ? 'Active' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={department.active} onChange={() => toggleDepartment(department.name)} /><span /></label></div></div>) : <div className="workspace-empty">No departments configured.</div>}</div><div className="shift-config-footer"><input value={departmentDraft} onChange={(event) => setDepartmentDraft(event.target.value)} placeholder="Add custom department" /><button className="button button-outline button-small" type="button" onClick={addDepartment}>Add department</button></div></label><label>Sites<div className="shift-config-list">{siteSettings.length ? siteSettings.map((site) => <div className="shift-config-item" key={site.name}><div><strong>{site.name}</strong><small>{site.active ? 'Active' : 'Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={site.active} onChange={() => toggleSite(site.name)} /><span /></label></div></div>) : <div className="workspace-empty">No sites configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => { setSiteDraft(''); setSiteCodeDraft(''); setError(''); setMessage(''); setSiteModalOpen(true) }}>Add site</button></div></label><label>Emergency contacts<div className="shift-config-list">{emergencyContacts.length ? emergencyContacts.map((contact) => <div className="shift-config-item" key={contact.id}><div><strong>{contact.name}</strong><small>{[contact.role, contact.phone].filter(Boolean).join(' · ') || 'Contact details not set'}{contact.active ? '' : ' · Disabled'}</small></div><div className="shift-config-actions"><label className="switch"><input type="checkbox" checked={contact.active} onChange={() => setEmergencyContacts((current) => current.map((item) => item.id === contact.id ? { ...item, active: !item.active } : item))} /><span /></label><button className="button button-outline button-small" type="button" onClick={() => openContactEditor(contact)}>Edit</button><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(contact)}>Remove</button></div></div>) : <div className="workspace-empty">No emergency contacts configured.</div>}</div><div className="shift-config-footer"><button className="button button-outline button-small" type="button" onClick={() => openContactEditor()}>Add contact</button></div></label><label>Severity levels<div className="shift-config-list">{severitySettings.map((severity) => <div className="shift-config-item" key={severity.name}><div><strong>{severity.name}</strong><small>{severity.active ? 'Enabled' : 'Disabled'}</small></div><label className="switch"><input type="checkbox" checked={severity.active} onChange={() => toggleSeverity(severity.name)} /><span /></label></div>)}</div><div className="shift-config-footer"><input value={severityDraft} onChange={(event) => setSeverityDraft(event.target.value)} placeholder="Add custom severity" /><button className="button button-outline button-small" type="button" onClick={addSeverity}>Add severity</button></div></label><label>Incident categories<div className="shift-config-list">{incidentCategorySettings.map((category) => <div className="shift-config-item" key={category.name}><div><strong>{category.name}</strong><small>{category.active ? "Enabled" : "Disabled"}</small></div><label className="switch"><input type="checkbox" checked={category.active} onChange={() => toggleIncidentCategory(category.name)} /><span /></label></div>)}</div><div className="shift-config-footer"><input value={incidentCategoryDraft} onChange={(event) => setIncidentCategoryDraft(event.target.value)} placeholder="Add custom category" /><button className="button button-outline button-small" type="button" onClick={addIncidentCategory}>Add category</button></div></label>{fields.map(([key, label]) => <label key={key}>{label}<textarea value={settings[key]} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} rows={4} spellCheck={false} /></label>)}<AuthMessage error={error} success={message} /><button className="button button-green auth-submit">Save company settings</button></form>{shiftModalOpen && <div className="role-creator-backdrop" onClick={() => setShiftModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">SHIFT SETTINGS</div><h3>{editingShiftId ? 'Edit shift' : 'Add shift'}</h3></div><button className="button button-outline button-small" type="button" onClick={() => setShiftModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Shift name<input value={shiftDraft.name} onChange={(event) => setShiftDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Day" required /></label><label className="preference-row"><span><strong>Enabled</strong><small>Show this shift in active options</small></span><input type="checkbox" checked={shiftDraft.active} onChange={(event) => setShiftDraft((current) => ({ ...current, active: event.target.checked }))} /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setShiftModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={saveShift}>Save shift</button></div></div></div>}{siteModalOpen && <div className="role-creator-backdrop" onClick={() => setSiteModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">SITE SETTINGS</div><h3>New site</h3></div><button className="button button-outline button-small" type="button" onClick={() => setSiteModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Site name<input value={siteDraft} onChange={(event) => setSiteDraft(event.target.value)} placeholder="Main Plant" required /></label><SiteCodeField organizationId={organizationId} value={siteCodeDraft} onChange={setSiteCodeDraft} /></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setSiteModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={addSite}>Add site</button></div></div></div>}{contactModalOpen && <div className="role-creator-backdrop" onClick={() => setContactModalOpen(false)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">EMERGENCY CONTACTS</div><h3>{contactDraft.id ? 'Edit contact' : 'Add contact'}</h3></div><button className="button button-outline button-small" type="button" onClick={() => setContactModalOpen(false)}>Close</button></div><div className="role-creator-body"><label>Contact name<input value={contactDraft.name} onChange={(event) => setContactDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Control room" required /></label><label>Role or service<input value={contactDraft.role} onChange={(event) => setContactDraft((current) => ({ ...current, role: event.target.value }))} placeholder="Emergency response" /></label><label>Phone number<input value={contactDraft.phone} onChange={(event) => setContactDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="+234 ..." required /></label><label>Email address<input value={contactDraft.email} onChange={(event) => setContactDraft((current) => ({ ...current, email: event.target.value }))} type="email" placeholder="control-room@company.com" /></label><label className="preference-row"><span><strong>Enabled</strong><small>Show this contact on the dashboard</small></span><input type="checkbox" checked={contactDraft.active} onChange={(event) => setContactDraft((current) => ({ ...current, active: event.target.checked }))} /></label></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setContactModalOpen(false)}>Cancel</button><button className="button button-green button-small" type="button" onClick={saveContact}>Save contact</button></div></div></div>}{contactToRemove && <div className="role-creator-backdrop" onClick={() => setContactToRemove(null)}><div className="role-creator-modal" onClick={(event) => event.stopPropagation()}><div className="role-creator-header"><div><div className="eyebrow">CONFIRM REMOVAL</div><h3>Remove {contactToRemove.name}?</h3></div><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(null)}>Close</button></div><div className="role-creator-body"><p>This contact will be removed from the organization emergency contacts list.</p></div><div className="role-creator-actions"><button className="button button-outline button-small" type="button" onClick={() => setContactToRemove(null)}>Cancel</button><button className="button button-green button-small" type="button" onClick={removeContact}>Remove contact</button></div></div></div>}</div>
 }
 
 type ManagedUserStatus = 'active' | 'pending' | 'suspended' | 'inactive'
@@ -2752,182 +2848,6 @@ function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEdit
   )
 }
 
-function RegistrationPage() {
-  const [companyCode, setCompanyCode] = useState(`SENT-${Math.random().toString(36).slice(2, 8).toUpperCase()}`)
-  const [region, setRegion] = useState('')
-  const [country, setCountry] = useState('')
-  const [selectedState, setSelectedState] = useState('')
-  const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setError('')
-    setMessage('')
-    const form = new FormData(event.currentTarget)
-    const values = {
-      companyCode: companyCode.trim().toUpperCase(),
-      companyName: String(form.get('companyName') || ''),
-      companyRegistrationNumber: String(form.get('companyRegistrationNumber') || ''),
-      companyType: String(form.get('companyType') || ''),
-      industry: String(form.get('industry') || ''),
-      companySize: String(form.get('companySize') || ''),
-      region,
-      country,
-      state: selectedState,
-      address: String(form.get('address') || ''),
-      contactEmail: String(form.get('contactEmail') || ''),
-      contactPhone: String(form.get('contactPhone') || ''),
-      adminName: String(form.get('adminName') || ''),
-      adminEmail: String(form.get('adminEmail') || ''),
-      password: String(form.get('password') || ''),
-      passwordConfirmation: String(form.get('passwordConfirmation') || ''),
-      acceptTerms: form.get('acceptTerms') === 'on',
-    }
-    const parsed = registrationSchema.safeParse(values)
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message || 'Check the registration details and try again.')
-      return
-    }
-    if (!isSupabaseConfigured) {
-      setError('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.')
-      return
-    }
-
-    setLoading(true)
-    localStorage.setItem(pendingRegistrationKey, JSON.stringify({
-      companyCode: parsed.data.companyCode,
-      companyName: parsed.data.companyName,
-      companyRegistrationNumber: parsed.data.companyRegistrationNumber,
-      companyType: parsed.data.companyType,
-      industry: parsed.data.industry,
-      companySize: parsed.data.companySize,
-      region: parsed.data.region,
-      country: parsed.data.country,
-      state: parsed.data.state,
-      address: parsed.data.address,
-      contactEmail: parsed.data.contactEmail,
-      contactPhone: parsed.data.contactPhone,
-      adminName: parsed.data.adminName,
-    }))
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: parsed.data.adminEmail,
-      password: parsed.data.password,
-      options: { data: { full_name: parsed.data.adminName } },
-    })
-    if (signUpError) {
-      setLoading(false)
-      setError(signUpError.message)
-      return
-    }
-    if (!signUpData.user) {
-      setLoading(false)
-      setError('The administrator account could not be created.')
-      return
-    }
-    if (!signUpData.session) {
-      setLoading(false)
-      setMessage('Account created. Confirm the administrator email, then sign in to complete organization setup.')
-      return
-    }
-
-    const { data: organization, error: organizationError } = await supabase.rpc('create_organization_with_owner', {
-      organization_data: {
-        company_code: parsed.data.companyCode,
-        company_name: parsed.data.companyName,
-        logo_url: '',
-        industry: parsed.data.industry,
-        company_registration_number: parsed.data.companyRegistrationNumber,
-        company_type: parsed.data.companyType,
-        company_size: parsed.data.companySize,
-        region: parsed.data.region,
-        country: parsed.data.country,
-        state: parsed.data.state,
-        address: parsed.data.address,
-        contact_email: parsed.data.contactEmail,
-        contact_phone: parsed.data.contactPhone,
-      },
-      owner_full_name: parsed.data.adminName,
-    })
-    if (organizationError || !organization) {
-      setLoading(false)
-      setError(organizationError?.message || 'The organization could not be created.')
-      return
-    }
-
-    const logo = form.get('logo')
-    if (logo instanceof File && logo.size > 0) {
-      if (!logo.type.startsWith('image/') || logo.size > 5 * 1024 * 1024) {
-        setLoading(false)
-        setError('Organization created, but the logo must be an image smaller than 5 MB.')
-        return
-      }
-      const logoPath = `${organization.id}/${crypto.randomUUID()}-${logo.name}`
-      const { error: uploadError } = await supabase.storage.from('organization-assets').upload(logoPath, logo, { upsert: false })
-      if (uploadError) {
-        setLoading(false)
-        setError(`Organization created, but logo upload failed: ${uploadError.message}`)
-        return
-      }
-      const { error: logoUpdateError } = await supabase.from('organizations').update({ logo_url: logoPath }).eq('id', organization.id)
-      if (logoUpdateError) {
-        setLoading(false)
-        setError(`Organization created, but logo linking failed: ${logoUpdateError.message}`)
-        return
-      }
-    }
-
-    setLoading(false)
-    localStorage.removeItem(pendingRegistrationKey)
-    setMessage(`Organization created. ${parsed.data.adminName} is now the Super Administrator. You can sign in.`)
-  }
-
-  return (
-    <AuthShell title="Register your organization" subtitle="Create your company workspace and become its first Super Administrator.">
-      {message ? (
-        <div className="auth-form">
-          <AuthMessage success="Registration successful. Check your email and verify your account before signing in." />
-          <p className="auth-footer-copy">Your organization setup is complete. Use the verification link in your email, then return to sign in.</p>
-          <a className="button button-green auth-submit" href="#sign-in">Return to sign in</a>
-        </div>
-      ) : <form className="auth-form registration-form" onSubmit={submit}>
-        <div className="form-section-title">Company details</div>
-        <div className="form-grid">
-          <label>Company name<input name="companyName" placeholder="Acme Energy Ltd" /></label>
-          <label>Company code<input value={companyCode} onChange={(event) => setCompanyCode(event.target.value.toUpperCase())} maxLength={20} /></label>
-          <label>Industry<select name="industry" defaultValue=""><option value="" disabled>Select industry</option><option>Oil & Gas</option><option>Mining</option><option>Power & Utilities</option><option>Construction</option><option>Manufacturing</option></select></label>
-          <label>Company type<input name="companyType" placeholder="Private limited" /></label>
-          <label>Company size<select name="companySize" defaultValue=""><option value="" disabled>Select size</option><option>1-50</option><option>51-250</option><option>251-1,000</option><option>1,001+</option></select></label>
-          <label>Registration number<input name="companyRegistrationNumber" placeholder="Optional" /></label>
-          <label>Region<select name="region" value={region} onChange={(event) => setRegion(event.target.value)}><option value="" disabled>Select region</option>{worldRegions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
-          <label>Country<select name="country" value={country} onChange={(event) => { setCountry(event.target.value); setSelectedState('') }}><option value="" disabled>Select country</option>{countries.map((option) => <option value={option.name} key={option.code}>{option.name}</option>)}</select></label>
-          <label>State / Province<select name="state" value={selectedState} onChange={(event) => setSelectedState(event.target.value)} disabled={!country}><option value="" disabled>{country ? 'Select state or province' : 'Select a country first'}</option>{countries.find((option) => option.name === country)?.regions.map(([name, code]) => <option value={name} key={code}>{name}</option>)}</select></label>
-        </div>
-        <label>Address<input name="address" placeholder="Company address" /></label>
-        <div className="form-grid">
-          <label>Contact email<input name="contactEmail" type="email" placeholder="contact@company.com" /></label>
-          <label>Contact phone<input name="contactPhone" type="tel" placeholder="+234 ..." /></label>
-        </div>
-        <label>Company logo <input name="logo" type="file" accept="image/*" /></label>
-        <div className="form-section-title">Administrator account</div>
-        <div className="form-grid">
-          <label>Full name<input name="adminName" placeholder="Your full name" autoComplete="name" /></label>
-          <label>Work email<input name="adminEmail" type="email" placeholder="admin@company.com" autoComplete="email" /></label>
-        </div>
-        <div className="form-grid">
-          <label>Password<input name="password" type="password" autoComplete="new-password" /></label>
-          <label>Confirm password<input name="passwordConfirmation" type="password" autoComplete="new-password" /></label>
-        </div>
-        <label className="checkbox-label"><input name="acceptTerms" type="checkbox" /> I agree to the platform terms and privacy policy.</label>
-        <AuthMessage error={error} success={message} />
-        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : <>Create organization <ArrowRight size={16} /></>}</button>
-        <p className="auth-footer-copy">Already registered? <a href="#sign-in">Sign in</a></p>
-      </form>}
-    </AuthShell>
-  )
-}
-
 export default function App() {
   const [authRoute, setAuthRoute] = useState<AuthRoute | null>(() => getAuthRoute())
   const lastAuthRouteRef = useRef<AuthRoute | null>(authRoute)
@@ -2980,7 +2900,7 @@ export default function App() {
   }
 
   if (authRoute === 'sign-in') return <SignInPage userOnly={new URLSearchParams(getCleanHash().split('?')[1] || '').get('mode') === 'user'} />
-  if (authRoute === 'register') return <RegistrationPage />
+  if (authRoute === 'register') return <RegisterPage />
   if (authRoute === 'forgot-password') return <ForgotPasswordPage />
   if (authRoute === 'reset-password') return <PasswordPage reset />
   if (authRoute === 'change-password') return <PasswordPage />

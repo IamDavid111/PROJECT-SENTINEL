@@ -18,8 +18,8 @@ export function Select({ className, containerClassName, invalid, children, ...pr
       <select
         aria-invalid={invalid || undefined}
         className={cn(
-          'h-9 w-full appearance-none rounded-xl border bg-surface px-3 py-2 pr-9 text-sm text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50',
-          invalid ? 'border-danger' : 'border-line',
+          'h-9 w-full appearance-none rounded-xl border bg-surface px-3 py-2 pr-9 text-sm text-foreground transition-colors focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
+          invalid ? 'border-danger focus:border-danger' : 'border-line focus:border-brand',
           className,
         )}
         {...props}

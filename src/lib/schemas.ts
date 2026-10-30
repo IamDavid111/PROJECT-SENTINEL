@@ -1,14 +1,17 @@
 import { z } from 'zod'
 
+export const companyCodeSchema = z
+  .string()
+  .regex(/^[A-Z0-9-]{3,20}$/, 'Use 3-20 uppercase letters, numbers, or hyphens.')
+
 export const loginSchema = z.object({
   email: z.string().email('Enter a valid work email.'),
   password: z.string().min(8, 'Password must be at least 8 characters.'),
-  companyCode: z.string().min(3, 'Company code is required.'),
+  companyCode: companyCodeSchema,
   rememberMe: z.boolean().optional(),
 })
 
 export const registrationSchema = z.object({
-  companyCode: z.string().regex(/^[A-Z0-9-]{3,20}$/, 'Use 3-20 uppercase letters, numbers, or hyphens.'),
   companyName: z.string().min(2, 'Company name is required.'),
   companyRegistrationNumber: z.string().optional(),
   companyType: z.string().optional(),
@@ -24,7 +27,7 @@ export const registrationSchema = z.object({
   adminEmail: z.string().email('Valid admin email is required.'),
   password: z.string().min(8, 'Password must be at least 8 characters.'),
   passwordConfirmation: z.string().min(8, 'Please confirm your password.'),
-  acceptTerms: z.literal(true, 'You must accept the terms to continue.'),
+  acceptTerms: z.boolean().refine((value) => value === true, 'You must accept the terms to continue.'),
 }).refine((data) => data.password === data.passwordConfirmation, {
   message: 'Passwords do not match.',
   path: ['passwordConfirmation'],
@@ -44,7 +47,6 @@ export const changePasswordSchema = z.object({
 })
 
 export const organizationSetupSchema = z.object({
-  companyCode: z.string().regex(/^[A-Z0-9-]{3,20}$/, 'Use 3-20 uppercase letters, numbers, or hyphens.'),
   companyName: z.string().min(2, 'Company name is required.'),
   companyRegistrationNumber: z.string().optional(),
   companyType: z.string().optional(),

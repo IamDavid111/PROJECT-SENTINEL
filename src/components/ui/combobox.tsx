@@ -106,7 +106,7 @@ export function Combobox({
           }
         }}
         className={cn(
-          'flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50',
+          'flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left text-sm transition-colors focus:border-brand focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
         )}
       >
         <span className={cn('min-w-0 truncate', selected ? 'text-foreground' : 'text-muted')}>

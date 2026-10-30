@@ -29,7 +29,7 @@ export function SearchField({
         aria-label={label}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-9 w-full rounded-xl border border-line bg-surface pl-9 pr-9 text-sm text-foreground placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-search-cancel-button]:hidden"
+        className="h-9 w-full rounded-xl border border-line bg-surface pl-9 pr-9 text-sm text-foreground placeholder:text-muted transition-colors focus:border-brand focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button

@@ -31,7 +31,7 @@ export function Tabs({ items, value, onChange, className }: TabsProps) {
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      <div role="tablist" aria-label="Tabs" className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-line bg-surface-soft p-1">
+      <div role="tablist" aria-label="Tabs" className="inline-flex flex-wrap items-center gap-1 rounded-xl bg-surface-soft">
         {items.map((item) => {
           const selected = item.id === activeId
           return (
@@ -44,8 +44,8 @@ export function Tabs({ items, value, onChange, className }: TabsProps) {
               aria-controls={`panel-${item.id}`}
               onClick={() => select(item.id)}
               className={cn(
-                'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-1',
-                selected ? 'border-line bg-surface text-foreground' : 'border-transparent text-muted hover:text-foreground',
+                'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-1',
+                selected ? 'bg-brand text-white' : 'text-muted hover:text-foreground',
               )}
             >
               {item.label}

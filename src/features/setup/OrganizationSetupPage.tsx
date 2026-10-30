@@ -1,95 +1,129 @@
-import { useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
 
+import {
+  Alert,
+  Button,
+  Field,
+  FileUpload,
+  FormActions,
+  FormFull,
+  FormGrid,
+  FormSection,
+  Icon,
+  Input,
+  Select,
+  Stepper,
+  type FileUploadItem,
+} from '../../components/ui'
 import { countries, worldRegions } from '../../lib/locations'
-import { organizationSetupSchema } from '../../lib/schemas'
+import { organizationSetupSchema, type OrganizationSetupFormValues } from '../../lib/schemas'
 import { supabase } from '../../lib/supabase'
+import { AuthLayout } from '../auth/AuthLayout'
+import { CompanyCodeField } from '../auth/CompanyCodeField'
+import { loadPendingRegistration, pendingRegistrationKey } from '../auth/pendingRegistration'
 
-export const pendingRegistrationKey = 'sentinel-pending-org-registration'
-
-type PendingRegistration = {
-  companyCode?: string
-  companyName?: string
-  companyRegistrationNumber?: string
-  companyType?: string
-  industry?: string
-  companySize?: string
-  region?: string
-  country?: string
-  state?: string
-  address?: string
-  contactEmail?: string
-  contactPhone?: string
-  adminName?: string
-}
-
-function loadPendingRegistration(): PendingRegistration {
-  try {
-    const raw = localStorage.getItem(pendingRegistrationKey)
-    return raw ? (JSON.parse(raw) as PendingRegistration) : {}
-  } catch {
-    return {}
-  }
-}
+const INDUSTRIES = ['Oil & Gas', 'Mining', 'Power & Utilities', 'Construction', 'Manufacturing']
+const COMPANY_SIZES = ['1-50', '51-250', '251-1,000', '1,001+']
 
 // If email confirmation interrupted registration, restore the saved organization details and create the organization and owner together.
 // Logo upload and linking are separate steps afterward, so a logo error does not undo successful organization creation.
 export function OrganizationSetupPage({ email }: { email: string }) {
-  const pending = useMemo<PendingRegistration>(() => loadPendingRegistration(), [])
-  const [companyCode, setCompanyCode] = useState(() => pending.companyCode || `SENT-${Math.random().toString(36).slice(2, 8).toUpperCase()}`)
-  const [region, setRegion] = useState(pending.region || '')
-  const [country, setCountry] = useState(pending.country || '')
-  const [selectedState, setSelectedState] = useState(pending.state || '')
+  const pending = useMemo(() => loadPendingRegistration(), [])
+  const [step, setStep] = useState(0)
+  const [companyCode, setCompanyCode] = useState(pending.companyCode || '')
+  const [logo, setLogo] = useState<File | null>(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const form = useForm<OrganizationSetupFormValues>({
+    resolver: zodResolver(organizationSetupSchema),
+    defaultValues: {
+      companyName: pending.companyName || '',
+      companyRegistrationNumber: pending.companyRegistrationNumber || '',
+      companyType: pending.companyType || '',
+      industry: pending.industry || '',
+      companySize: pending.companySize || '',
+      region: pending.region || '',
+      country: pending.country || '',
+      state: pending.state || '',
+      address: pending.address || '',
+      contactEmail: pending.contactEmail || '',
+      contactPhone: pending.contactPhone || '',
+      adminName: pending.adminName || '',
+    },
+  })
+
+  const country = form.watch('country')
+  const initialCountry = useRef(country)
+  const stateOptions = countries.find((option) => option.name === country)?.regions ?? []
+  const errors = form.formState.errors as Record<string, { message?: string } | undefined>
+  const errorFor = (name: keyof OrganizationSetupFormValues) => errors[name]?.message
+
+  useEffect(() => {
+    if (initialCountry.current === country) return
+    initialCountry.current = country
+    form.setValue('state', '')
+    // Reset only when the country actually changes, not on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [country])
+
+  const logoFiles: FileUploadItem[] = logo
+    ? [{ id: 'logo', name: logo.name, size: logo.size, type: logo.type }]
+    : []
+
+  const next = async () => {
     setError('')
-    setMessage('')
-    const form = new FormData(event.currentTarget)
-    const values = {
-      companyCode: companyCode.trim().toUpperCase(),
-      companyName: String(form.get('companyName') || ''),
-      companyRegistrationNumber: String(form.get('companyRegistrationNumber') || ''),
-      companyType: String(form.get('companyType') || ''),
-      industry: String(form.get('industry') || ''),
-      companySize: String(form.get('companySize') || ''),
-      region,
-      country,
-      state: selectedState,
-      address: String(form.get('address') || ''),
-      contactEmail: String(form.get('contactEmail') || ''),
-      contactPhone: String(form.get('contactPhone') || ''),
-      adminName: String(form.get('adminName') || ''),
-    }
-    const parsed = organizationSetupSchema.safeParse(values)
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message || 'Check the organization details and try again.')
+    if (!companyCode) {
+      setError('Generate a company code before continuing.')
       return
     }
+    const valid = await form.trigger([
+      'companyName',
+      'industry',
+      'companyType',
+      'companySize',
+      'companyRegistrationNumber',
+      'region',
+      'country',
+      'state',
+      'address',
+      'contactEmail',
+      'contactPhone',
+    ])
+    if (valid) setStep(1)
+  }
 
+  const submit = async (data: OrganizationSetupFormValues) => {
+    setError('')
+    setMessage('')
+    if (!companyCode) {
+      setError('Generate a company code before creating the organization.')
+      return
+    }
     setLoading(true)
+
     const { data: organization, error: organizationError } = await supabase.rpc('create_organization_with_owner', {
       organization_data: {
-        company_code: parsed.data.companyCode,
-        company_name: parsed.data.companyName,
+        company_code: companyCode,
+        company_name: data.companyName,
         logo_url: '',
-        industry: parsed.data.industry,
-        company_registration_number: parsed.data.companyRegistrationNumber,
-        company_type: parsed.data.companyType,
-        company_size: parsed.data.companySize,
-        region: parsed.data.region,
-        country: parsed.data.country,
-        state: parsed.data.state,
-        address: parsed.data.address,
-        contact_email: parsed.data.contactEmail,
-        contact_phone: parsed.data.contactPhone,
+        industry: data.industry,
+        company_registration_number: data.companyRegistrationNumber || '',
+        company_type: data.companyType || '',
+        company_size: data.companySize,
+        region: data.region,
+        country: data.country,
+        state: data.state,
+        address: data.address || '',
+        contact_email: data.contactEmail,
+        contact_phone: data.contactPhone,
       },
-      owner_full_name: parsed.data.adminName,
+      owner_full_name: data.adminName,
     })
+
     if (organizationError || !organization) {
       setLoading(false)
       setError(organizationError?.message || 'The organization could not be created.')
@@ -97,8 +131,8 @@ export function OrganizationSetupPage({ email }: { email: string }) {
     }
 
     const { data: { user } } = await supabase.auth.getUser()
-    const logo = form.get('logo')
-    if (logo instanceof File && logo.size > 0) {
+
+    if (logo) {
       if (!logo.type.startsWith('image/') || logo.size > 5 * 1024 * 1024) {
         setLoading(false)
         setError('Organization created, but the logo must be an image smaller than 5 MB. Reload to enter your workspace.')
@@ -120,12 +154,18 @@ export function OrganizationSetupPage({ email }: { email: string }) {
     }
 
     if (user) {
-      await supabase.from('activity_logs').insert({ organization_id: organization.id, user_id: user.id, activity: 'Organization setup completed', metadata: { organization_id: organization.id } })
+      await supabase.from('activity_logs').insert({
+        organization_id: organization.id,
+        user_id: user.id,
+        activity: 'Organization setup completed',
+        metadata: { organization_id: organization.id },
+      })
     }
+
     localStorage.removeItem(pendingRegistrationKey)
     setLoading(false)
     setMessage('Organization created. Opening your workspace...')
-    window.location.reload()
+    window.setTimeout(() => window.location.reload(), 800)
   }
 
   const signOut = async () => {
@@ -134,39 +174,137 @@ export function OrganizationSetupPage({ email }: { email: string }) {
   }
 
   return (
-    <div className="workspace-panel organization-setup-panel">
-      <div className="eyebrow">COMPLETE ORGANIZATION SETUP</div>
-      <h2>Create your company workspace</h2>
-      <p>Your account is confirmed. Finish setting up your organization to become its first Super Administrator.</p>
-      <form className="auth-form registration-form" onSubmit={submit}>
-        <div className="form-section-title">Company details</div>
-        <div className="form-grid">
-          <label>Company name<input name="companyName" defaultValue={pending.companyName || ''} placeholder="Acme Energy Ltd" /></label>
-          <label>Company code<input value={companyCode} onChange={(event) => setCompanyCode(event.target.value.toUpperCase())} maxLength={20} /></label>
-          <label>Industry<select name="industry" defaultValue={pending.industry || ''}><option value="" disabled>Select industry</option><option>Oil &amp; Gas</option><option>Mining</option><option>Power &amp; Utilities</option><option>Construction</option><option>Manufacturing</option></select></label>
-          <label>Company type<input name="companyType" defaultValue={pending.companyType || ''} placeholder="Private limited" /></label>
-          <label>Company size<select name="companySize" defaultValue={pending.companySize || ''}><option value="" disabled>Select size</option><option>1-50</option><option>51-250</option><option>251-1,000</option><option>1,001+</option></select></label>
-          <label>Registration number<input name="companyRegistrationNumber" defaultValue={pending.companyRegistrationNumber || ''} placeholder="Optional" /></label>
-          <label>Region<select name="region" value={region} onChange={(event) => setRegion(event.target.value)}><option value="" disabled>Select region</option>{worldRegions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
-          <label>Country<select name="country" value={country} onChange={(event) => { setCountry(event.target.value); setSelectedState('') }}><option value="" disabled>Select country</option>{countries.map((option) => <option value={option.name} key={option.code}>{option.name}</option>)}</select></label>
-          <label>State / Province<select name="state" value={selectedState} onChange={(event) => setSelectedState(event.target.value)} disabled={!country}><option value="" disabled>{country ? 'Select state or province' : 'Select a country first'}</option>{countries.find((option) => option.name === country)?.regions.map(([name, code]) => <option value={name} key={code}>{name}</option>)}</select></label>
-        </div>
-        <label>Address<input name="address" defaultValue={pending.address || ''} placeholder="Company address" /></label>
-        <div className="form-grid">
-          <label>Contact email<input name="contactEmail" type="email" defaultValue={pending.contactEmail || ''} placeholder="contact@company.com" /></label>
-          <label>Contact phone<input name="contactPhone" type="tel" defaultValue={pending.contactPhone || ''} placeholder="+234 ..." /></label>
-        </div>
-        <label>Company logo <input name="logo" type="file" accept="image/*" /></label>
-        <div className="form-section-title">Administrator account</div>
-        <div className="form-grid">
-          <label>Full name<input name="adminName" defaultValue={pending.adminName || ''} placeholder="Your full name" autoComplete="name" /></label>
-          <label>Work email<input value={email} disabled /></label>
-        </div>
-        {error && <div className="auth-message error" role="alert">{error}</div>}
-        {message && <div className="auth-message success" role="status">{message}</div>}
-        <button className="button button-green auth-submit" disabled={loading}>{loading ? 'Creating workspace...' : <>Create organization <ArrowRight size={16} /></>}</button>
-        <p className="auth-footer-copy"><a href="#top" onClick={(event) => { event.preventDefault(); void signOut() }}>Sign out</a></p>
+    <AuthLayout
+      title="Finish setting up your workspace"
+      subtitle="Your account is confirmed. Add your organization details to become its first Super Administrator."
+      width="wide"
+      step={
+        <Stepper
+          steps={[
+            { id: 'company', label: 'Company details' },
+            { id: 'admin', label: 'Administrator' },
+          ]}
+          activeIndex={step}
+          onStepClick={(index) => {
+            if (index < step) setStep(index)
+          }}
+        />
+      }
+      footer={
+        <p className="text-center text-sm text-muted">
+          <button type="button" onClick={() => void signOut()} className="font-medium text-brand-dark underline-offset-4 hover:underline">
+            Sign out
+          </button>
+        </p>
+      }
+    >
+      <form className="grid gap-6" onSubmit={form.handleSubmit(submit)} noValidate>
+        {step === 0 ? (
+          <FormSection title="Company details" description="These details appear on reports, actions and audit records.">
+            <FormGrid>
+              <Field label="Company name" htmlFor="companyName" required error={errorFor('companyName')}>
+                <Input id="companyName" placeholder="Acme Energy Ltd" autoComplete="organization" {...form.register('companyName')} />
+              </Field>
+              <Field label="Industry" htmlFor="industry" required error={errorFor('industry')}>
+                <Select id="industry" {...form.register('industry')}>
+                  <option value="">Select industry</option>
+                  {INDUSTRIES.map((industry) => <option key={industry}>{industry}</option>)}
+                </Select>
+              </Field>
+              <Field label="Company type" htmlFor="companyType">
+                <Input id="companyType" placeholder="Private limited" {...form.register('companyType')} />
+              </Field>
+              <Field label="Company size" htmlFor="companySize" required error={errorFor('companySize')}>
+                <Select id="companySize" {...form.register('companySize')}>
+                  <option value="">Select size</option>
+                  {COMPANY_SIZES.map((size) => <option key={size}>{size}</option>)}
+                </Select>
+              </Field>
+              <Field label="Registration number" htmlFor="companyRegistrationNumber">
+                <Input id="companyRegistrationNumber" placeholder="Optional" {...form.register('companyRegistrationNumber')} />
+              </Field>
+              <Field label="Region" htmlFor="region" required error={errorFor('region')}>
+                <Select id="region" {...form.register('region')}>
+                  <option value="">Select region</option>
+                  {worldRegions.map((region) => <option key={region}>{region}</option>)}
+                </Select>
+              </Field>
+              <Field label="Country" htmlFor="country" required error={errorFor('country')}>
+                <Select id="country" {...form.register('country')}>
+                  <option value="">Select country</option>
+                  {countries.map((option) => <option value={option.name} key={option.code}>{option.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="State / Province" htmlFor="state" required error={errorFor('state')}>
+                <Select id="state" disabled={!country} {...form.register('state')}>
+                  <option value="">{country ? 'Select state or province' : 'Select a country first'}</option>
+                  {stateOptions.map(([name, code]) => <option value={name} key={code}>{name}</option>)}
+                </Select>
+              </Field>
+              <FormFull>
+                <Field label="Address" htmlFor="address">
+                  <Input id="address" placeholder="Company address" {...form.register('address')} />
+                </Field>
+              </FormFull>
+              <FormFull>
+                <CompanyCodeField value={companyCode} onChange={setCompanyCode} />
+              </FormFull>
+              <Field label="Contact email" htmlFor="contactEmail" required error={errorFor('contactEmail')}>
+                <Input id="contactEmail" type="email" placeholder="contact@company.com" {...form.register('contactEmail')} />
+              </Field>
+              <Field label="Contact phone" htmlFor="contactPhone" required error={errorFor('contactPhone')}>
+                <Input id="contactPhone" type="tel" placeholder="+234 ..." {...form.register('contactPhone')} />
+              </Field>
+              <FormFull>
+                <div className="grid gap-1.5">
+                  <span className="text-sm font-medium text-foreground">Company logo</span>
+                  <FileUpload
+                    files={logoFiles}
+                    accept="image/*"
+                    maxSizeMb={5}
+                    variant="compact"
+                    label="Upload company logo"
+                    onFilesSelected={(files) => setLogo(files[0] ?? null)}
+                    onRemove={() => setLogo(null)}
+                  />
+                  <p className="text-xs text-muted">Optional · PNG or JPG, up to 5 MB.</p>
+                </div>
+              </FormFull>
+            </FormGrid>
+          </FormSection>
+        ) : (
+          <FormSection title="Administrator account" description="This account becomes the organization's first Super Administrator.">
+            <FormGrid>
+              <Field label="Full name" htmlFor="adminName" required error={errorFor('adminName')}>
+                <Input id="adminName" placeholder="Your full name" autoComplete="name" {...form.register('adminName')} />
+              </Field>
+              <Field label="Work email" htmlFor="setupEmail" hint="This is the account completing setup.">
+                <Input id="setupEmail" value={email} readOnly />
+              </Field>
+            </FormGrid>
+          </FormSection>
+        )}
+
+        {error && <Alert tone="danger">{error}</Alert>}
+        {message && <Alert tone="success">{message}</Alert>}
+
+        <FormActions>
+          {step === 1 && (
+            <Button type="button" variant="outline" onClick={() => setStep(0)} disabled={loading}>
+              Back
+            </Button>
+          )}
+          {step === 0 ? (
+            <Button type="button" onClick={() => void next()}>
+              Continue <Icon name="arrowRight" size={15} />
+            </Button>
+          ) : (
+            <Button type="submit" loading={loading}>
+              Create organization <Icon name="arrowRight" size={15} />
+            </Button>
+          )}
+        </FormActions>
       </form>
-    </div>
+    </AuthLayout>
   )
 }
