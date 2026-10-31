@@ -153,7 +153,7 @@ export function SettingsPage({ client, organizationId, userId }: {
         aria-current={active ? 'page' : undefined}
         className={mobile
           ? `inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'border-brand bg-brand/10 text-brand-dark' : 'border-line bg-surface text-muted hover:text-foreground'}`
-          : `flex w-full items-center justify-between gap-2 rounded-lg border-l-2 px-3 py-2 text-left text-sm transition-colors ${active ? 'border-brand bg-brand/10 font-medium text-brand-dark' : 'border-transparent text-muted hover:bg-surface-soft hover:text-foreground'}`}
+          : `flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${active ? 'bg-brand/10 font-medium text-brand-dark' : 'text-muted hover:bg-surface-soft hover:text-foreground'}`}
       >
         <span className="truncate">{item.label}</span>
         <span className="flex items-center gap-1.5">

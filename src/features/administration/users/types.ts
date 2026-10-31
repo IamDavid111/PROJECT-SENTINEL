@@ -63,3 +63,30 @@ export type ExportUserRow = {
   action: string
 }
 
+export type MockUserBatchUser = {
+  id: string
+  fullName: string
+  email: string
+  role: string
+  department: string
+  siteLocation: string
+  employeeId: string
+  temporaryPassword: string | null
+}
+
+export type MockUserBatchResult = {
+  createdCount: number
+  alreadyExistingCount: number
+  users: MockUserBatchUser[]
+}
+
+export type MockIncidentBatchResult = {
+  batchId: string
+  createdCount: number
+  alreadyExistingCount: number
+  tableCounts: Record<string, number>
+  byStatus: Record<string, number>
+  bySeverity: Record<string, number>
+  byCategory: Record<string, number>
+}
+

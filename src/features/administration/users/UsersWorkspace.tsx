@@ -1,24 +1,31 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import type { Permission } from '../../../app/navigation'
-import { FormMessage } from '../../../components/ui/form-message'
+import { Alert, Button, Card, ExportMenu, PageHeader, SearchField, Select, Skeleton, buttonVariants } from '../../../components/ui'
 import { starnetMockUserBatch } from '../../../data/starnetMockUserBatch'
-import {
-  BASELINE_PERMISSION_KEYS,
-  USER_ACTION_OPTIONS,
-  USER_MANAGEMENT_BACKEND_TO_ROLE,
-  USER_MANAGEMENT_PERMISSION_CATALOG,
-  USER_MANAGEMENT_ROLE_DEFINITIONS,
-} from '../../../data/userManagementConfig'
+import { USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_ROLE_DEFINITIONS } from '../../../data/userManagementConfig'
 import { getEdgeFunctionErrorMessage } from '../../../lib/edgeFunctionError'
 import { recordActivity } from '../../../lib/activity'
 import { supabase } from '../../../lib/supabase'
-import { RoleManagementSection } from '../roles/RoleManagementSection'
 import { normalizeDepartmentSettings, type DepartmentOption } from '../../settings/companySettingsTypes'
+import { RoleEditorDialog } from '../roles/RoleEditorDialog'
+import { DepartmentDialog } from './DepartmentDialog'
+import { InvitationsCard } from './InvitationsCard'
+import { InviteUserCard } from './InviteUserCard'
+import { MockDataCard } from './MockDataCard'
+import { UsersTable } from './UsersTable'
 import { exportCsv, exportExcel, exportPdf, exportWord } from './userExport'
-import { getDepartmentLabel, matchesManagedUserFilters, permissionCatalog, type CustomRoleRecord } from './userHelpers'
-import { describeInvitationExpiry, type ExportAdmin, type ExportFormat, type ExportUserRow, type ManagedUser, type OrganizationInvitation } from './types'
+import { getDepartmentLabel, matchesManagedUserFilters, type CustomRoleRecord } from './userHelpers'
+import type { ExportAdmin, ExportFormat, ManagedUser, MockIncidentBatchResult, MockUserBatchResult, OrganizationInvitation } from './types'
+
+function SummaryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 border-line sm:border-l sm:pl-5 sm:first:border-l-0 sm:first:pl-0">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</span>
+      <span className="font-display text-2xl font-semibold tabular-nums tracking-tight text-foreground">{value}</span>
+    </div>
+  )
+}
 
 export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEditUsers, canSuspendUsers, canDeactivateUsers, canManageUserRoles, canManageRolesPermissions }: { organizationId: string; currentUserId: string; canInviteUsers: boolean; canEditUsers: boolean; canSuspendUsers: boolean; canDeactivateUsers: boolean; canManageUserRoles: boolean; canManageRolesPermissions: boolean }) {
   const [users, setUsers] = useState<ManagedUser[]>([])
@@ -28,37 +35,25 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
   const [statusFilter, setStatusFilter] = useState('all')
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteDepartment, setInviteDepartment] = useState('')
-  const [inviteRole, setInviteRole] = useState<string>('Field Worker')
+  const [inviteRole, setInviteRole] = useState('Field Worker')
   const [inviteLoading, setInviteLoading] = useState(false)
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([])
   const [invitationsLoading, setInvitationsLoading] = useState(false)
   const [resendingEmail, setResendingEmail] = useState<string | null>(null)
   const [showInvitations, setShowInvitations] = useState(false)
   const [mockBatchLoading, setMockBatchLoading] = useState(false)
-  const [mockBatchResult, setMockBatchResult] = useState<{ createdCount: number; alreadyExistingCount: number; users: Array<{ id: string; fullName: string; email: string; role: string; department: string; siteLocation: string; employeeId: string; temporaryPassword: string | null }> } | null>(null)
+  const [mockBatchResult, setMockBatchResult] = useState<MockUserBatchResult | null>(null)
   const [mockIncidentLoading, setMockIncidentLoading] = useState(false)
-  const [mockIncidentResult, setMockIncidentResult] = useState<{
-    batchId: string
-    createdCount: number
-    alreadyExistingCount: number
-    tableCounts: Record<string, number>
-    byStatus: Record<string, number>
-    bySeverity: Record<string, number>
-    byCategory: Record<string, number>
-  } | null>(null)
+  const [mockIncidentResult, setMockIncidentResult] = useState<MockIncidentBatchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const [showRoleManagement, setShowRoleManagement] = useState(false)
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false)
   const [customRoles, setCustomRoles] = useState<CustomRoleRecord[]>([])
-  const [roleModalOpen, setRoleModalOpen] = useState(false)
-  const [roleDraft, setRoleDraft] = useState({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
-  const [roleDraftLoading, setRoleDraftLoading] = useState(false)
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
   const [departmentModalOpen, setDepartmentModalOpen] = useState(false)
   const [departmentDraft, setDepartmentDraft] = useState('')
   const [departmentLoading, setDepartmentLoading] = useState(false)
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
   const [exportAdmin, setExportAdmin] = useState<ExportAdmin | null>(null)
   const [exportLoading, setExportLoading] = useState(false)
 
@@ -68,14 +63,11 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       .select('departments')
       .eq('organization_id', organizationId)
       .maybeSingle()
-
     if (settingsError) {
       setError(settingsError.message)
       return
     }
-
-    const configuredDepartments = normalizeDepartmentSettings(data?.departments)
-    setDepartments(configuredDepartments.filter((department) => department.active))
+    setDepartments(normalizeDepartmentSettings(data?.departments).filter((department) => department.active))
   }
 
   const loadCustomRoles = async () => {
@@ -84,13 +76,11 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       .select('*')
       .eq('organization_id', organizationId)
       .order('name', { ascending: true })
-
     if (customRoleError) {
       setError(customRoleError.message)
       setCustomRoles([])
       return
     }
-
     setCustomRoles((data ?? []).filter((role) => role.is_active !== false).map((role) => ({
       ...role,
       name: String(role.name ?? ''),
@@ -102,10 +92,9 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
     })))
   }
 
-  // Profiles hold details such as names and account status, while memberships hold each user's organization role.
-  // Load both records and join them by user ID so the table can show one combined row per user.
   const loadUsers = async () => {
     setLoading(true)
+    setError('')
     const [{ data: profiles, error: profileError }, { data: memberships, error: membershipError }] = await Promise.all([
       supabase.from('profiles').select('id, full_name, employee_id, department, job_title, account_status').eq('organization_id', organizationId).order('full_name'),
       supabase.from('memberships').select('user_id, role').eq('organization_id', organizationId),
@@ -141,62 +130,6 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
     ...customRoles.map((role) => ({ id: `custom-${role.id || role.name}`, label: role.name, value: role.name })),
   ]
 
-  const openRoleCreator = () => {
-    setRoleDraft({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
-    setError('')
-    setMessage('')
-    setRoleModalOpen(true)
-  }
-
-  const toggleRolePermission = (permission: Permission) => {
-    if (BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number])) return
-    setRoleDraft((current) => ({
-      ...current,
-      permissions: current.permissions.includes(permission)
-        ? current.permissions.filter((item) => item !== permission)
-        : [...current.permissions, permission],
-    }))
-  }
-
-  const saveCustomRole = async () => {
-    if (!roleDraft.name.trim()) {
-      setError('Role name is required.')
-      return
-    }
-
-    if (!roleDraft.permissions.length) {
-      setError('Select at least one permission before saving.')
-      return
-    }
-
-    setRoleDraftLoading(true)
-    setError('')
-    setMessage('')
-
-    const { data, error: createError } = await supabase.rpc('create_custom_role', {
-      p_organization_id: organizationId,
-      p_name: roleDraft.name.trim(),
-      p_description: roleDraft.description.trim() || null,
-      p_permissions: Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...roleDraft.permissions])),
-      p_scope: { organizationId },
-    })
-
-    setRoleDraftLoading(false)
-
-    if (createError) {
-      setError(createError.message)
-      return
-    }
-
-    const createdName = typeof data?.name === 'string' ? data.name : roleDraft.name.trim()
-    setInviteRole(createdName)
-    setRoleModalOpen(false)
-    setRoleDraft({ name: '', description: '', permissions: [...BASELINE_PERMISSION_KEYS] as Permission[] })
-    await loadCustomRoles()
-    setMessage(`Custom role "${createdName}" created and selected.`)
-  }
-
-  // Ask the server-side invitation function to send the invite; after success, clear the form and reload the user list.
   const inviteUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!canInviteUsers) {
@@ -264,7 +197,7 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       setError(await getEdgeFunctionErrorMessage(batchError))
       return
     }
-    const result = data as { createdCount: number; alreadyExistingCount: number; users: NonNullable<typeof mockBatchResult>['users'] }
+    const result = data as MockUserBatchResult
     setMockBatchResult(result)
     setMessage(`Mock batch complete: ${result.createdCount} created, ${result.alreadyExistingCount} already existed.`)
     await loadUsers()
@@ -287,7 +220,7 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       setError(await getEdgeFunctionErrorMessage(seedError))
       return
     }
-    const result = data as NonNullable<typeof mockIncidentResult>
+    const result = data as MockIncidentBatchResult
     setMockIncidentResult(result)
     setMessage(`Incident batch complete: ${result.createdCount} created, ${result.alreadyExistingCount} already present.`)
     window.dispatchEvent(new CustomEvent('incident-records-updated', { detail: { organizationId } }))
@@ -303,7 +236,6 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       setError('That department already exists.')
       return
     }
-
     setDepartmentLoading(true)
     setError('')
     const { data: settings, error: settingsError } = await supabase
@@ -316,7 +248,6 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       setError(settingsError.message)
       return
     }
-
     const currentDepartments = normalizeDepartmentSettings(settings?.departments)
     const nextDepartments = [...currentDepartments.filter((department) => department.name.toLowerCase() !== name.toLowerCase()), { name, active: true }]
     const { error: saveError } = await supabase
@@ -327,7 +258,6 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       setError(saveError.message)
       return
     }
-
     await loadDepartments()
     setInviteDepartment(name)
     setDepartmentDraft('')
@@ -336,8 +266,6 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
     setMessage(`Department "${name}" created and selected.`)
   }
 
-  // Save role changes through the role-update database function; account status is updated on the profile record instead.
-  // Change the displayed row only after its database operation succeeds, so the UI does not show an unsaved value.
   const updateUser = async (user: ManagedUser, field: 'role' | 'account_status', value: string) => {
     setError('')
     setMessage('')
@@ -357,7 +285,7 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
     setMessage(`${user.full_name} updated successfully.`)
   }
 
-  const exportUsers = async () => {
+  const exportUsers = async (format: ExportFormat) => {
     if (!exportAdmin) {
       setError('Unable to identify the authenticated administrator for this export.')
       return
@@ -365,7 +293,7 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
     setExportLoading(true)
     setError('')
     const generatedAt = new Date()
-    const rows: ExportUserRow[] = filteredUsers.map((user) => ({
+    const rows = filteredUsers.map((user) => ({
       userId: user.id,
       name: user.full_name,
       employeeId: user.employee_id || '',
@@ -376,12 +304,12 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
       action: user.account_status === 'suspended' ? 'Suspended' : user.account_status === 'inactive' ? 'Deactivated' : '—',
     }))
     try {
-      if (exportFormat === 'csv') exportCsv(rows, generatedAt)
-      if (exportFormat === 'pdf') exportPdf(rows, exportAdmin, generatedAt)
-      if (exportFormat === 'xlsx') await exportExcel(rows, exportAdmin, generatedAt)
-      if (exportFormat === 'docx') await exportWord(rows, exportAdmin, generatedAt)
-      await recordActivity(organizationId, currentUserId, 'User register exported', { format: exportFormat, record_count: rows.length })
-      setMessage(`${exportFormat.toUpperCase()} user register downloaded.`)
+      if (format === 'csv') exportCsv(rows, generatedAt)
+      if (format === 'pdf') exportPdf(rows, exportAdmin, generatedAt)
+      if (format === 'xlsx') await exportExcel(rows, exportAdmin, generatedAt)
+      if (format === 'docx') await exportWord(rows, exportAdmin, generatedAt)
+      await recordActivity(organizationId, currentUserId, 'User register exported', { format, record_count: rows.length })
+      setMessage(`${format.toUpperCase()} user register downloaded.`)
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : 'Unable to generate the user register.')
     } finally {
@@ -395,181 +323,180 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
     department: departmentFilter,
     status: statusFilter,
   }))
+  const activeCount = users.filter((user) => user.account_status === 'active').length
+  const pendingCount = users.filter((user) => user.account_status === 'pending').length
+  const restrictedCount = users.filter((user) => user.account_status === 'suspended' || user.account_status === 'inactive').length
+
+  if (loading && users.length === 0) {
+    return (
+      <div className="grid gap-5">
+        <PageHeader eyebrow="Administration / User management" title="User management" description="Manage organization members, roles, and account status." />
+        <Skeleton className="h-20 rounded-card" />
+        <Skeleton className="h-[420px] rounded-card" />
+      </div>
+    )
+  }
 
   return (
-    <div className="workspace-panel users-panel">
-      <div className="workspace-panel-heading">
-        <div>
-          <div className="eyebrow">ADMINISTRATION</div>
-          <h2>User Management</h2>
-          <p>Manage organization members, roles, and account status.</p>
+    <div className="grid gap-5">
+      <PageHeader
+        eyebrow="Administration / User management"
+        title="User management"
+        description="Manage organization members, roles, and account status."
+        actions={
+          <>
+            <a href="#administration" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Back to administration</a>
+            {canManageRolesPermissions && (
+              <a href="#roles-permissions" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Manage roles</a>
+            )}
+            {canInviteUsers && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowInvitations((current) => !current)
+                  if (!showInvitations) void loadInvitations()
+                }}
+              >
+                {showInvitations ? 'Hide invitations' : 'Invitations'}
+              </Button>
+            )}
+            <ExportMenu
+              label="Export users"
+              busy={exportLoading}
+              disabled={!exportAdmin}
+              options={[
+                { format: 'pdf', label: 'PDF', icon: 'fileDownload' },
+                { format: 'xlsx', label: 'Excel workbook (.xlsx)', icon: 'database' },
+                { format: 'docx', label: 'Word document (.docx)', icon: 'file' },
+                { format: 'csv', label: 'CSV', icon: 'download' },
+              ]}
+              onExport={(format) => {
+                if (format === 'pdf' || format === 'xlsx' || format === 'docx' || format === 'csv') void exportUsers(format)
+              }}
+            />
+          </>
+        }
+      />
+
+      {error && <Alert tone="danger">{error}</Alert>}
+      {message && <Alert tone="success">{message}</Alert>}
+
+      <section className="border-y border-line">
+        <div className="grid grid-cols-2 gap-4 py-4 sm:grid-cols-4">
+          <SummaryStat label="Users" value={String(users.length)} />
+          <SummaryStat label="Active" value={String(activeCount)} />
+          <SummaryStat label="Pending" value={String(pendingCount)} />
+          <SummaryStat label="Suspended / inactive" value={String(restrictedCount)} />
         </div>
-        <div className="workspace-panel-actions">
-          <a className="button button-outline button-small" href="#administration">Back to Administration</a>
-          {canManageRolesPermissions && <button className="button button-outline button-small" type="button" onClick={() => setShowRoleManagement((current) => !current)}>
-            {showRoleManagement ? 'Hide roles' : 'Manage roles'}
-          </button>}
-          {canInviteUsers && <button className="button button-outline button-small" type="button" onClick={() => {
-            setShowInvitations((current) => !current)
-            if (!showInvitations) void loadInvitations()
-          }}>
-            {showInvitations ? 'Hide invitations' : 'Invitations'}
-          </button>}
-          <select className="export-format-select" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)} aria-label="Export format">
-            <option value="pdf">PDF</option>
-            <option value="xlsx">Excel</option>
-            <option value="docx">Word</option>
-            <option value="csv">CSV</option>
-          </select>
-          <button className="button button-green button-small" type="button" onClick={() => void exportUsers()} disabled={exportLoading}>{exportLoading ? 'Generating...' : 'Export users'}</button>
-        </div>
-      </div>
-      {canInviteUsers && <form className="invite-form" onSubmit={inviteUser}>
-        <div><strong>Invite a user</strong><span>Invitation emails expire after 24 hours.</span></div>
-        <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} type="email" placeholder="Work email" required />
-        <select value={inviteDepartment} onChange={(event) => {
-          if (event.target.value === '__create_new_department__') {
+      </section>
+
+      {canInviteUsers && (
+        <InviteUserCard
+          email={inviteEmail}
+          onEmailChange={setInviteEmail}
+          department={inviteDepartment}
+          onDepartmentChange={setInviteDepartment}
+          role={inviteRole}
+          onRoleChange={setInviteRole}
+          departments={departments}
+          roleOptions={roleComboOptions}
+          canManageRolesPermissions={canManageRolesPermissions}
+          loading={inviteLoading}
+          onSubmit={(event) => void inviteUser(event)}
+          onCreateDepartment={() => {
             setDepartmentDraft('')
             setError('')
             setMessage('')
             setDepartmentModalOpen(true)
-            return
-          }
-          setInviteDepartment(event.target.value)
-        }}>
-          <option value="">Select department</option>
-          {departments.map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}
-          <option value="__create_new_department__">Create New Department...</option>
-        </select>
-        <select
-          value={inviteRole}
-          onChange={(event) => {
-            const selectedValue = event.target.value
-            if (selectedValue === '__create_new_role__') {
-              openRoleCreator()
-              return
-            }
-            setInviteRole(selectedValue)
           }}
-        >
-          {roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}
-          {canManageRolesPermissions && <option value="__create_new_role__">Create New Role...</option>}
-        </select>
-        <button className="button button-green button-small" disabled={inviteLoading}>{inviteLoading ? 'Sending...' : 'Send invite'}</button>
-      </form>}
-      {canInviteUsers && organizationId === starnetMockUserBatch.organizationId && <div className="workspace-panel-actions">
-        <button className="button button-outline button-small" type="button" disabled={mockBatchLoading} onClick={() => void createMockUserBatch()}>{mockBatchLoading ? 'Creating test accounts...' : 'Create StarNet test accounts'}</button>
-        <button className="button button-outline button-small" type="button" disabled={mockIncidentLoading} onClick={() => void seedMockIncidentBatch()}>{mockIncidentLoading ? 'Seeding 1,000 mock incidents...' : 'Seed 1,000 mock incidents'}</button>
-      </div>}
-      {mockIncidentResult && <section className="workspace-section" aria-live="polite">
-        <h3>Incident batch: {mockIncidentResult.createdCount} created, {mockIncidentResult.alreadyExistingCount} already present</h3>
-        <p>Batch {mockIncidentResult.batchId}; timestamps are limited to 2023-09-29 through 2026-09-29. Evidence attachments were not created.</p>
-        <div className="user-table-wrap"><table className="user-table"><thead><tr><th>Table</th><th>Rows</th></tr></thead><tbody>{Object.entries(mockIncidentResult.tableCounts).map(([table, count]) => <tr key={table}><td>{table}</td><td>{count}</td></tr>)}</tbody></table></div>
-        <div className="role-permission-list">{Object.entries(mockIncidentResult.byStatus).map(([value, count]) => <span key={`status-${value}`}>Status: {value} ({count})</span>)}{Object.entries(mockIncidentResult.bySeverity).map(([value, count]) => <span key={`severity-${value}`}>Severity: {value} ({count})</span>)}{Object.entries(mockIncidentResult.byCategory).map(([value, count]) => <span key={`category-${value}`}>Category: {value} ({count})</span>)}</div>
-      </section>}
-      {mockBatchResult && <section className="workspace-section" aria-live="polite">
-        <h3>Mock accounts: {mockBatchResult.createdCount} created, {mockBatchResult.alreadyExistingCount} already existed</h3>
-        <p>New accounts have active status. Temporary passwords are shown once here; distribute them securely and rotate them after first sign-in. Password rotation is not currently enforced by the application.</p>
-        <div className="user-table-wrap"><table className="user-table"><thead><tr><th>Name / ID</th><th>Email</th><th>Role</th><th>Department</th><th>Site</th><th>One-time password</th></tr></thead><tbody>{mockBatchResult.users.map((user) => <tr key={user.id}><td><strong>{user.fullName}</strong><small>{user.id} · {user.employeeId}</small></td><td>{user.email}</td><td>{user.role}</td><td>{user.department}</td><td>{user.siteLocation}</td><td>{user.temporaryPassword ?? 'Existing account; unchanged'}</td></tr>)}</tbody></table></div>
-      </section>}
-      <div className="user-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, ID, department, or role" /><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}><option value="all">All roles</option>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select><select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)}><option value="all">All departments</option>{departments.filter((department) => department.active).map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}<option value="__unset__">Department not set</option></select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select><button className="button button-outline workspace-refresh" type="button" onClick={() => void loadUsers()}>Refresh</button></div>
-      <FormMessage error={error} success={message} />
-      {loading ? <div className="workspace-empty">Loading organization users...</div> : filteredUsers.length === 0 ? <div className="workspace-empty">No users match the current filters.</div> : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>User</th><th>Department</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.employee_id || user.id}</small></td><td>{getDepartmentLabel(user.department)}</td><td><select value={user.role} disabled={user.id === currentUserId || !canManageUserRoles} onChange={(event) => void updateUser(user, 'role', event.target.value)}>{roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}</select></td><td><select value={user.account_status} disabled={user.id === currentUserId || !canEditUsers} onChange={(event) => void updateUser(user, 'account_status', event.target.value)}>{!['active', 'inactive'].includes(user.account_status) && <option value={user.account_status} disabled>{user.account_status.charAt(0).toUpperCase() + user.account_status.slice(1)}</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></td><td><select aria-label={`Actions for ${user.full_name}`} defaultValue="" disabled={user.id === currentUserId || (!canSuspendUsers && !canDeactivateUsers)} onChange={(event) => { const action = event.target.value; if (action === 'Suspend' && canSuspendUsers) void updateUser(user, 'account_status', 'suspended'); if (action === 'Deactivate' && canDeactivateUsers) void updateUser(user, 'account_status', 'inactive'); event.currentTarget.value = '' }}><option value="">Select action</option>{USER_ACTION_OPTIONS.filter((action) => action === 'Suspend' ? canSuspendUsers : canDeactivateUsers).map((action) => <option value={action} key={action}>{action}</option>)}</select></td></tr>)}</tbody></table></div>}
+          onCreateRole={() => { setError(''); setMessage(''); setRoleDialogOpen(true) }}
+        />
+      )}
+
+      <MockDataCard
+        visible={canInviteUsers && organizationId === starnetMockUserBatch.organizationId}
+        userLoading={mockBatchLoading}
+        userResult={mockBatchResult}
+        incidentLoading={mockIncidentLoading}
+        incidentResult={mockIncidentResult}
+        onCreateUsers={() => void createMockUserBatch()}
+        onSeedIncidents={() => void seedMockIncidentBatch()}
+      />
+
+      <Card className="p-4 shadow-none">
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchField
+            className="min-w-[240px] flex-1"
+            value={query}
+            onChange={setQuery}
+            placeholder="Search name, ID, department, or role"
+            label="Search users"
+          />
+          <Select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} containerClassName="min-w-[170px]" aria-label="Filter by role">
+            <option value="all">All roles</option>
+            {roleComboOptions.map((role) => <option value={role.value} key={role.id}>{role.label}</option>)}
+          </Select>
+          <Select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} containerClassName="min-w-[190px]" aria-label="Filter by department">
+            <option value="all">All departments</option>
+            {departments.map((department) => <option value={department.name} key={department.name}>{department.name}</option>)}
+            <option value="__unset__">Department not set</option>
+          </Select>
+          <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} containerClassName="min-w-[160px]" aria-label="Filter by status">
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+            <option value="suspended">Suspended</option>
+            <option value="inactive">Inactive</option>
+          </Select>
+          <Button variant="outline" size="sm" loading={loading} onClick={() => void loadUsers()}>Refresh</Button>
+        </div>
+      </Card>
+
+      <UsersTable
+        users={filteredUsers}
+        loading={loading}
+        roleOptions={roleComboOptions}
+        currentUserId={currentUserId}
+        canManageUserRoles={canManageUserRoles}
+        canEditUsers={canEditUsers}
+        canSuspendUsers={canSuspendUsers}
+        canDeactivateUsers={canDeactivateUsers}
+        onUpdate={(user, field, value) => void updateUser(user, field, value)}
+      />
+
       {showInvitations && canInviteUsers && (
-        <section className="invitations-section">
-          <div className="workspace-panel-heading">
-            <div>
-              <div className="eyebrow">INVITATIONS</div>
-              <h2>Pending and recent invitations</h2>
-              <p>Invitation links expire 24 hours after they are sent.</p>
-            </div>
-            <div className="workspace-panel-actions">
-              <button className="button button-outline button-small" type="button" onClick={() => void loadInvitations()} disabled={invitationsLoading}>
-                {invitationsLoading ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-          </div>
-          {invitationsLoading && invitations.length === 0 ? <div className="workspace-empty">Loading invitations...</div>
-            : invitations.length === 0 ? <div className="workspace-empty">No invitations have been sent yet.</div>
-            : <div className="user-table-wrap"><table className="user-table"><thead><tr><th>Invitee</th><th>Department</th><th>Role</th><th>Status</th><th>Invited by</th><th>Sent</th><th>Actions</th></tr></thead><tbody>{invitations.map((invitation) => {
-              const expiryLabel = describeInvitationExpiry(invitation)
-              const canResend = invitation.status === 'pending' && expiryLabel !== 'Expired'
-              return <tr key={invitation.id}>
-                <td><strong>{invitation.invitee_email}</strong></td>
-                <td>{getDepartmentLabel(invitation.department)}</td>
-                <td>{invitation.role}</td>
-                <td>{invitation.status.charAt(0).toUpperCase() + invitation.status.slice(1)}{expiryLabel ? <small>{expiryLabel}</small> : null}</td>
-                <td>{invitation.invited_by_name || '—'}</td>
-                <td>{new Date(invitation.created_at).toLocaleString()}</td>
-                <td>{canResend
-                  ? <button className="button button-outline button-small" type="button" disabled={resendingEmail === invitation.invitee_email} onClick={() => void resendInvitation(invitation)}>
-                    {resendingEmail === invitation.invitee_email ? 'Sending...' : 'Resend'}
-                  </button>
-                  : <span>—</span>}</td>
-              </tr>
-            })}</tbody></table></div>}
-        </section>
+        <InvitationsCard
+          invitations={invitations}
+          loading={invitationsLoading}
+          resendingEmail={resendingEmail}
+          onRefresh={() => void loadInvitations()}
+          onResend={(invitation) => void resendInvitation(invitation)}
+        />
       )}
-      {showRoleManagement && canManageRolesPermissions && <RoleManagementSection organizationId={organizationId} canManage />}
-      {roleModalOpen && canManageRolesPermissions && (
-        <div className="role-creator-backdrop" onClick={() => setRoleModalOpen(false)}>
-          <div className="role-creator-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="role-creator-header">
-              <div>
-                <div className="eyebrow">CREATE ROLE</div>
-                <h3>New custom role</h3>
-              </div>
-              <button className="button button-outline button-small" type="button" onClick={() => setRoleModalOpen(false)}>Close</button>
-            </div>
-            <div className="role-creator-body">
-              <label>
-                Role name
-                <input value={roleDraft.name} onChange={(event) => setRoleDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Permit Coordinator" required />
-              </label>
-              <label>
-                Description
-                <input value={roleDraft.description} onChange={(event) => setRoleDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Optional description" />
-              </label>
-              <div className="permission-grid">
-                {permissionCatalog.map((permission) => { const definition = USER_MANAGEMENT_PERMISSION_CATALOG.find((item) => item.key === permission); const required = BASELINE_PERMISSION_KEYS.includes(permission as typeof BASELINE_PERMISSION_KEYS[number]); return (
-                  <label className={`permission-toggle${required ? ' permission-required' : ''}`} key={permission}>
-                    <input type="checkbox" checked={roleDraft.permissions.includes(permission)} disabled={required} onChange={() => toggleRolePermission(permission)} />
-                    <span><b>{definition?.label || permission.replaceAll('_', ' ')}{required ? ' · Required' : ''}</b><small>{definition?.description}</small></span>
-                  </label>
-                )})}
-              </div>
-            </div>
-            <div className="role-creator-actions">
-              <button className="button button-outline button-small" type="button" onClick={() => setRoleModalOpen(false)}>Cancel</button>
-              <button className="button button-green button-small" type="button" onClick={() => void saveCustomRole()} disabled={roleDraftLoading}>{roleDraftLoading ? 'Saving...' : 'Save role'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {departmentModalOpen && (
-        <div className="role-creator-backdrop" onClick={() => setDepartmentModalOpen(false)}>
-          <div className="role-creator-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="role-creator-header">
-              <div>
-                <div className="eyebrow">ORGANIZATION SETTINGS</div>
-                <h3>New department</h3>
-              </div>
-              <button className="button button-outline button-small" type="button" onClick={() => setDepartmentModalOpen(false)}>Close</button>
-            </div>
-            <div className="role-creator-body">
-              <label>
-                Department name
-                <input value={departmentDraft} onChange={(event) => setDepartmentDraft(event.target.value)} placeholder="e.g. Process Safety" autoFocus required />
-              </label>
-            </div>
-            <div className="role-creator-actions">
-              <button className="button button-outline button-small" type="button" onClick={() => setDepartmentModalOpen(false)}>Cancel</button>
-              <button className="button button-green button-small" type="button" onClick={() => void saveDepartment()} disabled={departmentLoading}>{departmentLoading ? 'Saving...' : 'Save department'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-      <p className="workspace-note">Password resets remain server-side through Supabase Auth. The browser never receives the service-role credential.</p>
+
+      <RoleEditorDialog
+        open={roleDialogOpen}
+        onClose={() => setRoleDialogOpen(false)}
+        organizationId={organizationId}
+        onSaved={async (roleName) => {
+          setInviteRole(roleName)
+          await loadCustomRoles()
+          setMessage(`Custom role "${roleName}" created and selected.`)
+        }}
+      />
+
+      <DepartmentDialog
+        open={departmentModalOpen}
+        onClose={() => { setDepartmentModalOpen(false); setError(''); setMessage('') }}
+        name={departmentDraft}
+        setName={setDepartmentDraft}
+        loading={departmentLoading}
+        error={error}
+        onSave={() => void saveDepartment()}
+      />
+
+      <p className="text-xs text-muted">Password resets remain server-side through Supabase Auth. The browser never receives the service-role credential.</p>
     </div>
   )
 }
