@@ -10,11 +10,8 @@ import { IncidentTrendChart } from './IncidentTrendChart'
 import { SafetyLocations } from './SafetyLocations'
 import { SafetyPlanningOutlook } from './SafetyPlanningOutlook'
 import { SafetyAssistant } from '../ai/SafetyAssistant'
-import { BookOpen, RefreshCw, ShieldCheck, MessageSquare } from 'lucide-react'
-import { KnowledgePage } from '../knowledge/KnowledgePage'
+import { RefreshCw, ShieldCheck } from 'lucide-react'
 import { ExecutiveAnalyticsExport } from './ExecutiveAnalyticsExport'
-
-type SafetyTab = 'assistant' | 'knowledge' | null
 
 export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false, canExportAnalytics = false, view = 'assistant' }: {
   client: SupabaseClient
@@ -35,7 +32,6 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([])
   const [shiftOptions, setShiftOptions] = useState<string[]>([])
   const [severityOptions, setSeverityOptions] = useState<string[]>([])
-  const [activeTab, setActiveTab] = useState<SafetyTab>(null)
   const [exporting, setExporting] = useState(false)
   const setReportingPeriod = (period: 30 | 90 | 'all') => {
     setTrendPeriod(period)
@@ -89,14 +85,8 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
   }, [client, scope.organizationId])
   // Never display cached successful data after a failed permission/retrieval refresh.
   return <div className="safety-intelligence-page">
-    {view === 'assistant' && <nav className="safety-section-links" aria-label="AI Safety Assistant sections">
-      <button type="button" aria-pressed={activeTab === 'assistant'} onClick={() => setActiveTab('assistant')}>
-        <MessageSquare size={16} aria-hidden="true" />AI Safety Assistant
-      </button>
-      {canViewKnowledge && <button type="button" aria-pressed={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')}>
-        <BookOpen size={16} aria-hidden="true" />QHSE Knowledge
-      </button>}
-    </nav>}
+    {view === 'assistant' && <SafetyAssistant key={`${scope.organizationId}:${scope.userId}`} client={client} scope={scope}
+      snapshot={!snapshot.isError ? data : undefined} canViewKnowledge={canViewKnowledge} />}
     {view === 'executive-analytics' && <section className="safety-intelligence-section" id="executive-analytics-content" aria-labelledby="safety-intelligence-title">
       <div className="safety-section-heading">
         <div><div className="eyebrow">OPERATIONAL INTELLIGENCE</div>
@@ -170,10 +160,5 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
         <SafetyPlanningOutlook snapshot={data} />
         </>}
     </section>}
-    {activeTab === 'assistant' && <SafetyAssistant key={`${scope.organizationId}:${scope.userId}`} client={client} scope={scope}
-      snapshot={!snapshot.isError ? data : undefined} />}
-    {activeTab === 'knowledge' && canViewKnowledge && <KnowledgePage key={`${scope.organizationId}:${scope.userId}`} client={client} scope={{
-      organizationId: scope.organizationId, userId: scope.userId,
-    }} />}
   </div>
 }

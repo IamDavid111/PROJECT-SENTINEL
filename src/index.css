@@ -1682,38 +1682,12 @@ blockquote footer span {
   min-width: 0;
 }
 
-.safety-section-links,
 .safety-section-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-}
-
-.safety-section-links {
-  justify-content: flex-start;
-}
-
-.safety-section-links a,
-.safety-section-links button {
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-  padding: 10px 16px;
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 24px;
-  background: var(--surface);
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.safety-section-links button[aria-pressed="true"] {
-  border-color: var(--green);
-  font-weight: 700;
 }
 
 .safety-intelligence-section {
@@ -4887,59 +4861,6 @@ button.workspace-placeholder-action:disabled {
     max-height: min(52vh, 420px);
   }
 }
-.assistant-section { margin-top: 12px; }
-.assistant-section .safety-section-heading { margin-bottom: 24px; }
-.assistant-knowledge-notice { font-size: 12px; color: var(--muted); }
-.assistant-knowledge-notice summary { display: flex; align-items: center; gap: 6px; }
-.assistant-conversation-layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 20px; align-items: start; }
-.assistant-sidebar { min-width: 0; display: grid; gap: 16px; }
-.assistant-suggestions, .assistant-history { border: 1px solid var(--line); border-radius: 16px; padding: 22px; background: #fff; }
-.assistant-suggestions h3, .assistant-chat-heading h3 { display: flex; align-items: center; gap: 10px; font-size: 16px; margin: 0; }
-.assistant-suggestions h3 svg, .assistant-chat-heading h3 svg, .assistant-history summary > svg { color: var(--green); flex-shrink: 0; }
-.assistant-suggestions > p { font-size: 13px; margin: 8px 0 20px; }
-.assistant-suggestions > small { color: var(--muted); font-size: 11px; line-height: 1.6; }
-.assistant-history summary { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
-.assistant-history summary > span { margin-left: auto; font-size: 12px; color: var(--muted); }
-.assistant-history[open] .assistant-session-list { margin-top: 16px; max-height: 280px; overflow-y: auto; }
-.assistant-session-list { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.assistant-session-list > button:not(.button), .assistant-starters button { padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
-.assistant-session-list button[aria-pressed="true"] { border-color: #14b8a6; }
-.assistant-session-list small { display: block; margin-top: 5px; }
-.assistant-chat { min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: #fff; overflow: hidden; }
-.assistant-chat-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 22px 24px; border-bottom: 1px solid var(--line); }
-.assistant-chat-alerts:not(:empty) { padding: 16px 24px 0; }
-.assistant-messages { height: clamp(360px, 52vh, 620px); overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 24px; scrollbar-gutter: stable; }
-.assistant-messages > * { flex-shrink: 0; }
-.assistant-welcome { display: flex; align-items: flex-start; gap: 12px; }
-.assistant-avatar { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; color: var(--green); background: rgb(18 169 79 / 10%); }
-.assistant-welcome-bubble { border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; max-width: 720px; }
-.assistant-welcome h4 { margin: 0 0 8px; font-size: 15px; }
-.assistant-welcome p { margin: 0 0 8px; font-size: 14px; }
-.assistant-welcome small { color: var(--muted); font-size: 12px; }
-.assistant-message { border: 1px solid var(--line); border-radius: 12px; padding: 16px; max-width: 94%; overflow-wrap: anywhere; }
-.assistant-message-heading strong { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green-dark); }
-.assistant-message p { white-space: pre-wrap; }
-.assistant-answer-sections section, .assistant-evidence { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
-.assistant-answer-sections h5, .assistant-evidence h5 { font-size: 0.95rem; margin: 0 0 8px; }
-.assistant-evidence a { color: var(--green); text-decoration: underline; }
-.assistant-evidence small { display: block; }
-.dark-theme .assistant-answer-sections section, .dark-theme .assistant-evidence { border-color: #26364d; }
-.assistant-message-user { align-self: flex-end; background: rgb(20 184 166 / 10%); }
-.assistant-message-assistant { align-self: flex-start; }
-.assistant-starters { display: grid; gap: 10px; margin: 16px 0; }
-.assistant-starters button { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.5; transition: border-color .15s, background .15s; }
-.assistant-starters button svg { color: var(--green); flex-shrink: 0; margin-top: 3px; }
-.assistant-starters button:hover:not(:disabled) { border-color: var(--green); background: rgb(18 169 79 / 5%); }
-.assistant-composer { display: grid; gap: 8px; padding: 16px 20px; border-top: 1px solid var(--line); }
-.assistant-composer > label { font-size: 11px; color: var(--muted); }
-.assistant-composer > small { font-size: 11px; color: var(--muted); }
-.assistant-composer textarea { flex: 1; min-width: 0; width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; max-height: 160px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 13px; }
-.assistant-composer-input { display: flex; gap: 10px; align-items: center; }
-.assistant-send { min-width: 40px; min-height: 40px; padding: 10px; border-radius: 10px; }
-.assistant-processing { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.assistant-processing-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: assistant-pulse 1.2s infinite alternate; }
-@keyframes assistant-pulse { to { opacity: .35; } }
-.dark-theme .assistant-chat, .dark-theme .assistant-suggestions, .dark-theme .assistant-history { background: #101829; }
 .dark-theme .safety-intelligence-page .safety-kpi { background: #101829; }
 
 #executive-analytics-content .safety-kpi-grid {
@@ -4983,32 +4904,16 @@ button.workspace-placeholder-action:disabled {
 #executive-analytics-content .safety-risk-low .safety-kpi-value {
   color: var(--kpi-accent);
 }
-.dark-theme .assistant-message-heading strong { color: #62dc91; }
-.dark-theme .assistant-message, .dark-theme .assistant-starters button, .dark-theme .assistant-session-list > button:not(.button), .dark-theme .assistant-composer textarea { border-color: #26364d; }
-.dark-theme .assistant-session-list button[aria-pressed="true"] { border-color: #14b8a6; }
 @media (max-width: 1100px) {
-  .assistant-conversation-layout { grid-template-columns: minmax(0, 1fr) 250px; }
   .safety-priority-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 800px) {
-  .assistant-conversation-layout { grid-template-columns: minmax(0, 1fr); }
-  .assistant-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .safety-planning-table table { min-width: 640px; }
 }
 @media (max-width: 640px) {
-  .assistant-sidebar { grid-template-columns: minmax(0, 1fr); }
-  .assistant-messages { height: 360px; padding: 16px; }
-  .assistant-chat-heading, .assistant-suggestions, .assistant-history, .safety-priority-panel, .safety-locations:not(.safety-priority-grid) { padding: 18px; }
-  .assistant-composer { padding: 14px; }
-  .assistant-message { max-width: 100%; }
+  .safety-priority-panel, .safety-locations:not(.safety-priority-grid) { padding: 18px; }
   .safety-intelligence-section { padding: 0; }
   .safety-intelligence-section { scroll-margin-top: 24px; }
-  .safety-section-links { gap: 8px; }
-  .safety-section-links a, .safety-section-links button { font-size: 12px; padding: 9px 12px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .assistant-processing-dot { animation: none; }
-  .assistant-starters button { transition: none; }
 }
 
 /* ------------------------------------------------------------------

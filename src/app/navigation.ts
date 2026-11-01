@@ -8,7 +8,8 @@ export const primaryNavigation: { route: AppRoute; label: string; icon: IconName
   { route: 'dashboard', label: 'Dashboard', icon: 'dashboard', permission: 'view_dashboard' },
   { route: 'report-incident', label: 'Report Incident', icon: 'reportIncident', permission: 'report_incident' },
   { route: 'inspections', label: 'Inspections', icon: 'inspections', permission: 'create_inspection' },
-  { route: 'ai-assistant', label: 'Safety Intelligence', icon: 'aiAssistant', permission: 'use_ai_assistant' },
+  { route: 'ai-assistant', label: 'AI Safety Assistant', icon: 'aiAssistant', permission: 'use_ai_assistant' },
+  { route: 'knowledge', label: 'QHSE Knowledge', icon: 'knowledge', permission: 'view_knowledge_documents' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: 'executiveAnalytics', permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: 'marketplace', permission: 'view_marketplace' },
 ]

@@ -22,20 +22,20 @@ export function AnswerEvidence({ client, scope, evidence }: {
     return () => window.removeEventListener('incident-records-updated', refresh)
   }, [refetch])
   const checked = !sources.isFetching && !sources.isError ? sources.data : undefined
-  return <section className="assistant-evidence" aria-label="Validated supporting records">
-    <h5>Validated supporting records</h5>
-    <p>Answer snapshot: {evidence.asOf ?? 'Not recorded'} (UTC). Scope: {evidence.visibility ?? 'Not recorded'}.
+  return <section className="mt-4 grid gap-2 border-t border-line pt-4 text-sm" aria-label="Validated supporting records">
+    <h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Validated supporting records</h5>
+    <p className="text-xs text-muted">Answer snapshot: {evidence.asOf ?? 'Not recorded'} (UTC). Scope: {evidence.visibility ?? 'Not recorded'}.
       {' '}Methodology: {evidence.methodology ?? 'Not recorded'}.</p>
-    <p>Historical answer, not a current record. Details below are rechecked against your current access.
+    <p className="text-xs text-muted">Historical answer, not a current record. Details below are rechecked against your current access.
       Links open the supporting incident; child record access is checked separately.</p>
-    {sources.isFetching ? <p role="status">Rechecking current source permissions...</p>
-      : sources.isError ? <p role="alert">{sources.error.message}</p>
-        : checked?.length ? <ul>{checked.map((source) => <li key={source.key}>
-          <a href={`#incident-detail?id=${encodeURIComponent(source.incidentId)}`}>{source.label}</a>
-          <small> · {source.recordType} · Incident reported: {source.date ?? 'Date unavailable'}</small>
-        </li>)}</ul> : <p>No currently accessible supporting records to display.</p>}
-    {checked && checked.length < evidence.sourceIds.length && <p>Some sources are unavailable or no longer accessible. Their titles and metadata are hidden.</p>}
-    {!evidence.sourceIds.length && <p>No record citation was supplied. Aggregate observations are separate from record examples.</p>}
+    {sources.isFetching ? <p className="text-xs text-muted" role="status">Rechecking current source permissions...</p>
+      : sources.isError ? <p className="text-xs text-danger" role="alert">{sources.error.message}</p>
+        : checked?.length ? <ul className="grid gap-2">{checked.map((source) => <li key={source.key} className="text-sm">
+          <a className="font-medium text-brand hover:underline" href={`#incident-detail?id=${encodeURIComponent(source.incidentId)}`}>{source.label}</a>
+          <small className="text-xs text-muted"> · {source.recordType} · Incident reported: {source.date ?? 'Date unavailable'}</small>
+        </li>)}</ul> : <p className="text-xs text-muted">No currently accessible supporting records to display.</p>}
+    {checked && checked.length < evidence.sourceIds.length && <p className="text-xs text-muted">Some sources are unavailable or no longer accessible. Their titles and metadata are hidden.</p>}
+    {!evidence.sourceIds.length && <p className="text-xs text-muted">No record citation was supplied. Aggregate observations are separate from record examples.</p>}
     <KnowledgeEvidence client={client} scope={scope} evidence={evidence} />
   </section>
 }
@@ -51,34 +51,34 @@ function KnowledgeEvidence({ client, scope, evidence }: {
     queryFn: () => resolveCitations(client, ids),
     enabled: ids.length > 0, staleTime: 0, gcTime: 0, retry: false, refetchOnMount: 'always',
   })
-  if (!ids.length) return <p>No approved QHSE knowledge document was cited for this answer.</p>
+  if (!ids.length) return <p className="text-xs text-muted">No approved QHSE knowledge document was cited for this answer.</p>
   return <>
-    <h5>Cited QHSE knowledge</h5>
-    {citations.isFetching ? <p role="status">Rechecking document permissions...</p>
-      : citations.isError ? <p role="alert">Unable to verify cited documents. Their details are hidden.</p>
-        : citations.data?.length ? <ul>{[...citations.data].sort((a, b) => a.documentTitle.localeCompare(b.documentTitle) || a.location.chunkOrder - b.location.chunkOrder).map((item) => <li key={item.chunkId}>
+    <h5 className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted">Cited QHSE knowledge</h5>
+    {citations.isFetching ? <p className="text-xs text-muted" role="status">Rechecking document permissions...</p>
+      : citations.isError ? <p className="text-xs text-danger" role="alert">Unable to verify cited documents. Their details are hidden.</p>
+        : citations.data?.length ? <ul className="grid gap-3">{[...citations.data].sort((a, b) => a.documentTitle.localeCompare(b.documentTitle) || a.location.chunkOrder - b.location.chunkOrder).map((item) => <li key={item.chunkId} className="text-sm">
           {/* "Excerpt N" = stored chunk position; the source has no stored section/page numbers. */}
-          <a href={item.reference}>{item.documentTitle}           (v{item.versionNumber}) · Excerpt {item.location.chunkOrder + 1}</a>
-                    <small> · {item.documentType} · Effective: {item.effectiveDate ?? 'Not recorded'}</small>
-          <blockquote>{item.excerpt.length > 300 ? `${item.excerpt.slice(0, 300)}…` : item.excerpt}</blockquote>
+          <a className="font-medium text-brand hover:underline" href={item.reference}>{item.documentTitle} (v{item.versionNumber}) · Excerpt {item.location.chunkOrder + 1}</a>
+          <small className="text-xs text-muted"> · {item.documentType} · Effective: {item.effectiveDate ?? 'Not recorded'}</small>
+          <blockquote className="mt-2 border-l-2 border-line pl-3 text-xs text-muted">{item.excerpt.length > 300 ? `${item.excerpt.slice(0, 300)}…` : item.excerpt}</blockquote>
         </li>)}</ul> : null}
     {citations.data && citations.data.length < ids.length
-      && <p>Some cited documents are no longer current or accessible. Their details are hidden.</p>}
+      && <p className="text-xs text-muted">Some cited documents are no longer current or accessible. Their details are hidden.</p>}
   </>
 }
 
 export function AnswerSections({ evidence }: { evidence: MessageEvidence }) {
   const sections = evidence.presentation
-  if (!sections) return <p>Structured sections were not saved for this older answer. Original text is shown above; no evidence metadata is inferred from it.</p>
-  return <div className="assistant-answer-sections">
-    <section><h5>Observed facts at answer time</h5>
-      {sections.observations.length ? sections.observations.map((item) => <div key={item.key}>
-        <strong>{metricLabels[item.key]}</strong>
-        <p>{describeObservation(item.key, item.value)}</p></div>) : <p>No canonical metric selected for this answer.</p>}</section>
-    <section><h5>AI interpretation — advisory</h5><p>{sections.interpretation}</p></section>
-    {sections.advice && <section><h5>Advisory recommendations</h5><p>{sections.advice}</p></section>}
-    <section><h5>Coverage and limitations</h5><p>{sections.limitations}</p>
-      <ul>{sections.serverLimitations.map((text, index) => <li key={index}>{text}</li>)}</ul></section>
+  if (!sections) return <p className="text-sm text-foreground">Structured sections were not saved for this older answer. Original text is shown above; no evidence metadata is inferred from it.</p>
+  return <div className="mt-3 grid gap-3">
+    <section className="border-t border-line pt-3 first:border-t-0 first:pt-0"><h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Observed facts at answer time</h5>
+      {sections.observations.length ? sections.observations.map((item) => <div key={item.key} className="mt-2">
+        <strong className="text-sm font-semibold text-foreground">{metricLabels[item.key]}</strong>
+        <p className="text-sm text-foreground">{describeObservation(item.key, item.value)}</p></div>) : <p className="text-sm text-muted">No canonical metric selected for this answer.</p>}</section>
+    <section className="border-t border-line pt-3"><h5 className="text-xs font-semibold uppercase tracking-wide text-muted">AI interpretation — advisory</h5><p className="text-sm text-foreground">{sections.interpretation}</p></section>
+    {sections.advice && <section className="border-t border-line pt-3"><h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Advisory recommendations</h5><p className="text-sm text-foreground">{sections.advice}</p></section>}
+    <section className="border-t border-line pt-3"><h5 className="text-xs font-semibold uppercase tracking-wide text-muted">Coverage and limitations</h5><p className="text-sm text-foreground">{sections.limitations}</p>
+      <ul className="mt-1 grid gap-1 text-sm text-muted">{sections.serverLimitations.map((text, index) => <li key={index}>{text}</li>)}</ul></section>
   </div>
 }
 

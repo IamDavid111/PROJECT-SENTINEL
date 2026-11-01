@@ -146,7 +146,6 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     ? canCreateInspections || canManageActions : canAccess(item.permission))
   const visibleSecondaryNavigation = secondaryNavigation.filter((item) => item.route === 'settings' ? canManageCompanySettings && canAccess(item.permission) : canAccess(item.permission))
   const currentNavigation = [...primaryNavigation, ...secondaryNavigation, ...futureModuleRoutes].find((item) => item.route === route)
-    || (route === 'knowledge' ? { label: 'QHSE Knowledge', permission: 'view_knowledge_documents' as PermissionKey } : undefined)
   const currentRouteAuthorized = route === 'inspections'
     ? canCreateInspections || canManageActions
     : route === 'incident-detail'
@@ -177,15 +176,6 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
         hint: item.route,
         onSelect: () => { window.location.hash = `#${item.route}` },
       })),
-    ...(canAccess('view_knowledge_documents')
-      ? [{
-          id: 'route-knowledge',
-          label: 'QHSE Knowledge',
-          hint: 'knowledge',
-          icon: 'knowledge' as const,
-          onSelect: () => { window.location.hash = '#knowledge' },
-        }]
-      : []),
     ...(import.meta.env.DEV
       ? [
           {
