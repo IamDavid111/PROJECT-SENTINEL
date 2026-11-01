@@ -29,7 +29,7 @@ import { MyReportsPage } from '../incidents/MyReportsPage'
 import { useIncidentClosureAccess, useIncidentOfflineSync } from '../incidents/useIncidentData'
 import { KnowledgePage } from '../knowledge/KnowledgePage'
 import { ActionsWorkspace } from '../qhse/ActionsWorkspace'
-import { InspectionNavigationOnly, InspectionWorkspace } from '../qhse/InspectionWorkspace'
+import { InspectionWorkspace } from '../qhse/InspectionWorkspace'
 import { SafetyIntelligencePage } from '../safety-intelligence/SafetyIntelligencePage'
 import { normalizeEmergencyContacts, type EmergencyContact } from '../settings/companySettingsTypes'
 import { OrganizationSetupPage } from '../setup/OrganizationSetupPage'
@@ -347,8 +347,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
 
           {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage showInspectionBack />}
           {route === 'assigned-actions' && canAccess('view_own_reports') && <ActionsWorkspace supabase={supabase} canManage={canManageActions} assignedOnly canViewAllAssignedActions={canAccess('view_all_assigned_actions')} />}
-          {route === 'inspections' && canCreateInspections && <InspectionWorkspace supabase={supabase} canManageActions={canManageActions} />}
-          {route === 'inspections' && !canCreateInspections && canManageActions && <InspectionNavigationOnly canManageActions={canManageActions} />}
+          {route === 'inspections' && (canCreateInspections || canManageActions) && <InspectionWorkspace supabase={supabase} canManageActions={canManageActions} canCreate={canCreateInspections} />}
           {/* Navigation exists for these modules, but each route currently shows a placeholder instead of a working feature workflow. */}
           {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
           {route === 'reports' && canAccess('view_reports') && <WorkspacePlaceholder title="Reports" description="Reporting and exports will connect to validated operational records in the reporting module." action="Module coming next" />}

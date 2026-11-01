@@ -7,7 +7,7 @@ export type Permission = PermissionKey
 export const primaryNavigation: { route: AppRoute; label: string; icon: IconName; permission: Permission }[] = [
   { route: 'dashboard', label: 'Dashboard', icon: 'dashboard', permission: 'view_dashboard' },
   { route: 'report-incident', label: 'Report Incident', icon: 'reportIncident', permission: 'report_incident' },
-  { route: 'inspections', label: 'Log Inspection', icon: 'inspections', permission: 'create_inspection' },
+  { route: 'inspections', label: 'Inspections', icon: 'inspections', permission: 'create_inspection' },
   { route: 'ai-assistant', label: 'Safety Intelligence', icon: 'aiAssistant', permission: 'use_ai_assistant' },
   { route: 'executive-analytics', label: 'Executive Analytics', icon: 'executiveAnalytics', permission: 'view_executive_analytics' },
   { route: 'marketplace', label: 'HSE Marketplace', icon: 'marketplace', permission: 'view_marketplace' },

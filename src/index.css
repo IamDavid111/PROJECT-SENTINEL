@@ -1378,6 +1378,12 @@ blockquote footer span {
   cursor: pointer;
 }
 
+.workspace-nav a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .workspace-nav a:hover,
 .workspace-nav a.active {
   color: #fff;
@@ -1385,9 +1391,9 @@ blockquote footer span {
 }
 
 .workspace-nav-icon {
-  display: inline-grid;
+  display: grid;
+  flex: 0 0 20px;
   width: 20px;
-  margin-right: 8px;
   place-items: center;
   color: #61dc91;
   font-size: 15px;
