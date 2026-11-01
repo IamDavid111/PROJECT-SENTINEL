@@ -1,38 +1,38 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { ArrowRight, Check, Circle, Eye, Hand, Leaf, ShieldAlert, Siren } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 
+import { Badge, Button, Card, DetailList, EmptyState, Icon, PageHeader, Skeleton, buttonVariants } from '../../components/ui'
+import type { IconName } from '../../lib/icons'
 import type { Role } from '../../types'
 import { incidentReportTypes, type IncidentReportType } from './incidentTypes'
 import { IncidentReportForm } from './IncidentReportForm'
 import { useIncident, useIncidentOrganization } from './useIncidentData'
 
-const reportTypeDetails: Record<IncidentReportType, { label: string; description: string; icon: LucideIcon }> = {
+const reportTypeDetails: Record<IncidentReportType, { label: string; description: string; icon: IconName }> = {
   incident: {
     label: 'Report Incident',
     description: 'Record an actual undesired event involving injury, damage, environmental impact, or operational disruption.',
-    icon: Siren,
+    icon: 'reportIncident',
   },
   near_miss: {
     label: 'Report Near Miss',
     description: 'Capture an event that could reasonably have caused harm, damage, or loss but did not.',
-    icon: Eye,
+    icon: 'eye',
   },
   unsafe_act: {
     label: 'Report Unsafe Act',
     description: 'Report an unsafe behavior or action observed during work.',
-    icon: Hand,
+    icon: 'warning',
   },
   unsafe_condition: {
     label: 'Report Unsafe Condition',
     description: 'Report an unsafe physical, environmental, or workplace condition.',
-    icon: ShieldAlert,
+    icon: 'construction',
   },
   environmental_incident: {
     label: 'Report Environmental Incident',
     description: 'Record an event involving actual or potential environmental impact.',
-    icon: Leaf,
+    icon: 'leaf',
   },
 }
 
@@ -53,14 +53,14 @@ export type QuickIncidentOption = {
 export function IncidentTypeSelectionPage({ role, supabase, draftId, reportTypes = defaultReportTypes }: { role: Role; supabase: SupabaseClient; draftId?: string | null; reportTypes?: IncidentReportType[] }) {
   const allowedTypes = useMemo(() => reportTypes, [reportTypes])
   const organization = useIncidentOrganization(supabase)
-  const [selectedType, setSelectedType] = useState<IncidentReportType | null>(allowedTypes[0] || null)
+  const initialType = allowedTypes[0] || null
+  const [selectedType, setSelectedType] = useState<IncidentReportType | null>(initialType)
   const [selectedQuickId, setSelectedQuickId] = useState<string | null>(null)
-  const [selectedTitle, setSelectedTitle] = useState<string>('Incident')
+  const [selectedTitle, setSelectedTitle] = useState<string>(initialType ? reportTypeDetails[initialType].label.replace('Report ', '') : 'Incident')
   const [selectedCategory, setSelectedCategory] = useState<string>('')
-  const [selectedEnvironmentalImpact, setSelectedEnvironmentalImpact] = useState<boolean>(false)
+  const [selectedEnvironmentalImpact, setSelectedEnvironmentalImpact] = useState<boolean>(initialType === 'environmental_incident')
   const [isFormOpen, setIsFormOpen] = useState(false)
   const draft = useIncident(supabase, draftId || null)
-  const [message, setMessage] = useState('')
   const [configuredCategories, setConfiguredCategories] = useState<string[]>([])
 
   useEffect(() => {
@@ -99,7 +99,6 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId, reportTypes
     setSelectedTitle(label)
     setSelectedCategory('')
     setSelectedEnvironmentalImpact(type === 'environmental_incident')
-    setMessage('')
   }
 
   const handleSelectQuickOption = (option: QuickIncidentOption) => {
@@ -108,7 +107,6 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId, reportTypes
     setSelectedTitle(option.title)
     setSelectedCategory(option.category)
     setSelectedEnvironmentalImpact(!!option.environmentalImpact)
-    setMessage('')
   }
 
   const continueToReport = () => {
@@ -117,12 +115,35 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId, reportTypes
   }
 
   if (!allowedTypes.length) {
-    return <div className="workspace-panel incident-access-panel"><div className="eyebrow">REPORTING ACCESS</div><h2>Reporting is not available for this role</h2><p>Your current role does not have permission to create incident reports. Contact your organization administrator if your access should change.</p><a className="button button-outline workspace-back-link" href="#dashboard">Return to dashboard</a></div>
+    return (
+      <EmptyState
+        icon="reportIncident"
+        title="Reporting is not available"
+        description="Your current role does not have permission to create incident reports. Contact your organization administrator if your access should change."
+        action={<a href="#dashboard" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Return to dashboard</a>}
+      />
+    )
   }
 
   if (draftId) {
-    if (draft.isLoading) return <div className="workspace-panel">Loading draft...</div>
-    if (draft.isError || !draft.data || draft.data.status !== 'draft') return <div className="workspace-panel"><div className="auth-message error">This draft could not be loaded or is no longer editable.</div><a className="button button-outline workspace-back-link" href="#my-reports">Return to My Reports</a></div>
+    if (draft.isLoading) {
+      return (
+        <div className="grid gap-5">
+          <PageHeader eyebrow="Report incident" title="Report an incident" description="Restoring the draft." />
+          <Skeleton className="h-[320px] rounded-card" />
+        </div>
+      )
+    }
+    if (draft.isError || !draft.data || draft.data.status !== 'draft') {
+      return (
+        <EmptyState
+          icon="incidents"
+          title="Draft unavailable"
+          description="This draft could not be loaded or is no longer editable."
+          action={<a href="#my-reports" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Return to My Reports</a>}
+        />
+      )
+    }
     return <IncidentReportForm supabase={supabase} reportType={draft.data.reportType} draftId={draft.data.id} initialIncident={draft.data} />
   }
 
@@ -138,83 +159,109 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId, reportTypes
     )
   }
 
+  const selectedDetail = selectedType ? reportTypeDetails[selectedType] : null
+
   return (
-    <div className="incident-type-page">
-      <div className="incident-type-header">
-        <div>
-          <div className="eyebrow">REPORT INCIDENT</div>
-          <h2>What would you like to report?</h2>
-          <p>Select the report type or a quick field event that best describes the incident. Each selection automatically pre-fills and can be edited on the report slides.</p>
-        </div>
-        <div className="incident-role-context">
-          <span>Reporting as</span>
-          <strong>{role}</strong>
-        </div>
-      </div>
+    <div className="grid gap-5 pb-24 lg:pb-0">
+      <PageHeader
+        eyebrow="Report incident"
+        title="What would you like to report?"
+        description="Select the report type or a quick field event. Each selection pre-fills the report and can be edited on the following stages."
+        actions={<a href="#my-reports" className={buttonVariants({ variant: 'outline', size: 'sm' })}>My reports</a>}
+      />
 
-      <div className="incident-selection-container">
-        <div className="incident-type-grid">
-          {allowedTypes.map((type) => {
-            const detail = reportTypeDetails[type]
-            const selected = selectedType === type && !selectedQuickId
-            return (
-              <button
-                className={`incident-type-card${selected ? ' selected' : ''}`}
-                type="button"
-                key={type}
-                onClick={() => handleSelectReportType(type)}
-                aria-pressed={selected}
-              >
-                <span className="incident-type-icon" aria-hidden="true"><detail.icon size={21} /></span>
-                <span className="incident-type-copy">
-                  <strong>{detail.label}</strong>
-                  <small>{detail.description}</small>
-                </span>
-                <span className="incident-type-check" aria-hidden="true">{selected ? <Check size={16} /> : <Circle size={16} />}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="incident-quick-options-panel">
-          <div className="incident-quick-header">
-            <h3>Quick event classifications</h3>
-            <p>Auto-populates the incident title and category for immediate reporting:</p>
-          </div>
-          <div className="incident-quick-list">
-            {quickIncidentOptions.map((opt) => {
-              const selected = selectedQuickId === opt.id
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid gap-5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {allowedTypes.map((type) => {
+              const detail = reportTypeDetails[type]
+              const selected = selectedType === type && !selectedQuickId
               return (
                 <button
-                  className={`incident-quick-pill${selected ? ' selected' : ''}`}
+                  key={type}
                   type="button"
-                  key={opt.id}
-                  onClick={() => handleSelectQuickOption(opt)}
+                  onClick={() => handleSelectReportType(type)}
                   aria-pressed={selected}
+                  className={`flex items-start gap-3 rounded-card border p-4 text-left transition-colors ${selected ? 'border-brand bg-brand/5' : 'border-line bg-surface hover:border-brand/40'}`}
                 >
-                  <span className="incident-quick-title">{opt.title}</span>
-                  <span className="incident-quick-badge">{opt.category}</span>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                    <Icon name={detail.icon} size={20} />
+                  </span>
+                  <span className="grid min-w-0 gap-0.5">
+                    <strong className="text-sm font-semibold text-foreground">{detail.label}</strong>
+                    <span className="text-xs leading-relaxed text-muted">{detail.description}</span>
+                  </span>
+                  <span className={`ml-auto mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-brand bg-brand text-white' : 'border-line'}`} aria-hidden="true">
+                    {selected && <Icon name="check" size={10} />}
+                  </span>
                 </button>
               )
             })}
           </div>
+
+          {quickIncidentOptions.length > 0 && (
+            <Card className="p-5 shadow-none">
+              <div className="grid gap-0.5">
+                <h2 className="font-display text-base font-semibold text-foreground">Quick classifications</h2>
+                <p className="text-sm text-muted">Optional. Selecting one pre-fills the incident title and category.</p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {quickIncidentOptions.map((option) => {
+                  const selected = selectedQuickId === option.id
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => handleSelectQuickOption(option)}
+                      aria-pressed={selected}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${selected ? 'border-brand bg-brand/10 text-brand-dark' : 'border-line bg-surface text-muted hover:text-foreground'}`}
+                    >
+                      {option.title}
+                    </button>
+                  )
+                })}
+              </div>
+            </Card>
+          )}
+        </div>
+
+        <Card className="sticky top-24 hidden h-fit p-5 shadow-none lg:block">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Your report</span>
+            <Badge tone="neutral">Selection</Badge>
+          </div>
+          <div className="mt-3 grid gap-1">
+            <h2 className="font-display text-lg font-semibold tracking-tight text-foreground">{selectedTitle}</h2>
+            <p className="text-sm text-muted">{selectedDetail?.description || 'Choose a report type to continue.'}</p>
+          </div>
+          <DetailList
+            className="mt-4"
+            columns={1}
+            items={[
+              { label: 'Report type', value: selectedDetail?.label || 'Not selected' },
+              { label: 'Category', value: selectedCategory || 'Not set' },
+              { label: 'Reporting as', value: role },
+            ]}
+          />
+          <div className="mt-5 grid gap-2">
+            <Button onClick={continueToReport} disabled={!selectedType}>
+              Continue to report <Icon name="arrowRight" size={15} />
+            </Button>
+            <a href="#dashboard" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Cancel</a>
+          </div>
+        </Card>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-line bg-surface/95 p-3 backdrop-blur lg:hidden">
+        <div className="grid min-w-0 gap-0.5">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Selected</span>
+          <strong className="truncate text-sm font-medium text-foreground">{selectedTitle}</strong>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <a href="#dashboard" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>Cancel</a>
+          <Button size="sm" onClick={continueToReport} disabled={!selectedType}>Continue</Button>
         </div>
       </div>
-
-      <div className="incident-workflow-cards">
-        <article className="incident-quick-options-panel incident-workflow-card">
-          <div className="incident-quick-header"><h3>My Reports</h3><p>Review the incident reports you have submitted.</p></div>
-          <a className="button button-outline button-small" href="#my-reports">Open My Reports</a>
-        </article>
-      </div>
-
-      <div className="incident-type-actions">
-        <button className="button button-green button-large" type="button" disabled={!selectedType} onClick={continueToReport}>
-          Continue to report <ArrowRight size={16} />
-        </button>
-        <a className="button button-outline button-large" href="#dashboard">Cancel</a>
-      </div>
-      {message && <div className="auth-message success" role="status">{message}</div>}
     </div>
   )
 }
