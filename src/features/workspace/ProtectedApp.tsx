@@ -6,7 +6,7 @@ import { executiveAnalyticsAccessMessage } from '../../app/messages'
 import { futureModuleRoutes, primaryNavigation, secondaryNavigation } from '../../app/navigation'
 import { getAppRoute, type AppRoute } from '../../app/routes'
 import { BrandMark } from '../../components/brand/BrandMark'
-import { Alert, Button } from '../../components/ui'
+import { Alert } from '../../components/ui'
 import { CommandPalette, type CommandItem } from '../../components/ui/command-palette'
 import { Icon } from '../../components/ui/icon'
 import { BUILT_IN_BACKEND_ROLES, USER_MANAGEMENT_BACKEND_TO_ROLE, hasPermission } from '../../data/userManagementConfig'
@@ -39,7 +39,7 @@ import { WorkspacePlaceholder } from './WorkspacePlaceholder'
 export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
   useIncidentOfflineSync(supabase)
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
-  const [analyticsOpen, setAnalyticsOpen] = useState(false)
+
   const [role, setRole] = useState<string | null>(null)
   const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([])
   const [organizationId, setOrganizationId] = useState('')
@@ -70,7 +70,6 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   useEffect(() => {
     const handleHashChange = () => {
       setRoute(getAppRoute())
-      setAnalyticsOpen(false)
     }
     window.addEventListener('hashchange', handleHashChange)
     // A valid sign-in does not by itself identify the user's organization or app role.
@@ -351,27 +350,17 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           )}
           {route === 'knowledge' && canAccess('view_knowledge_documents') && <KnowledgePage key={`${organizationId}:${session.user.id}`} client={supabase} scope={{ organizationId, userId: session.user.id }} />}
           {/* Keep direct route requests visible so missing access gets an explicit denial; the Edge Function rechecks before data reads. */}
-          {route === 'executive-analytics' && <>
-            <div hidden={analyticsOpen && canAccess('view_executive_analytics')}>
-              <WorkspacePlaceholder title="Executive Analytics" description="Executive views will connect to validated operational metrics, trends, and site comparisons." action="Open Analytics Foundation"
-                onAction={canAccess('view_executive_analytics') ? () => setAnalyticsOpen(true) : undefined}
-                actionDisabled={closureAccess.isPending || closureAccess.isError} />
-            </div>
-            {!canAccess('view_executive_analytics')
+          {route === 'executive-analytics' && (
+            !canAccess('view_executive_analytics')
               ? <Alert tone="danger">{executiveAnalyticsAccessMessage}</Alert>
-              : <div hidden={!analyticsOpen}>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setAnalyticsOpen(false)}>
-                    <Icon name="arrowLeft" size={16} aria-hidden="true" />Back to Executive Analytics introduction
-                  </Button>
-                  {/* Keep the existing view mounted so returning to the introduction preserves its reporting window and refresh state. */}
-                  {closureAccess.isPending ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
-                    : !closureAccess.isError && <SafetyIntelligencePage view="executive-analytics" canExportAnalytics={canAccess('view_executive_analytics')} client={supabase} scope={{
-                      organizationId, userId: session.user.id,
-                      visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',
-                      siteAssignmentEnforced: false,
-                    }} />}
-                </div>}
-          </>}
+              : closureAccess.isPending
+                ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
+                : !closureAccess.isError && <SafetyIntelligencePage view="executive-analytics" canExportAnalytics={canAccess('view_executive_analytics')} client={supabase} scope={{
+                  organizationId, userId: session.user.id,
+                  visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',
+                  siteAssignmentEnforced: false,
+                }} />
+          )}
           {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
           {route === 'administration' && canAccess('access_administration') && <AdministrationLandingPage canViewUsers={canAccess('view_users')} canViewRoles={canAccess('view_roles_permissions')} />}
           {route === 'users' && canAccess('view_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} canInviteUsers={canAccess('invite_users')} canEditUsers={canAccess('edit_users')} canSuspendUsers={canAccess('suspend_users')} canDeactivateUsers={canAccess('deactivate_users')} canManageUserRoles={canAccess('manage_user_roles')} canManageRolesPermissions={canAccess('manage_roles_permissions')} />}

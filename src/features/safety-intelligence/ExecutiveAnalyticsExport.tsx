@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SafetyFilters, SafetyScope, SafetySnapshot } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
-import { Download } from 'lucide-react'
+import { Alert, ExportMenu } from '../../components/ui'
 import { type AnalyticsReportFormat, prepareExecutiveAnalyticsReport, outputExecutiveAnalyticsReport } from './executiveAnalyticsReport'
+
+const reportOptions = [
+  { format: 'pdf' as const, label: 'PDF', icon: 'fileDownload' as const },
+  { format: 'docx' as const, label: 'Word document (.docx)', icon: 'file' as const },
+  { format: 'print' as const, label: 'Print', icon: 'print' as const },
+]
 
 export function ExecutiveAnalyticsExport({ client, scope, filters, disabled, refresh, onBusy }: {
   client: SupabaseClient; scope: SafetyScope; filters: SafetyFilters; disabled: boolean;
@@ -10,26 +16,7 @@ export function ExecutiveAnalyticsExport({ client, scope, filters, disabled, ref
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const menu = useRef<HTMLDetailsElement>(null)
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !menu.current?.contains(event.target) && menu.current) menu.current.open = false
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && menu.current?.open) {
-        menu.current.open = false
-        menu.current.querySelector('summary')?.focus()
-      }
-    }
-    document.addEventListener('pointerdown', closeOutside)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [])
   const run = async (format: AnalyticsReportFormat) => {
-    if (menu.current) menu.current.open = false
     if (busy || disabled) return
     setBusy(true)
     onBusy(true)
@@ -44,16 +31,15 @@ export function ExecutiveAnalyticsExport({ client, scope, filters, disabled, ref
       onBusy(false)
     }
   }
-  return <div className="safety-export">
-    <details ref={menu}>
-      <summary className="button button-outline button-small"><Download size={15} aria-hidden="true" />
-        {busy ? 'Preparing report...' : 'Export Report'}</summary>
-      <div className="safety-export-options" role="group" aria-label="Export report format">
-        {([['pdf', 'PDF'], ['docx', 'Word document (.docx)'], ['print', 'Print']] as const).map(([format, label]) =>
-          <button key={format} type="button" className="button button-outline button-small"
-            disabled={busy || disabled} onClick={() => void run(format)}>{label}</button>)}
-      </div>
-    </details>
-    {error && <p className="auth-message error" role="alert">{error}</p>}
+  return <div className="grid gap-2">
+    <ExportMenu
+      busy={busy}
+      disabled={disabled}
+      options={reportOptions}
+      onExport={(format) => {
+        if (format === 'pdf' || format === 'docx' || format === 'print') void run(format)
+      }}
+    />
+    {error && <Alert tone="danger">{error}</Alert>}
   </div>
 }

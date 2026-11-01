@@ -41,8 +41,19 @@ export function DropdownMenu({
       const element = ref.current
       if (element?.open && !element.contains(event.target as Node)) element.open = false
     }
+    const onKeyDown = (event: KeyboardEvent) => {
+      const element = ref.current
+      if (event.key === 'Escape' && element?.open) {
+        element.open = false
+        element.querySelector('summary')?.focus()
+      }
+    }
     document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
   }, [])
 
   return (
