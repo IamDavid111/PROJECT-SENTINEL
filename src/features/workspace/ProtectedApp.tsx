@@ -6,7 +6,7 @@ import { executiveAnalyticsAccessMessage } from '../../app/messages'
 import { futureModuleRoutes, primaryNavigation, secondaryNavigation } from '../../app/navigation'
 import { getAppRoute, type AppRoute } from '../../app/routes'
 import { BrandMark } from '../../components/brand/BrandMark'
-import { Alert } from '../../components/ui'
+import { Alert, Button, Card, Spinner } from '../../components/ui'
 import { CommandPalette, type CommandItem } from '../../components/ui/command-palette'
 import { Icon } from '../../components/ui/icon'
 import { BUILT_IN_BACKEND_ROLES, USER_MANAGEMENT_BACKEND_TO_ROLE, hasPermission } from '../../data/userManagementConfig'
@@ -35,7 +35,14 @@ import { SafetyIntelligencePage } from '../safety-intelligence/SafetyIntelligenc
 import { normalizeEmergencyContacts, type EmergencyContact } from '../settings/companySettingsTypes'
 import { OrganizationSetupPage } from '../setup/OrganizationSetupPage'
 import { WorkspaceLoadingState } from './WorkspaceLoadingState'
-import { WorkspacePlaceholder } from './WorkspacePlaceholder'
+
+
+function IntelligenceCoveragePending() {
+  return <Card className="flex items-center gap-3 p-5" role="status">
+    <Spinner size={18} fill="currentColor" />
+    <span className="text-sm text-muted">Verifying intelligence coverage...</span>
+  </Card>
+}
 
 export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
   useIncidentOfflineSync(supabase)
@@ -248,9 +255,18 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   }, [])
 
   if (loading || !loadingGateComplete || !proceedToWorkspace) return <WorkspaceLoadingState backgroundImage={heroFacility} canProceed={loadingGateComplete} secondsUntilAuto={autoProceedSeconds} onProceed={() => setProceedToWorkspace(true)} isDarkMode={isDarkMode} />
-  if (error) return <div className="protected-state"><div className="auth-message error">Unable to load your organization access: {error}</div></div>
+  if (error) return <div className="grid min-h-screen place-items-center bg-surface-soft p-6">
+    <Card className="w-full max-w-md p-6">
+      <Alert tone="danger">Unable to load your organization access: {error}</Alert>
+    </Card>
+  </div>
   if (needsSetup) return <OrganizationSetupPage email={session.user.email || ''} />
-  if (!role) return <div className="protected-state"><div className="auth-message error">Your account is not assigned to an organization yet.</div><a className="button button-green" href="#top">Return to home</a></div>
+  if (!role) return <div className="grid min-h-screen place-items-center bg-surface-soft p-6">
+    <Card className="flex w-full max-w-md flex-col gap-4 p-6">
+      <Alert tone="danger">Your account is not assigned to an organization yet.</Alert>
+      <Button onClick={() => { window.location.hash = '#top' }}>Return to home</Button>
+    </Card>
+  </div>
 
   return (
     <div className={`workspace-shell${isDarkMode ? ' dark-theme' : ''}`}>
@@ -338,11 +354,8 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage showInspectionBack />}
           {route === 'assigned-actions' && canAccess('view_own_reports') && <ActionsWorkspace supabase={supabase} canManage={canManageActions} assignedOnly canViewAllAssignedActions={canAccess('view_all_assigned_actions')} />}
           {route === 'inspections' && (canCreateInspections || canManageActions) && <InspectionWorkspace supabase={supabase} canManageActions={canManageActions} canCreate={canCreateInspections} />}
-          {/* Navigation exists for these modules, but each route currently shows a placeholder instead of a working feature workflow. */}
-          {route === 'audits' && <WorkspacePlaceholder title="Audit Management" description="Audit metrics will become available when audit records and findings are implemented." action="Module coming next" />}
-          {route === 'reports' && canAccess('view_reports') && <WorkspacePlaceholder title="Reports" description="Reporting and exports will connect to validated operational records in the reporting module." action="Module coming next" />}
           {route === 'ai-assistant' && canAccess('use_ai_assistant') && (
-            closureAccess.isPending ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
+            closureAccess.isPending ? <IntelligenceCoveragePending />
               : !closureAccess.isError && <SafetyIntelligencePage client={supabase} canViewKnowledge={canAccess('view_knowledge_documents')} scope={{
                 organizationId, userId: session.user.id,
                 visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',
@@ -355,7 +368,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
             !canAccess('view_executive_analytics')
               ? <Alert tone="danger">{executiveAnalyticsAccessMessage}</Alert>
               : closureAccess.isPending
-                ? <div className="workspace-panel" role="status">Verifying intelligence coverage...</div>
+                ? <IntelligenceCoveragePending />
                 : !closureAccess.isError && <SafetyIntelligencePage view="executive-analytics" canExportAnalytics={canAccess('view_executive_analytics')} client={supabase} scope={{
                   organizationId, userId: session.user.id,
                   visibility: hasOrganizationIncidentVisibility(role, closureAccess.data === true) ? 'organization' : 'personal',

@@ -28,8 +28,6 @@ export const futureModuleRoutes: { route: AppRoute; label: string; permission: P
   { route: 'corrective-actions', label: 'Actions', permission: 'create_corrective_action' },
   { route: 'incidents', label: 'Incident Management', permission: 'view_all_incidents' },
   { route: 'incident-detail', label: 'Incident Detail', permission: 'view_all_incidents' },
-  { route: 'audits', label: 'Audit Management', permission: 'view_dashboard' },
-  { route: 'reports', label: 'Reports', permission: 'view_reports' },
   { route: 'users', label: 'User Management', permission: 'view_users' },
   { route: 'roles-permissions', label: 'Roles & Permissions', permission: 'view_roles_permissions' },
 ]

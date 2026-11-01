@@ -93,10 +93,10 @@ export function IncidentClosureForm({ client, incident, onDismiss, variant = 'pa
 
   if (isDialog) return form
 
-  return <section ref={formRef} className="workspace-panel" aria-label={`Close incident ${incident.referenceNumber}`}>
-    <h3>Close incident {incident.referenceNumber}</h3>
-    <p>{incident.title}</p>
-    <p>A root cause and completed corrective action are required. Linked corrective actions must already be verified or closed. An investigation is not required.</p>
-    {form}
+  return <section ref={formRef} className="grid gap-3 rounded-card border border-line bg-surface p-5 shadow-card" aria-label={`Close incident ${incident.referenceNumber}`}>
+    <h3 className="font-display text-lg font-semibold text-foreground">Close incident {incident.referenceNumber}</h3>
+    <p className="text-sm text-muted">{incident.title}</p>
+    <p className="text-sm text-muted">A root cause and completed corrective action are required. Linked corrective actions must already be verified or closed. An investigation is not required.</p>
+    <div className="mt-1">{form}</div>
   </section>
 }
