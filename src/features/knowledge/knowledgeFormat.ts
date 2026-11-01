@@ -1,5 +1,3 @@
-export const selectClass = 'flex h-11 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--green)]/30'
-
 export const formatLabel = (value: string) => value.charAt(0).toUpperCase() + value.slice(1).replaceAll('_', ' ')
 
 export function formatFileSize(bytes: number): string {

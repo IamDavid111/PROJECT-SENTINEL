@@ -44,7 +44,7 @@ export function Dialog({
     document.body.style.overflow = 'hidden'
     const panel = panelRef.current
     // Move focus into the dialog and keep Esc handling attached.
-    const focusTarget = panel?.querySelector<HTMLElement>('[data-autofocus], button')
+    const focusTarget = panel?.querySelector<HTMLElement>('[data-autofocus]') ?? panel?.querySelector<HTMLElement>('input, textarea, select, button')
     focusTarget?.focus()
     return () => {
       document.body.style.overflow = previous
@@ -53,6 +53,10 @@ export function Dialog({
   }, [open])
 
   if (!open) return null
+
+  // The app scopes dark tokens to the workspace shell, but dialogs portal outside it.
+  // Mirror the current theme onto the panel so portaled content stays readable.
+  const isDarkTheme = typeof document !== 'undefined' && Boolean(document.querySelector('.dark-theme'))
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
@@ -72,6 +76,7 @@ export function Dialog({
         }}
         className={cn(
           'relative w-full max-w-lg rounded-card border border-line bg-surface p-6 shadow-card sm:max-h-[85vh] sm:overflow-y-auto',
+          isDarkTheme && 'dark-theme',
           className,
         )}
       >

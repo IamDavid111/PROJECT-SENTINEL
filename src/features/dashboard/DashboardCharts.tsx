@@ -1,47 +1,145 @@
-import type { ReactNode } from 'react'
-import { TrendingUp } from 'lucide-react'
+import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import type { DashboardComparisonPoint, DashboardDistributionPoint, DashboardTrendPoint } from './dashboardTypes'
+import { ChartCard } from '../../components/ui/chart-card'
+import { EmptyState } from '../../components/ui/empty-state'
+import { SegmentedControl } from '../../components/ui/segmented-control'
+import type { DashboardComparisonPoint, DashboardDistributionPoint, DashboardTrendPoint } from './types'
 
 const chartColors = ['#12a94f', '#f97316', '#3b82f6', '#8b5cf6', '#f59e0b', '#64748b']
+const tick = { fill: 'var(--color-muted)', fontSize: 11 }
 
-function ChartCard({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
-  return <article className="dashboard-card chart-card"><div className="dashboard-card-heading"><div><div className="eyebrow">{eyebrow}</div><h3>{title}</h3></div></div>{children}</article>
+function truncateLabel(value: string, max = 16) {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+const tooltipStyle = {
+  background: 'var(--color-surface)',
+  border: '1px solid var(--color-line)',
+  borderRadius: 10,
+  color: 'var(--color-foreground)',
+  fontSize: 12,
 }
 
-function ChartEmpty({ message, detail }: { message: string; detail: string }) {
-  return <div className="chart-empty"><span aria-hidden="true"><TrendingUp size={28} /></span><strong>{message}</strong><small>{detail}</small></div>
+function ChartEmpty({ message, detail, className = 'h-[220px]' }: { message: string; detail: string; className?: string }) {
+  return <EmptyState className={`${className} py-0`} icon="trendingUp" title={message} description={detail} />
 }
 
 export function IncidentTrendChart({ data }: { data: DashboardTrendPoint[] }) {
-  return <ChartCard eyebrow="SAFETY PERFORMANCE" title="Monthly incident trend">{data.length ? <ResponsiveContainer width="100%" height={220}><LineChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis dataKey="label" /><YAxis allowDecimals={false} /><Tooltip /><Legend /><Line type="monotone" dataKey="incidents" name="Incidents" stroke="#12a94f" strokeWidth={2} /><Line type="monotone" dataKey="nearMisses" name="Near misses" stroke="#f97316" strokeWidth={2} /></LineChart></ResponsiveContainer> : <ChartEmpty message="Insufficient incident history" detail="Trend analysis will appear after incident records are available." />}</ChartCard>
+  return (
+    <ChartCard title="Incident trend" description="Monthly incidents and near misses" className="h-full">
+      {data.length ? (
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" vertical={false} />
+            <XAxis dataKey="label" tick={tick} tickLine={false} axisLine={{ stroke: 'var(--color-line)' }} />
+            <YAxis allowDecimals={false} tick={tick} tickLine={false} axisLine={false} width={32} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Line type="monotone" dataKey="incidents" name="Incidents" stroke="#12a94f" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+            <Line type="monotone" dataKey="nearMisses" name="Near misses" stroke="#f97316" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <ChartEmpty message="Insufficient incident history" detail="Trend analysis will appear after incident records are available." />
+      )}
+    </ChartCard>
+  )
 }
 
 export function IncidentSeverityChart({ data }: { data: DashboardDistributionPoint[] }) {
-  return <ChartCard eyebrow="INCIDENT INTELLIGENCE" title="Incident severity">{data.length ? <ResponsiveContainer width="100%" height={220}><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius={55} outerRadius={82} paddingAngle={3}>{data.map((entry, index) => <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip /><Legend /></PieChart></ResponsiveContainer> : <ChartEmpty message="No severity data available" detail="Severity distribution will appear when incidents are recorded." />}</ChartCard>
+  return (
+    <ChartCard title="Severity" description="Effective severity, actual or potential">
+      {data.length ? (
+        <ResponsiveContainer width="100%" height={200}>
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" innerRadius={50} outerRadius={76} paddingAngle={2} stroke="var(--color-surface)">
+              {data.map((entry, index) => <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />)}
+            </Pie>
+            <Tooltip contentStyle={tooltipStyle} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+          </PieChart>
+        </ResponsiveContainer>
+      ) : (
+        <ChartEmpty className="h-[200px]" message="No severity data" detail="Severity distribution will appear when incidents are recorded." />
+      )}
+    </ChartCard>
+  )
 }
 
 export function IncidentTypeChart({ data, configuredTypes }: { data: DashboardDistributionPoint[]; configuredTypes: string[] }) {
   const detail = configuredTypes.length ? `Configured categories: ${configuredTypes.join(', ')}` : 'Configure incident categories in Company Settings.'
-  return <ChartCard eyebrow="INCIDENT INTELLIGENCE" title="Incident categories">{data.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={data} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis type="number" allowDecimals={false} /><YAxis dataKey="name" type="category" width={90} /><Tooltip /><Bar dataKey="value" name="Incidents" fill="#12a94f" /></BarChart></ResponsiveContainer> : <ChartEmpty message="No incident category data available" detail={detail} />}</ChartCard>
+  const chartHeight = Math.max(260, Math.min(340, data.length * 34))
+  return (
+    <ChartCard title="Incident categories" description="Recorded category mix">
+      {data.length ? (
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart data={data} layout="vertical" barCategoryGap={14} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" horizontal={false} />
+            <XAxis type="number" allowDecimals={false} tick={tick} tickLine={false} axisLine={{ stroke: 'var(--color-line)' }} />
+            <YAxis dataKey="name" type="category" width={118} interval={0} tick={tick} tickMargin={8} tickLine={false} axisLine={false} tickFormatter={(value) => truncateLabel(String(value), 18)} />
+            <Tooltip contentStyle={tooltipStyle} />
+            <Bar dataKey="value" name="Incidents" fill="#12a94f" radius={[0, 4, 4, 0]} barSize={10} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : (
+        <ChartEmpty message="No incident category data" detail={detail} />
+      )}
+    </ChartCard>
+  )
 }
 
-export function ComparisonChart({ title, eyebrow, data, emptyMessage, configuredNames }: { title: string; eyebrow: string; data: DashboardComparisonPoint[]; emptyMessage: string; configuredNames: string[] }) {
-  const detail = configuredNames.length ? `Configured: ${configuredNames.join(', ')}` : 'Configuration will appear here when available.'
-  return <ChartCard eyebrow={eyebrow} title={title}>{data.length ? <ResponsiveContainer width="100%" height={220}><BarChart data={data}><CartesianGrid strokeDasharray="3 3" stroke="#dfe5ec" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="value" name="Incident count" fill="#3b82f6" /></BarChart></ResponsiveContainer> : <ChartEmpty message={emptyMessage} detail={detail} />}</ChartCard>
-}
-
-// These components display prepared chart points; query filtering and aggregation belong in the dashboard service.
-export default function DashboardCharts({ data }: { data: {
-  incidentTrend: DashboardTrendPoint[]
-  incidentSeverity: DashboardDistributionPoint[]
-  incidentTypes: DashboardDistributionPoint[]
-  departmentComparison: DashboardComparisonPoint[]
-  siteComparison: DashboardComparisonPoint[]
-  configuredIncidentTypes: string[]
+export function DashboardComparisons({ department, site, configuredDepartments, configuredSites }: {
+  department: DashboardComparisonPoint[]
+  site: DashboardComparisonPoint[]
   configuredDepartments: string[]
   configuredSites: string[]
-} }) {
-  return <div className="dashboard-charts-grid"><IncidentTrendChart data={data.incidentTrend} /><IncidentSeverityChart data={data.incidentSeverity} /><IncidentTypeChart data={data.incidentTypes} configuredTypes={data.configuredIncidentTypes} /><ComparisonChart title="Department comparison" eyebrow="PERFORMANCE" data={data.departmentComparison} configuredNames={data.configuredDepartments} emptyMessage="No department incident data available" /><ComparisonChart title="Site comparison" eyebrow="RISK" data={data.siteComparison} configuredNames={data.configuredSites} emptyMessage="No site incident data available" /></div>
+}) {
+  const [view, setView] = useState<'department' | 'site'>('department')
+  const data = view === 'department' ? department : site
+  const configured = view === 'department' ? configuredDepartments : configuredSites
+
+  return (
+    <ChartCard
+      title="Comparisons"
+      description={view === 'department' ? 'Incidents by department' : 'Incidents by site'}
+    >
+      <div className="flex flex-col gap-4">
+        <SegmentedControl
+          label="Comparison view"
+          value={view}
+          onChange={(value) => setView(value)}
+          options={[{ value: 'department', label: 'Department' }, { value: 'site', label: 'Site' }]}
+          className="self-start"
+        />
+
+        {data.length ? (
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" vertical={false} />
+              <XAxis
+                dataKey="name"
+                tick={tick}
+                tickLine={false}
+                axisLine={{ stroke: 'var(--color-line)' }}
+                interval={0}
+                angle={-90}
+                textAnchor="end"
+                height={110}
+                tickFormatter={(value) => truncateLabel(String(value), 16)}
+              />
+              <YAxis allowDecimals={false} tick={tick} tickLine={false} axisLine={false} width={32} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar dataKey="value" name="Incidents" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <ChartEmpty
+            className="h-[200px]"
+            message="No comparison data"
+            detail={configured.length ? `Configured: ${configured.join(', ')}` : 'Configuration will appear here when available.'}
+          />
+        )}
+      </div>
+    </ChartCard>
+  )
 }

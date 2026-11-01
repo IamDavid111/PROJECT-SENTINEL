@@ -2,7 +2,7 @@ import { useQuery, type QueryClient } from '@tanstack/react-query'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDashboardSnapshot } from './dashboardService'
-import type { DashboardFilters } from './dashboardTypes'
+import type { DashboardFilters } from './types'
 
 export const dashboardQueryKeys = {
   all: ['dashboard'] as const,

@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { MapPin } from 'lucide-react'
 import mapboxgl from 'mapbox-gl'
 
+import { ChartCard } from '../../components/ui/chart-card'
+import { EmptyState } from '../../components/ui/empty-state'
 import type { SafetySite } from './siteSafety'
 
 import 'mapbox-gl/dist/mapbox-gl.css'
@@ -39,5 +40,32 @@ export function SafetyMapCard({ sites }: { sites: SafetySite[] }) {
     }
   }, [sites, token])
 
-  return <article className="dashboard-card safety-map-card"><div className="dashboard-card-heading"><div><div className="eyebrow">SITE SAFETY</div><h3>Safety risk map</h3></div></div>{!token ? <div className="chart-empty"><span aria-hidden="true"><MapPin size={26} /></span><strong>Safety Map</strong><small>Map service configuration is required to display the interactive operational map.</small></div> : !sites.length ? <div className="chart-empty"><span aria-hidden="true"><MapPin size={26} /></span><strong>No site data available</strong><small>Configure operational sites and safety records before viewing the map.</small></div> : <div ref={containerRef} className="safety-map-canvas" aria-label="Interactive site safety map" />}</article>
+  return (
+    <ChartCard
+      title="Safety risk map"
+      description="Site markers are colored by current safety status."
+    >
+      {!token ? (
+        <EmptyState
+          className="h-[280px] py-0 sm:h-[360px] xl:h-[540px]"
+          icon="location"
+          title="Map service configuration required"
+          description="Add a public Mapbox token to render site markers. The rest of the dashboard is unaffected."
+        />
+      ) : !sites.length ? (
+        <EmptyState
+          className="h-[280px] py-0 sm:h-[360px] xl:h-[540px]"
+          icon="location"
+          title="No site data available"
+          description="Site coordinates will appear once an authorized site has a location."
+        />
+      ) : (
+        <div
+          ref={containerRef}
+          className="h-[280px] overflow-hidden rounded-xl border border-line sm:h-[360px] xl:h-[540px]"
+          aria-label="Interactive site safety map"
+        />
+      )}
+    </ChartCard>
+  )
 }

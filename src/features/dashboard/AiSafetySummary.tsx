@@ -1,3 +1,5 @@
+import { Badge } from '../../components/ui/badge'
+import { Card } from '../../components/ui/card'
 import type { Role } from '../../types'
 
 export type AiSafetySummaryProps = {
@@ -17,5 +19,36 @@ const sections = [
 export function AiSafetySummary({ organizationId, role, hasAuthorizedQhseData }: AiSafetySummaryProps) {
   void organizationId
   void role
-  return <article className="dashboard-card ai-safety-summary"><div className="dashboard-card-heading"><div><div className="eyebrow">AI SAFETY INTELLIGENCE</div><h3>AI Safety Summary</h3></div><span className="ai-status">Foundation</span></div><div className="ai-summary-intro"><strong>AI analysis will appear here once sufficient QHSE data is available.</strong><span>{hasAuthorizedQhseData ? 'The authorized data layer is ready for an AI provider.' : 'No authorized QHSE data is available for analysis yet.'}</span></div><div className="ai-summary-grid">{sections.map(([title, description]) => <section key={title}><strong>{title}</strong><p>{description}</p></section>)}</div><p className="ai-summary-note">Future flow: authorized QHSE data → secured retrieval layer → AI Safety Intelligence → dashboard and assistant.</p></article>
+  return (
+    <Card className="p-5 shadow-none">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="h-px w-6 bg-brand" aria-hidden="true" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">AI Safety Intelligence</span>
+          </div>
+          <h2 className="mt-1.5 font-display text-lg font-semibold tracking-tight text-foreground">AI Safety Summary</h2>
+        </div>
+        <Badge tone="warning">Foundation</Badge>
+      </div>
+
+      <div className="mt-4 grid gap-1 rounded-l-none rounded-r-xl border-l-2 border-brand bg-surface-soft p-4">
+        <strong className="text-sm text-foreground">AI analysis will appear here once sufficient QHSE data is available.</strong>
+        <span className="text-xs text-muted">
+          {hasAuthorizedQhseData ? 'The authorized data layer is ready for an AI provider.' : 'No authorized QHSE data is available for analysis yet.'}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {sections.map(([title, description]) => (
+          <section key={title} className="rounded-xl border border-line bg-surface-soft p-4">
+            <strong className="text-sm text-foreground">{title}</strong>
+            <p className="mt-1 text-xs leading-relaxed text-muted">{description}</p>
+          </section>
+        ))}
+      </div>
+
+      <p className="mt-4 text-xs text-muted">Future flow: authorized QHSE data → secured retrieval layer → AI Safety Intelligence → dashboard and assistant.</p>
+    </Card>
+  )
 }

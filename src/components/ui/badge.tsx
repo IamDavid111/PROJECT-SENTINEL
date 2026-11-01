@@ -12,10 +12,10 @@ const badgeVariants = cva(
       tone: {
         neutral: 'border-line bg-surface-soft text-muted',
         success: 'border-brand/25 bg-brand/10 text-brand-dark',
-        warning: 'border-caution/30 bg-caution/10 text-foreground',
+        warning: 'border-caution/30 bg-caution/10 text-caution-dark',
         danger: 'border-danger/25 bg-danger/10 text-danger',
-        accent: 'border-accent/30 bg-accent/10 text-foreground',
-        info: 'border-ink/20 bg-ink/5 text-ink-2',
+        accent: 'border-accent/30 bg-accent/10 text-accent-dark',
+        info: 'border-line bg-ink/5 text-muted',
       },
     },
     defaultVariants: {

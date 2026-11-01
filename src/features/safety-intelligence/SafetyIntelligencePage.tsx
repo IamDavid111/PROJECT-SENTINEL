@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { SafetyFilters, SafetyScope } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
 import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions } from '../../lib/companyFilterOptions'
 import { incidentReportTypes, incidentStatuses } from '../incidents/incidentTypes'
@@ -10,11 +10,17 @@ import { IncidentTrendChart } from './IncidentTrendChart'
 import { SafetyLocations } from './SafetyLocations'
 import { SafetyPlanningOutlook } from './SafetyPlanningOutlook'
 import { SafetyAssistant } from '../ai/SafetyAssistant'
-import { BookOpen, RefreshCw, ShieldCheck, MessageSquare } from 'lucide-react'
-import { KnowledgePage } from '../knowledge/KnowledgePage'
 import { ExecutiveAnalyticsExport } from './ExecutiveAnalyticsExport'
+import { Alert, Badge, Button, FilterBar, Icon, PageHeader, SegmentedControl, Select, Skeleton } from '../../components/ui'
 
-type SafetyTab = 'assistant' | 'knowledge' | null
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="grid min-w-[180px] gap-1 text-[11px] font-medium text-muted">
+      {label}
+      {children}
+    </label>
+  )
+}
 
 export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false, canExportAnalytics = false, view = 'assistant' }: {
   client: SupabaseClient
@@ -35,7 +41,6 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
   const [departmentOptions, setDepartmentOptions] = useState<string[]>([])
   const [shiftOptions, setShiftOptions] = useState<string[]>([])
   const [severityOptions, setSeverityOptions] = useState<string[]>([])
-  const [activeTab, setActiveTab] = useState<SafetyTab>(null)
   const [exporting, setExporting] = useState(false)
   const setReportingPeriod = (period: 30 | 90 | 'all') => {
     setTrendPeriod(period)
@@ -87,93 +92,142 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
       window.removeEventListener('company-settings-updated', loadSettings)
     }
   }, [client, scope.organizationId])
-  // Never display cached successful data after a failed permission/retrieval refresh.
-  return <div className="safety-intelligence-page">
-    {view === 'assistant' && <nav className="safety-section-links" aria-label="AI Safety Assistant sections">
-      <button type="button" aria-pressed={activeTab === 'assistant'} onClick={() => setActiveTab('assistant')}>
-        <MessageSquare size={16} aria-hidden="true" />AI Safety Assistant
-      </button>
-      {canViewKnowledge && <button type="button" aria-pressed={activeTab === 'knowledge'} onClick={() => setActiveTab('knowledge')}>
-        <BookOpen size={16} aria-hidden="true" />QHSE Knowledge
-      </button>}
-    </nav>}
-    {view === 'executive-analytics' && <section className="safety-intelligence-section" id="executive-analytics-content" aria-labelledby="safety-intelligence-title">
-      <div className="safety-section-heading">
-        <div><div className="eyebrow">OPERATIONAL INTELLIGENCE</div>
-          <h2 id="safety-intelligence-title">Executive Analytics</h2>
-          <p>Understand reported patterns and prioritize preventive action. Indicators use deterministic calculations.</p>
-        </div>
-        <div className="safety-window-toggle" role="group" aria-label="Reporting window">
-          {([30, 90, 'all'] as const).map((window) => <button type="button" key={window}
-            className="button button-outline button-small" aria-pressed={(trendPeriod === 'reporting' ? days : trendPeriod) === window}
-            disabled={snapshot.isFetching || exporting}
-            onClick={() => setReportingPeriod(window)}>{window === 'all' ? 'All Time' : `${window} days`}</button>)}
-        </div>
-        <button type="button" className="button button-outline button-small" disabled={snapshot.isFetching || exporting} onClick={() => void snapshot.refetch()}>
-          <RefreshCw size={15} aria-hidden="true" />
-          {snapshot.isFetching ? 'Refreshing...' : 'Refresh'}
-        </button>
-        {canExportAnalytics && <ExecutiveAnalyticsExport client={client} scope={scope} filters={filters}
-          disabled={snapshot.isPending || snapshot.isError || snapshot.isFetching || !data} onBusy={setExporting}
-          refresh={async () => {
-            const result = await snapshot.refetch({ throwOnError: true })
-            if (!result.data) throw new Error('No authorized analytics snapshot is available for export.')
-            return result.data
-          }} />}
+
+  if (view === 'assistant') {
+    return <SafetyAssistant key={`${scope.organizationId}:${scope.userId}`} client={client} scope={scope}
+      snapshot={!snapshot.isError ? data : undefined} canViewKnowledge={canViewKnowledge} />
+  }
+
+  const selectedWindow = trendPeriod === 'reporting' ? String(days) : String(trendPeriod)
+  const filtersDisabled = snapshot.isFetching || exporting
+  const coverageEntry = data?.coverage.find((source) => source.source === 'incidents')
+  const coverageComplete = coverageEntry?.complete === true
+  const hasReports = data ? data.metrics.category.denominator > 0 : false
+  const snapshotTone = !coverageComplete ? 'warning' : !hasReports ? 'info' : 'success'
+  const snapshotMessage = !coverageComplete
+    ? 'Authorized incident retrieval is incomplete. Complete intelligence results are unavailable.'
+    : !hasReports
+      ? 'No authorized reported events in this window. There is not enough data to show intelligence results.'
+      : 'Authorized operational data is connected.'
+
+  return <div className="grid gap-5">
+    <PageHeader
+      eyebrow="Operational intelligence"
+      title="Executive Analytics"
+      description="Understand reported patterns and prioritize preventive action. Indicators use deterministic calculations."
+      actions={
+        <>
+          <SegmentedControl
+            label="Reporting window"
+            value={selectedWindow}
+            onChange={(value) => setReportingPeriod(value === 'all' ? 'all' : Number(value) as 30 | 90)}
+            options={[
+              { value: '30', label: '30 days', disabled: filtersDisabled },
+              { value: '90', label: '90 days', disabled: filtersDisabled },
+              { value: 'all', label: 'All time', disabled: filtersDisabled },
+            ]}
+          />
+          <Button variant="outline" size="sm" onClick={() => void snapshot.refetch()} loading={snapshot.isFetching}>
+            <Icon name="refresh" size={15} />
+            Refresh
+          </Button>
+          {canExportAnalytics && <ExecutiveAnalyticsExport client={client} scope={scope} filters={filters}
+            disabled={snapshot.isPending || snapshot.isError || snapshot.isFetching || !data} onBusy={setExporting}
+            refresh={async () => {
+              const result = await snapshot.refetch({ throwOnError: true })
+              if (!result.data) throw new Error('No authorized analytics snapshot is available for export.')
+              return result.data
+            }} />}
+        </>
+      }
+    />
+
+    <FilterBar
+      actions={<Button variant="ghost" size="sm" onClick={resetAnalyticsFilters} disabled={filtersDisabled}>Clear filters</Button>}
+    >
+      <FilterField label="Window by">
+        <SegmentedControl
+          label="Window date basis"
+          value={dateBasis}
+          onChange={(value) => setDateBasis(value as 'occurred' | 'reported')}
+          options={[
+            { value: 'reported', label: 'Reported', disabled: filtersDisabled },
+            { value: 'occurred', label: 'Occurred', disabled: filtersDisabled },
+          ]}
+        />
+      </FilterField>
+      <FilterField label="Department">
+        <Select value={department} disabled={filtersDisabled} onChange={(event) => setDepartment(event.target.value)}>
+          <option value="all">All departments</option>
+          {departmentOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+        </Select>
+      </FilterField>
+      <FilterField label="Shift">
+        <Select value={shift} disabled={filtersDisabled} onChange={(event) => setShift(event.target.value)}>
+          <option value="all">All shifts</option>
+          {shiftOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+        </Select>
+      </FilterField>
+      <FilterField label="Status">
+        <Select value={statusFilter} disabled={filtersDisabled} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="all">All status</option>
+          <option value="open">Open</option>
+          {incidentStatuses.map((status) => <option key={status} value={status}>{formatOption(status)}</option>)}
+        </Select>
+      </FilterField>
+      <FilterField label="Severity">
+        <Select value={severityFilter} disabled={filtersDisabled} onChange={(event) => setSeverityFilter(event.target.value)}>
+          <option value="all">All severity</option>
+          {severityOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+        </Select>
+      </FilterField>
+      <FilterField label="Report type">
+        <Select value={reportTypeFilter} disabled={filtersDisabled} onChange={(event) => setReportTypeFilter(event.target.value)}>
+          <option value="all">All types</option>
+          {incidentReportTypes.map((type) => <option key={type} value={type}>{formatOption(type)}</option>)}
+        </Select>
+      </FilterField>
+    </FilterBar>
+
+    {snapshot.isPending ? (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-busy="true">
+        <span className="sr-only" role="status">Loading authorized operational data...</span>
+        {Array.from({ length: 10 }).map((_, index) => <Skeleton key={index} className="h-28 w-full" />)}
       </div>
-      <div className="safety-filter-card">
-        <div className="safety-filter-card-heading">
-          <div><strong>Analytics filters</strong><span>Applies to the KPIs, trend and export.</span></div>
-          <button type="button" onClick={resetAnalyticsFilters} disabled={snapshot.isFetching || exporting}>Clear filters</button>
+    ) : snapshot.isError ? (
+      <Alert tone="danger" title="Analytics unavailable">
+        <p>{snapshot.error.message}</p>
+        {snapshot.error instanceof SafetyIntelligenceError && <p className="text-xs">Request reference: {snapshot.error.requestId}</p>}
+        <p className="mt-1">No intelligence results are displayed. Use Refresh to retry.</p>
+      </Alert>
+    ) : data && <>
+      <section className="border-y border-line py-4" aria-label="Snapshot coverage">
+        <div className="flex flex-wrap items-center gap-3">
+          <Badge tone={data.scope.visibility === 'organization' ? 'success' : 'info'}>
+            {data.scope.visibility === 'organization' ? 'Organization coverage' : 'My reports'}
+          </Badge>
+          <span className="text-sm text-muted">
+            {data.filters.days === 'all' ? 'All Time' : `${data.filters.days}-day reporting window`} · Snapshot: {data.asOf} (UTC)
+          </span>
         </div>
-        <div className="safety-filter-inline">
-          <span>Window by</span>
-          <div className="safety-window-toggle" role="group" aria-label="Window date basis">
-            {(['reported', 'occurred'] as const).map((basis) => <button type="button" key={basis}
-              className="button button-outline button-small" aria-pressed={dateBasis === basis}
-              disabled={snapshot.isFetching || exporting}
-              onClick={() => setDateBasis(basis)}>{basis === 'reported' ? 'Reported date' : 'Occurred date'}</button>)}
-          </div>
-        </div>
-        <div className="safety-filter-grid">
-          <label>Department<select value={department} disabled={snapshot.isFetching || exporting} onChange={(event) => setDepartment(event.target.value)}><option value="all">All departments</option>{departmentOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-          <label>Shift<select value={shift} disabled={snapshot.isFetching || exporting} onChange={(event) => setShift(event.target.value)}><option value="all">All shifts</option>{shiftOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-          <label>Status<select value={statusFilter} disabled={snapshot.isFetching || exporting} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All status</option><option value="open">Open</option>{incidentStatuses.map((status) => <option key={status} value={status}>{formatOption(status)}</option>)}</select></label>
-          <label>Severity<select value={severityFilter} disabled={snapshot.isFetching || exporting} onChange={(event) => setSeverityFilter(event.target.value)}><option value="all">All severity</option>{severityOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-          <label>Report type<select value={reportTypeFilter} disabled={snapshot.isFetching || exporting} onChange={(event) => setReportTypeFilter(event.target.value)}><option value="all">All types</option>{incidentReportTypes.map((type) => <option key={type} value={type}>{formatOption(type)}</option>)}</select></label>
-        </div>
-      </div>
-      {snapshot.isPending ? <p role="status" aria-live="polite">Loading authorized operational data...</p>
-        : snapshot.isError ? <div className="auth-message error" role="alert">
-          <p>{snapshot.error.message}</p>
-          {snapshot.error instanceof SafetyIntelligenceError && <small>Request reference: {snapshot.error.requestId}</small>}
-          <p>No intelligence results are displayed. Use Refresh to retry.</p>
-        </div>
-        : data && <>
-        <div className="safety-snapshot-status" role="status">
-          <p className="safety-coverage-line"><ShieldCheck size={14} aria-hidden="true" /><strong>{data.scope.visibility === 'organization' ? 'Organization coverage' : 'My reports'}</strong>
-            {' · '}{data.filters.days === 'all' ? 'All Time' : `${data.filters.days}-day reporting window`}{' · '}Snapshot: {data.asOf} (UTC)</p>
-          {!data.coverage.find((source) => source.source === 'incidents')?.complete
-            ? <p>Authorized incident retrieval is incomplete. Complete intelligence results are unavailable.</p>
-            : data.metrics.category.denominator === 0
-              ? <p>No authorized reported events in this window. There is not enough data to show intelligence results.</p>
-              : <p>Authorized operational data is connected.</p>}
-          <details className="safety-methodology"><summary>Snapshot coverage and reporting methodology</summary>
+        <Alert tone={snapshotTone} className="mt-3">{snapshotMessage}</Alert>
+        <details className="mt-3 rounded-xl border border-line bg-surface-soft/40 px-4 py-3 text-sm text-muted">
+          <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-foreground [&::-webkit-details-marker]:hidden">
+            <Icon name="info" size={15} className="text-brand" />
+            Snapshot coverage and reporting methodology
+          </summary>
+          <div className="mt-2 grid gap-1.5">
             <p>Reporting: {data.windows.reporting.start} to {data.windows.reporting.end} (end excluded). Resolution uses closure dates; near misses use comparable month-to-date periods.</p>
             <p>Read-only and advisory. AI does not change official safety records.</p>
-          </details>
-        </div>
-        {/* Cards are rendered only from a validated successful server snapshot, never a fallback dataset. */}
-        <SafetyKpiCards snapshot={data} />
-        <IncidentTrendChart snapshot={data} onPeriodChange={setReportingPeriod} disabled={snapshot.isFetching || exporting} />
-        <SafetyLocations snapshot={data} />
-        <SafetyPlanningOutlook snapshot={data} />
-        </>}
-    </section>}
-    {activeTab === 'assistant' && <SafetyAssistant key={`${scope.organizationId}:${scope.userId}`} client={client} scope={scope}
-      snapshot={!snapshot.isError ? data : undefined} />}
-    {activeTab === 'knowledge' && canViewKnowledge && <KnowledgePage key={`${scope.organizationId}:${scope.userId}`} client={client} scope={{
-      organizationId: scope.organizationId, userId: scope.userId,
-    }} />}
+          </div>
+        </details>
+      </section>
+
+      {/* Cards are rendered only from a validated successful server snapshot, never a fallback dataset. */}
+      <SafetyKpiCards snapshot={data} />
+      <IncidentTrendChart snapshot={data} />
+      <SafetyLocations snapshot={data} />
+      <SafetyPlanningOutlook snapshot={data} />
+    </>}
   </div>
 }

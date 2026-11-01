@@ -28,7 +28,7 @@ export function Tooltip({ label, children, side = 'top', className }: TooltipPro
       <span
         role="tooltip"
         className={cn(
-          'pointer-events-none absolute z-40 hidden max-w-56 rounded-lg bg-ink-2 px-2.5 py-1.5 text-xs font-medium text-surface shadow-card group-hover:block group-focus-within:block motion-reduce:transition-none',
+          'pointer-events-none absolute z-40 hidden max-w-56 rounded-lg bg-ink-2 px-2.5 py-1.5 text-xs font-medium text-white shadow-card group-hover:block group-focus-within:block motion-reduce:transition-none',
           POSITION[side],
         )}
       >

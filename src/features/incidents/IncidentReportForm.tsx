@@ -4,6 +4,22 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import {
+  Alert,
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  buttonVariants,
+} from '../../components/ui'
+import { ReportStageEvent } from './ReportStageEvent'
+import { ReportStageLocation } from './ReportStageLocation'
+import { ReportStagePeople } from './ReportStagePeople'
+import { ReportStageEvidence } from './ReportStageEvidence'
+import { ReportStepChips, ReportStepRail } from './ReportWizardSteps'
+import { ReportWizardFooter } from './ReportWizardFooter'
+import { SubmitIncidentDialogs } from './SubmitIncidentDialogs'
 import { incidentFormSchema, incidentSubmissionSchema, type IncidentFormValues } from './incidentSchemas'
 import { enqueueIncidentSubmission } from './incidentOfflineQueue'
 import { useCreateIncidentDraft, useIncident, useIncidentOrganization, useSubmitIncident, useSubmitNewIncident, useUpdateIncidentDraft, useUploadIncidentEvidence } from './useIncidentData'
@@ -43,10 +59,6 @@ function configuredShiftNames(value: unknown, legacyValue = '') {
   })
   if (legacyValue && !names.some((name) => name.toLowerCase() === legacyValue.toLowerCase())) names.push(legacyValue)
   return names
-}
-
-function fieldError(message?: string) {
-  return message ? <span className="incident-field-error" role="alert">{message}</span> : null
 }
 
 // The browser collects date and time separately; the database field stores one timezone-aware timestamp.
@@ -274,10 +286,42 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     return () => { active = false }
   }, [organization.data?.organizationId, supabase])
 
-  if (existingDraftId && existingDraft.isLoading) return <div className="workspace-panel">Loading draft...</div>
-  if (existingDraftId && (existingDraft.isError || !loadedIncident || loadedIncident.status !== 'draft')) return <div className="workspace-panel"><div className="auth-message error">This draft could not be loaded or is no longer editable.</div><a className="button button-outline workspace-back-link" href="#my-reports">Return to My Reports</a></div>
-  if (settingsLoading) return <div className="workspace-panel">Loading company configuration...</div>
-  if (settingsError) return <div className="workspace-panel"><div className="auth-message error" role="alert">{settingsError}</div><a className="button button-outline workspace-back-link" href="#dashboard">Return to dashboard</a></div>
+  if (existingDraftId && existingDraft.isLoading) {
+    return (
+      <div className="grid gap-5">
+        <PageHeader eyebrow="Report incident" title="Report an incident" description="Restoring the draft." />
+        <Skeleton className="h-[320px] rounded-card" />
+      </div>
+    )
+  }
+  if (existingDraftId && (existingDraft.isError || !loadedIncident || loadedIncident.status !== 'draft')) {
+    return (
+      <EmptyState
+        icon="incidents"
+        title="Draft unavailable"
+        description="This draft could not be loaded or is no longer editable."
+        action={<a href="#my-reports" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Return to My Reports</a>}
+      />
+    )
+  }
+  if (settingsLoading) {
+    return (
+      <div className="grid gap-5">
+        <PageHeader eyebrow="Report incident" title="Report an incident" description="Loading company configuration." />
+        <Skeleton className="h-[320px] rounded-card" />
+      </div>
+    )
+  }
+  if (settingsError) {
+    return (
+      <EmptyState
+        icon="settings"
+        title="Configuration unavailable"
+        description={settingsError}
+        action={<a href="#dashboard" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Return to dashboard</a>}
+      />
+    )
+  }
 
   const configuredSites = sites.filter((site) => configuredSiteNames(settings.operational_sites).some((name) => name.toLowerCase() === site.name.toLowerCase()) || site.id === loadedIncident?.siteId)
   const departments = configuredOptions(settings.departments, [], loadedIncident?.department || '')
@@ -415,98 +459,77 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     if (!isBusy) setSubmitConfirmationOpen(true)
   }
 
+
+
   return (
-    <div className="incident-form-page">
-      <div className="incident-form-header">
-        <div>
-          <h2>Report an incident</h2>
-          <p>Progressive form — drafts are auto-saved and can be submitted offline; they sync when connectivity returns.</p>
+    <div className="grid gap-5">
+      <PageHeader
+        eyebrow="Report incident"
+        title="Report an incident"
+        description="Progressive form — drafts are auto-saved and can be submitted offline; they sync when connectivity returns."
+        actions={
+          <>
+            <Badge tone={draftType === 'offline-pending' ? 'warning' : 'neutral'}>
+              {draftType === 'offline-pending' ? 'Offline pending' : draftReference ? `Draft ${draftReference}` : 'New report'}
+            </Badge>
+            <a href="#my-reports" className={buttonVariants({ variant: 'outline', size: 'sm' })}>My reports</a>
+          </>
+        }
+      />
+
+      <form
+        className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]"
+        onSubmit={(event) => { event.preventDefault(); requestSubmitConfirmation() }}
+      >
+        <ReportStepRail stages={stages} activeStage={activeStage} onSelect={setActiveStage} />
+
+        <div className="grid min-w-0 gap-5">
+          <ReportStepChips stages={stages} activeStage={activeStage} onSelect={setActiveStage} />
+
+          <Card className="p-5 shadow-none">
+            {activeStage === 0 && (
+              <ReportStageEvent form={form} categories={categories} severities={severities} currentReportType={currentReportType} />
+            )}
+            {activeStage === 1 && (
+              <ReportStageLocation form={form} configuredSites={configuredSites} departments={departments} />
+            )}
+            {activeStage === 2 && (
+              <ReportStagePeople form={form} reporterName={reporterName} shifts={shifts} />
+            )}
+            {activeStage === 3 && (
+              <ReportStageEvidence form={form} loadedIncident={loadedIncident} isBusy={isBusy} onEvidence={handleEvidence} />
+            )}
+          </Card>
+
+          {submitError && <Alert tone="danger">{submitError}</Alert>}
+          {submitMessage && <Alert tone="success">{submitMessage}</Alert>}
+
+          <ReportWizardFooter
+            activeStage={activeStage}
+            stageCount={stages.length}
+            isBusy={isBusy}
+            isSaving={isSaving}
+            isSubmitting={isSubmitting}
+            draftReference={draftReference}
+            draftType={draftType}
+            onBack={() => setActiveStage(activeStage - 1)}
+            onSaveDraft={() => void saveDraft()}
+            onContinue={() => void continueStage()}
+          />
         </div>
-        <div className="incident-form-header-actions"><a className="button button-outline button-small" href="#my-reports">My Reports</a></div>
-      </div>
-      <div className="incident-stage-progress"><div className="incident-stage-bar"><span style={{ width: `${((activeStage + 1) / stages.length) * 100}%` }} /></div><div className="incident-stage-labels">{stages.map((stage, index) => <button type="button" className={index === activeStage ? 'active' : index < activeStage ? 'complete' : ''} key={stage} onClick={() => index <= activeStage && setActiveStage(index)}>{index + 1}. {stage}</button>)}</div></div>
-      <div className="incident-wizard-layout">
-        <form className="incident-form" onSubmit={(event) => { event.preventDefault(); requestSubmitConfirmation() }}>
-        <>
-        {activeStage === 0 && <section className="incident-form-section">
-          <div className="incident-form-section-heading"><div><h3>What happened?</h3><p>Required fields are validated before you can continue.</p></div></div>
-          <div className="incident-form-grid">
-            <label className="incident-form-wide">Incident title *<input {...form.register('title')} placeholder="Short factual description" />{fieldError(form.formState.errors.title?.message)}</label>
-            <label>Incident category *<select {...form.register('incidentCategory')}><option value="">Select incident category</option>{categories.map((category) => <option value={category} key={category}>{category}</option>)}</select>{fieldError(form.formState.errors.incidentCategory?.message)}</label>
-            <label>Severity *<select {...form.register('severity')}><option value="">Select severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select>{fieldError(form.formState.errors.severity?.message)}</label>
-            {currentReportType === 'near_miss' && <label>Potential severity *<select {...form.register('potentialSeverity')}><option value="">Select potential severity</option>{severities.map((severity) => <option value={severity} key={severity}>{severity}</option>)}</select>{fieldError(form.formState.errors.potentialSeverity?.message)}</label>}
-            <label>Date *<input type="date" {...form.register('occurrenceDate')} />{fieldError(form.formState.errors.occurrenceDate?.message)}</label>
-            <label>Time *<input type="time" {...form.register('occurrenceTime')} />{fieldError(form.formState.errors.occurrenceTime?.message)}</label>
-            <label className="incident-form-wide">Description *<textarea {...form.register('description')} rows={5} placeholder="Describe the sequence of events factually." />{fieldError(form.formState.errors.description?.message)}</label>
-            {currentReportType === 'environmental_incident' && <label className="checkbox-field"><input type="checkbox" {...form.register('environmentalImpact')} /> Environmental impact identified *</label>}
-          </div>
-        </section>}
-        {activeStage === 1 && <section className="incident-form-section">
-          <div className="incident-form-section-heading"><div><h3>Where and under what conditions?</h3></div></div>
-          <div className="incident-form-grid">
-            <label>Site *<select {...form.register('siteId')}><option value="">{configuredSites.length ? 'Select site' : 'No sites configured'}</option>{configuredSites.map((site) => <option value={site.id} key={site.id}>{site.name}</option>)}</select>{fieldError(form.formState.errors.siteId?.message)}</label>
-            <label>Department<select {...form.register('department')}><option value="">Select department</option>{departments.map((department) => <option value={department} key={department}>{department}</option>)}</select></label>
-            <label>Facility / area<input {...form.register('location')} placeholder="Area, unit, or precise location" />{fieldError(form.formState.errors.location?.message)}</label>
-            <label>Weather conditions<input {...form.register('weatherConditions')} placeholder="32°C, light rain, wind 12 kt" /></label>
-            <label className="incident-form-wide">Equipment involved<input {...form.register('equipmentInvolved')} placeholder="Equipment or vehicle involved" /></label>
-          </div>
-        </section>}
-        {activeStage === 2 && <section className="incident-form-section">
-          <div className="incident-form-section-heading"><div><h3>Who was involved?</h3></div></div>
-          <div className="incident-form-grid">
-            <label>Reporter name *<input value={reporterName} readOnly aria-readonly="true" /></label>
-            <label>Contractor involved<input {...form.register('contractorOrganization')} placeholder="Contractor involved" />{fieldError(form.formState.errors.contractorOrganization?.message)}</label>
-            <label>Shift<select {...form.register('shift')}><option value="">Select shift</option>{shifts.map((shift) => <option value={shift} key={shift}>{shift}</option>)}</select></label>
-            <label className="incident-form-wide">People involved<textarea {...form.register('peopleInvolved')} rows={3} placeholder="Names, roles and injuries sustained" /></label>
-            <label className="incident-form-wide">Immediate actions taken *<textarea {...form.register('immediateCorrection')} rows={4} placeholder="Describe immediate controls, first aid, isolation, notification, or other response." />{fieldError(form.formState.errors.immediateCorrection?.message)}</label>
-            <label className="incident-form-wide">Potential root cause<textarea {...form.register('potentialRootCause')} rows={3} placeholder="Initial indication only; formal root-cause analysis follows later." /></label>
-          </div>
-        </section>}
-        {activeStage === 3 && <section className="incident-form-section"><div className="incident-form-section-heading"><div><h3>Evidence and sign-off</h3><p>Images, PDF, Word, Excel, and video evidence are supported.</p></div></div><div className="incident-evidence-upload-grid"><label className="incident-upload-tile">Photo<input type="file" hidden accept="image/*" capture="environment" onChange={handleEvidence} /></label><label className="incident-upload-tile">Video<input type="file" hidden accept="video/*" capture="environment" onChange={handleEvidence} /></label><label className="incident-upload-tile">Documents<input type="file" hidden accept="application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleEvidence} /></label></div>{loadedIncident?.evidence.length ? <ul className="incident-evidence-list" aria-label="Existing evidence">{loadedIncident.evidence.map((evidence) => <li key={evidence.id}>{evidence.originalFilename}</li>)}</ul> : null}<label className="checkbox-field"><input type="checkbox" {...form.register('accuracyConfirmed')} /> I confirm this report is accurate to the best of my knowledge. *</label>{fieldError(form.formState.errors.accuracyConfirmed?.message)}</section>}
-        {(draftReference || loadedIncident?.referenceNumber) && <div className="incident-reference" role="status"><span>{draftType === 'manual' || loadedIncident ? 'Manual draft' : 'Draft reference'}</span><strong>{draftReference || loadedIncident?.referenceNumber}</strong></div>}
-        {submitError && <div className="auth-message error" role="alert">{submitError}</div>}
-        {submitMessage && <div className="auth-message success" role="status">{submitMessage}</div>}
-        <div className="incident-form-actions">
-          {activeStage === 1 && <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(0)}>Back</button>}
-          {activeStage === 2 && <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(1)}>Back</button>}
-          {activeStage < stages.length - 1 ? <button className="button button-green button-large" type="button" disabled={isBusy} onClick={() => void continueStage()}>Continue</button> : (
-            <>
-              <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => setActiveStage(2)}>Back</button>
-              <button className="button button-outline button-large" type="button" disabled={isBusy} onClick={() => void saveDraft()}>{isSaving ? 'Saving...' : 'Save as draft'}</button>
-              <button className="button button-green button-large" type="submit" disabled={isBusy}>{isSubmitting ? 'Submitting incident...' : 'Submit incident'}</button>
-            </>
-          )}
-        </div>
-        </>
-        </form>
-      </div>
-      {submitConfirmationOpen && <div className="role-creator-backdrop" role="presentation" onClick={() => setSubmitConfirmationOpen(false)}>
-        <div className="role-creator-modal" role="dialog" aria-modal="true" aria-labelledby="incident-submit-confirmation-title" onClick={(event) => event.stopPropagation()}>
-          <div className="role-creator-header">
-            <div>
-              <div className="eyebrow">SUBMIT INCIDENT</div>
-              <h3 id="incident-submit-confirmation-title">Are you ready to submit this incident?</h3>
-            </div>
-          </div>
-          <div className="role-creator-actions">
-            <button className="button button-outline button-small" type="button" onClick={() => setSubmitConfirmationOpen(false)}>Go back and edit the report</button>
-            <button className="button button-green button-small" type="button" disabled={isBusy} onClick={() => { setSubmitConfirmationOpen(false); void submitReport() }}>{isSubmitting ? 'Submitting...' : 'Submit'}</button>
-          </div>
-        </div>
-      </div>}
-      {submissionSuccessOpen && <div className="role-creator-backdrop" role="presentation">
-        <div className="role-creator-modal" role="dialog" aria-modal="true" aria-labelledby="incident-submission-success-title" onClick={(event) => event.stopPropagation()}>
-          <div className="role-creator-header">
-            <div>
-              <div className="eyebrow">SUBMISSION COMPLETE</div>
-              <h3 id="incident-submission-success-title">Incident successfully submitted</h3>
-            </div>
-          </div>
-          <div className="role-creator-actions">
-            <button className="button button-green button-small" type="button" onClick={() => { setSubmissionSuccessOpen(false); window.location.hash = '#incidents' }}>OK</button>
-          </div>
-        </div>
-      </div>}
+      </form>
+
+      <SubmitIncidentDialogs
+        confirmationOpen={submitConfirmationOpen}
+        successOpen={submissionSuccessOpen}
+        isSubmitting={isSubmitting}
+        draftReference={draftReference}
+        submitMessage={submitMessage}
+        onCloseConfirmation={() => setSubmitConfirmationOpen(false)}
+        onCloseSuccess={() => setSubmissionSuccessOpen(false)}
+        onSubmit={() => { setSubmitConfirmationOpen(false); void submitReport() }}
+        onViewIncidents={() => { setSubmissionSuccessOpen(false); window.location.hash = '#incidents' }}
+      />
     </div>
   )
 }
