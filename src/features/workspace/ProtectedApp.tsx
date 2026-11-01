@@ -28,6 +28,7 @@ import { IncidentTypeSelectionPage } from '../incidents/IncidentTypeSelectionPag
 import { MyReportsPage } from '../incidents/MyReportsPage'
 import { useIncidentClosureAccess, useIncidentOfflineSync } from '../incidents/useIncidentData'
 import { KnowledgePage } from '../knowledge/KnowledgePage'
+import { MarketplacePage } from '../marketplace/MarketplacePage'
 import { ActionsWorkspace } from '../qhse/ActionsWorkspace'
 import { InspectionWorkspace } from '../qhse/InspectionWorkspace'
 import { SafetyIntelligencePage } from '../safety-intelligence/SafetyIntelligencePage'
@@ -361,7 +362,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
                   siteAssignmentEnforced: false,
                 }} />
           )}
-          {route === 'marketplace' && canAccess('view_marketplace') && <WorkspacePlaceholder title="HSE Marketplace" description="The marketplace is reserved for approved HSE tools, services, and integrations." action="Marketplace coming soon" />}
+          {route === 'marketplace' && canAccess('view_marketplace') && <MarketplacePage />}
           {route === 'administration' && canAccess('access_administration') && <AdministrationLandingPage canViewUsers={canAccess('view_users')} canViewRoles={canAccess('view_roles_permissions')} />}
           {route === 'users' && canAccess('view_users') && <UsersWorkspace organizationId={organizationId} currentUserId={session.user.id} canInviteUsers={canAccess('invite_users')} canEditUsers={canAccess('edit_users')} canSuspendUsers={canAccess('suspend_users')} canDeactivateUsers={canAccess('deactivate_users')} canManageUserRoles={canAccess('manage_user_roles')} canManageRolesPermissions={canAccess('manage_roles_permissions')} />}
           {route === 'roles-permissions' && canAccess('view_roles_permissions') && <RolesPermissionsWorkspace organizationId={organizationId} canManage={canAccess('manage_roles_permissions')} />}
