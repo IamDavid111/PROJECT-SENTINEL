@@ -30,7 +30,7 @@ export function useIncidentClosureAccess(client: SupabaseClient, organizationId:
     queryKey: ['incident-closure-access', organizationId, userId],
     queryFn: () => getIncidentClosureAccess(client, organizationId),
     enabled: Boolean(organizationId && userId),
-    staleTime: 0,
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
   })
 }

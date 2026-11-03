@@ -51,7 +51,12 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   const [role, setRole] = useState<string | null>(null)
   const [customRolePermissions, setCustomRolePermissions] = useState<string[]>([])
   const [organizationId, setOrganizationId] = useState('')
-  const closureAccess = useIncidentClosureAccess(supabase, organizationId, session.user.id)
+  const [profileLoadedForUser, setProfileLoadedForUser] = useState('')
+  const closureAccess = useIncidentClosureAccess(
+    supabase,
+    organizationId,
+    profileLoadedForUser === session.user.id ? session.user.id : '',
+  )
   const [profileName, setProfileName] = useState(session.user.email || 'User')
   const [organizationName, setOrganizationName] = useState('Organization workspace')
   const [loading, setLoading] = useState(true)
@@ -83,11 +88,25 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     // A valid sign-in does not by itself identify the user's organization or app role.
     // Load the profile first, then use its organization ID to fetch membership and organization details.
     // The membership role is used below to build the workspace's permission-aware navigation.
+    let active = true
     const loadMembership = async () => {
       const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id, account_status').eq('id', session.user.id).maybeSingle()
-      if (profileError) setError(profileError.message)
-      else if (!profile) setNeedsSetup(true)
-      else if (profile.account_status === 'pending') {
+      if (!active) return
+      if (profileError) {
+        console.error('Failed to load the authenticated user profile.', {
+          code: profileError.code,
+          message: profileError.message,
+        })
+        setError('Your profile could not be loaded. Please retry or contact your administrator.')
+        setLoading(false)
+        return
+      }
+      if (!profile) {
+        setNeedsSetup(true)
+        setLoading(false)
+        return
+      }
+      if (profile.account_status === 'pending') {
         setLoading(false)
         window.location.hash = '#/invite-signup'
         return
@@ -95,26 +114,62 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       if (profile?.full_name) setProfileName(profile.full_name)
       if (profile?.organization_id) {
         setOrganizationId(profile.organization_id)
-        const [{ data: membership }, { data: organization }] = await Promise.all([
+        const [
+          { data: membership, error: membershipError },
+          { data: organization, error: organizationError },
+        ] = await Promise.all([
           supabase.from('memberships').select('role').eq('user_id', session.user.id).eq('organization_id', profile.organization_id).maybeSingle(),
           supabase.from('organizations').select('company_name').eq('id', profile.organization_id).maybeSingle(),
         ])
+        if (!active) return
+        if (membershipError) {
+          console.error('Failed to load the authenticated user membership.', {
+            code: membershipError.code,
+            message: membershipError.message,
+          })
+          setError('Your organization access could not be loaded. Please retry or contact your administrator.')
+          setLoading(false)
+          return
+        }
+        if (organizationError) {
+          console.error('Failed to load the authenticated user organization.', {
+            code: organizationError.code,
+            message: organizationError.message,
+          })
+          setError('Your organization access could not be loaded. Please retry or contact your administrator.')
+          setLoading(false)
+          return
+        }
         if (membership?.role) {
           const membershipRole = String(membership.role)
           setRole(membershipRole)
           if (!USER_MANAGEMENT_BACKEND_TO_ROLE[membershipRole] && membershipRole !== 'Super Administrator') {
-            const { data: customRole } = await supabase.from('custom_roles').select('permissions').eq('organization_id', profile.organization_id).eq('name', membershipRole).eq('is_active', true).maybeSingle()
+            const { data: customRole, error: customRoleError } = await supabase.from('custom_roles').select('permissions').eq('organization_id', profile.organization_id).eq('name', membershipRole).eq('is_active', true).maybeSingle()
+            if (!active) return
+            if (customRoleError) {
+              console.error('Failed to load the authenticated user role permissions.', {
+                code: customRoleError.code,
+                message: customRoleError.message,
+              })
+              setError('Your role permissions could not be loaded. Please retry or contact your administrator.')
+              setLoading(false)
+              return
+            }
             setCustomRolePermissions(Array.isArray(customRole?.permissions) ? customRole.permissions as string[] : [])
           } else {
             setCustomRolePermissions([])
           }
+          setProfileLoadedForUser(session.user.id)
         }
         if (organization?.company_name) setOrganizationName(organization.company_name)
       }
       setLoading(false)
     }
     void loadMembership()
-    return () => window.removeEventListener('hashchange', handleHashChange)
+    return () => {
+      active = false
+      window.removeEventListener('hashchange', handleHashChange)
+    }
   }, [session.user.email, session.user.id])
 
   useEffect(() => {
@@ -256,8 +311,9 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
 
   if (loading || !loadingGateComplete || !proceedToWorkspace) return <WorkspaceLoadingState backgroundImage={heroFacility} canProceed={loadingGateComplete} secondsUntilAuto={autoProceedSeconds} onProceed={() => setProceedToWorkspace(true)} isDarkMode={isDarkMode} />
   if (error) return <div className="grid min-h-screen place-items-center bg-surface-soft p-6">
-    <Card className="w-full max-w-md p-6">
+    <Card className="flex w-full max-w-md flex-col gap-4 p-6">
       <Alert tone="danger">Unable to load your organization access: {error}</Alert>
+      <Button variant="outline" onClick={() => window.location.reload()}>Retry organization access</Button>
     </Card>
   </div>
   if (needsSetup) return <OrganizationSetupPage email={session.user.email || ''} />
@@ -344,7 +400,18 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           </div>
         </header>
         <section className="workspace-content">
-{closureAccess.isError && <Alert tone="danger">{closureAccess.error.message}</Alert>}
+{closureAccess.isError && <Alert tone="danger">
+  {closureAccess.error.message}
+  <Button
+    variant="outline"
+    size="sm"
+    className="mt-2"
+    loading={closureAccess.isFetching}
+    onClick={() => void closureAccess.refetch()}
+  >
+    Retry permission check
+  </Button>
+</Alert>}
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} currentUserId={session.user.id} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canCreateInspections} canCreateCorrectiveAction={canManageActions} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
           {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={legacyFeatureRole} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} />}
           {route === 'my-reports' && canAccess('view_own_reports') && <MyReportsPage key="own" supabase={supabase} scope="own" canViewAll={canAccess('view_all_incidents')} canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
@@ -388,4 +455,3 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     </div>
   )
 }
-

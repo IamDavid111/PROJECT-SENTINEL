@@ -88,7 +88,7 @@ export default function App() {
   if (protectedRoute) {
     if (sessionLoading) return <BootLoadingScreen label="Checking your session…" isDarkMode={isDarkMode} />
     if (!session) return <SignInPage />
-    return <ProtectedApp session={session} isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
+    return <ProtectedApp key={session.user.id} session={session} isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
   }
 
   return <LandingPage isDarkMode={isDarkMode} onToggleTheme={toggleTheme} />
