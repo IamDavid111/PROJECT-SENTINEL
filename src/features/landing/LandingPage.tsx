@@ -1,8 +1,8 @@
 import { useState } from 'react'
 
 import customerBenefitsDashboard from '../../assets/benefits-dashboard.png'
-import heroFacility from '../../assets/hero-facility.jpg'
 import { BrandLockup } from '../../components/brand/BrandLockup'
+import { BrandedBackground } from '../../components/brand/BrandedBackground'
 import { Icon, IconButton, buttonVariants } from '../../components/ui'
 import type { IconName } from '../../lib/icons'
 import { cn } from '../../lib/utils'
@@ -130,16 +130,7 @@ export function LandingPage({ isDarkMode, onToggleTheme }: { isDarkMode: boolean
 
       <main id="top">
         <section className="relative isolate bg-ink text-white">
-          <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-            <img src={heroFacility} alt="" className="absolute inset-0 h-full w-full object-cover object-center brightness-[0.7]" />
-            <div className="absolute inset-0 bg-ink/50" />
-            <div className="absolute inset-0 bg-gradient-to-r from-ink/95 via-ink/85 to-ink/45" />
-            <div className="absolute inset-0 bg-gradient-to-t from-ink/70 via-transparent to-transparent" />
-            <div
-              className="absolute inset-0"
-              style={{ background: 'linear-gradient(to bottom, transparent 78%, var(--color-surface) 100%)' }}
-            />
-          </div>
+          <BrandedBackground />
 
           <div className="relative mx-auto w-full max-w-7xl px-4 pb-32 pt-16 sm:px-6 sm:pb-52 lg:px-8 lg:pb-84 lg:pt-24 xl:pb-96">
             <div className="mx-auto max-w-4xl text-center">

@@ -51,6 +51,18 @@ function storageFilename(file: File) {
   return `${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
 }
 
+function activeConfiguredSiteNames(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (typeof entry === 'string') return entry.trim() ? [entry.trim().toLowerCase()] : []
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as { name?: unknown; active?: unknown; deleted?: unknown }
+    return typeof item.name === 'string' && item.name.trim() && item.active !== false && item.deleted !== true
+      ? [item.name.trim().toLowerCase()]
+      : []
+  })
+}
+
 async function storeFile(client: SupabaseClient, path: string, file: File) {
   const { error } = await client.storage.from(bucket).upload(path, file, { upsert: false, contentType: file.type })
   if (error) throw new Error('Unable to upload the file.')
@@ -58,13 +70,22 @@ async function storeFile(client: SupabaseClient, path: string, file: File) {
 
 export async function getInspectionWorkspace(client: SupabaseClient) {
   const context = await getOrganizationContext(client)
-  const [{ data: sites, error: sitesError }, { data: inspections, error: inspectionsError }, { data: people, error: peopleError }] = await Promise.all([
+  const [
+    { data: sites, error: sitesError },
+    { data: inspections, error: inspectionsError },
+    { data: people, error: peopleError },
+    { data: settings, error: settingsError },
+  ] = await Promise.all([
     client.from('sites').select('id, name').eq('organization_id', context.organizationId).order('name'),
     client.from('inspections').select('*').eq('organization_id', context.organizationId).order('inspection_date', { ascending: false }).limit(100),
     client.from('profiles').select('id, full_name').eq('organization_id', context.organizationId),
+    client.from('company_settings').select('operational_sites').eq('organization_id', context.organizationId).maybeSingle(),
   ])
-  if (sitesError || inspectionsError || peopleError) throw new Error('Unable to load inspection records and organization details.')
-  return { ...context, sites: (sites || []) as QhseSite[], inspections: (inspections || []) as InspectionRecord[], people: (people || []) as QhsePerson[] }
+  if (sitesError || inspectionsError || peopleError || settingsError) throw new Error('Unable to load inspection records and organization details.')
+  const allSites = (sites || []) as QhseSite[]
+  const activeSiteNames = activeConfiguredSiteNames(settings?.operational_sites)
+  const activeSites = allSites.filter((site) => activeSiteNames.includes(site.name.trim().toLowerCase()))
+  return { ...context, sites: allSites, activeSites, inspections: (inspections || []) as InspectionRecord[], people: (people || []) as QhsePerson[] }
 }
 
 export async function createInspection(client: SupabaseClient, input: {
@@ -116,12 +137,21 @@ export async function getActionsWorkspace(client: SupabaseClient, assignedOnly =
   const context = await getOrganizationContext(client)
   let actionsQuery = client.from('actions').select('*').eq('organization_id', context.organizationId).order('due_at')
   if (assignedOnly && !includeOrganizationActions) actionsQuery = actionsQuery.eq('assignee_id', context.userId)
-  const [{ data: actions, error: actionsError }, { data: sites, error: sitesError }, { data: people, error: peopleError }] = await Promise.all([
+  const [
+    { data: actions, error: actionsError },
+    { data: sites, error: sitesError },
+    { data: people, error: peopleError },
+    { data: settings, error: settingsError },
+  ] = await Promise.all([
     actionsQuery,
     client.from('sites').select('id, name').eq('organization_id', context.organizationId).order('name'),
     client.from('profiles').select('id, full_name').eq('organization_id', context.organizationId).eq('account_status', 'active').order('full_name'),
+    client.from('company_settings').select('operational_sites').eq('organization_id', context.organizationId).maybeSingle(),
   ])
-  if (actionsError || sitesError || peopleError) throw new Error('Unable to load organization actions.')
+  if (actionsError || sitesError || peopleError || settingsError) throw new Error('Unable to load organization actions.')
+  const allSites = (sites || []) as QhseSite[]
+  const activeSiteNames = activeConfiguredSiteNames(settings?.operational_sites)
+  const activeSites = allSites.filter((site) => activeSiteNames.includes(site.name.trim().toLowerCase()))
   const incidentRows: EligibleIncident[] = []
   if (!assignedOnly) {
     for (let offset = 0; ; offset += 500) {
@@ -152,7 +182,8 @@ export async function getActionsWorkspace(client: SupabaseClient, assignedOnly =
   return {
     ...context,
     actions: (actions || []) as ActionRecord[],
-    sites: (sites || []) as QhseSite[],
+    sites: allSites,
+    activeSites,
     people: (people || []) as QhsePerson[],
     eligibleIncidents,
     linkedIncidents,

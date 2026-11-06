@@ -10,7 +10,7 @@ export function buildShiftSettings(value: unknown): CompanyShift[] {
     if (!entry || typeof entry !== 'object') return []
     const item = entry as Record<string, unknown>
     const name = typeof item.name === 'string' ? item.name.trim() : ''
-    if (!name || item.active === false) return []
+    if (!name || item.active === false || item.deleted === true) return []
     return [{ name, start: typeof item.start === 'string' ? item.start : '07:00', end: typeof item.end === 'string' ? item.end : '19:00', active: true }]
   })
 }
@@ -29,7 +29,10 @@ export function buildDepartmentOptions(value: unknown): string[] {
       : []
   const names = candidate.flatMap((entry) => {
     const rawName = typeof entry === 'string' ? entry : entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).name === 'string' ? (entry as Record<string, unknown>).name as string : ''
-    if (!rawName || (typeof entry === 'object' && entry !== null && 'active' in entry && (entry as Record<string, unknown>).active === false)) return []
+    if (!rawName || (typeof entry === 'object' && entry !== null && (
+      (('active' in entry) && (entry as Record<string, unknown>).active === false)
+      || (('deleted' in entry) && (entry as Record<string, unknown>).deleted === true)
+    ))) return []
     return rawName.trim() ? [rawName.trim()] : []
   })
   return ['all', ...names]
@@ -53,7 +56,7 @@ export function buildSeverityOptions(value: unknown): string[] {
     if (!entry || typeof entry !== 'object') return []
     const item = entry as Record<string, unknown>
     const name = typeof item.name === 'string' ? item.name.trim() : ''
-    return name && name.toLowerCase() !== 'all' && item.active !== false ? [name] : []
+    return name && name.toLowerCase() !== 'all' && item.active !== false && item.deleted !== true ? [name] : []
   })
 
   return ['all', ...names]

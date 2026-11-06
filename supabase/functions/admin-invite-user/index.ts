@@ -77,20 +77,38 @@ Deno.serve(async (request: Request) => {
       .in('role', ['Super Administrator', 'Organization Administrator'])
       .maybeSingle()
     if (membershipLookupError) throw new Error(membershipLookupError.message)
-    if (!membership) {
+    const { data: canInvite, error: invitePermissionError } = await userClient.rpc('has_org_permission', {
+      p_organization_id: organizationId,
+      p_permission: 'invite_users',
+    })
+    if (invitePermissionError) throw new Error('Unable to verify invitation permissions')
+    if (!membership || canInvite !== true) {
       const auditClient = createClient(supabaseUrl, serviceRoleKey)
       await recordActivity(auditClient, organizationId, requester.id, 'Unauthorized invitation attempt', { reason: 'requester_not_organization_admin' })
       throw new Error('Only organization administrators can invite users')
     }
 
     stage = 'role_validation'
-    if (!builtInInviteRoles.has(normalizedRole)) {
+    if (normalizedRole === 'Super Administrator') {
+      throw new Error('Super Administrators must be appointed by the Original Super Administrator from User Management')
+    }
+    if (builtInInviteRoles.has(normalizedRole)) {
+      const { data: builtinRole, error: builtinRoleError } = await userClient
+        .from('organization_builtin_role_settings')
+        .select('is_active, is_deleted')
+        .eq('organization_id', organizationId)
+        .eq('role_key', normalizedRole)
+        .maybeSingle()
+      if (builtinRoleError) throw new Error('Unable to validate the selected built-in role')
+      if (!builtinRole || builtinRole.is_active !== true || builtinRole.is_deleted === true) throw new Error('The selected role is disabled for new assignments')
+    } else {
       const { data: customRole, error: roleError } = await userClient
         .from('custom_roles')
         .select('name, permissions')
         .eq('organization_id', organizationId)
         .eq('name', normalizedRole)
         .eq('is_active', true)
+        .eq('is_deleted', false)
         .maybeSingle()
       if (roleError) throw new Error(roleError.message)
       if (!customRole) throw new Error('The selected role is not active in this organization')
@@ -99,10 +117,6 @@ Deno.serve(async (request: Request) => {
         throw new Error('Only your Super Admin can grant Executive Analytics through invitations')
       }
     }
-    if (normalizedRole === 'Super Administrator' && membership.role !== 'Super Administrator') {
-      throw new Error('Only your Super Admin can grant Executive Analytics through invitations')
-    }
-
     stage = 'department_validation'
     const normalizedDepartment = typeof department === 'string' ? department.trim() : ''
     if (normalizedDepartment) {

@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { Badge, Button, Card, DetailList, EmptyState, Icon, PageHeader, Skeleton, buttonVariants } from '../../components/ui'
 import type { IconName } from '../../lib/icons'
 import type { Role } from '../../types'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 import { incidentReportTypes, type IncidentReportType } from './incidentTypes'
 import { IncidentReportForm } from './IncidentReportForm'
 import { useIncident, useIncidentOrganization } from './useIncidentData'
@@ -66,22 +67,33 @@ export function IncidentTypeSelectionPage({ role, supabase, draftId, reportTypes
   useEffect(() => {
     if (!organization.data?.organizationId) return
     let active = true
-    void supabase
-      .from('company_settings')
-      .select('incident_categories')
-      .eq('organization_id', organization.data.organizationId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!active || error) return
-        const categories = Array.isArray(data?.incident_categories) ? data.incident_categories.flatMap((item: unknown) => {
-          if (typeof item === 'string') return item.trim() ? [item.trim()] : []
-          if (!item || typeof item !== 'object') return []
-          const entry = item as { name?: unknown; active?: unknown }
-          return typeof entry.name === 'string' && entry.name.trim() && entry.active !== false ? [entry.name.trim()] : []
-        }) : []
-        setConfiguredCategories(categories)
-      })
-    return () => { active = false }
+    const organizationId = organization.data.organizationId
+    const loadCategories = () => {
+      void supabase
+        .from('company_settings')
+        .select('incident_categories')
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (!active || error) return
+          const categories = Array.isArray(data?.incident_categories) ? data.incident_categories.flatMap((item: unknown) => {
+            if (typeof item === 'string') return item.trim() ? [item.trim()] : []
+            if (!item || typeof item !== 'object') return []
+            const entry = item as { name?: unknown; active?: unknown; deleted?: unknown }
+            return typeof entry.name === 'string' && entry.name.trim() && entry.active !== false && entry.deleted !== true ? [entry.name.trim()] : []
+          }) : []
+          setConfiguredCategories(categories)
+        })
+    }
+    const handleSettingsUpdated = (event: Event) => {
+      if (companySettingsEventMatchesOrganization(event, organizationId)) loadCategories()
+    }
+    loadCategories()
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    return () => {
+      active = false
+      window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    }
   }, [organization.data?.organizationId, supabase])
 
   const quickIncidentOptions: QuickIncidentOption[] = configuredCategories.map((category) => ({

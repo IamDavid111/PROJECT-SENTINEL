@@ -4,7 +4,7 @@ import type { AiAccessContext } from '../ai-service/access.ts'
 import {
   safetyActionSchema, safetyCauseSchema, safetyClosureSchema, safetyFacilitySchema,
   safetyFindingSchema, safetyIncidentSchema, safetyInvestigationSchema, safetyNewActionSchema, safetySiteSchema,
-  hasOrganizationIncidentVisibility, safetyCompanySettingsSchema, isExcludedSyntheticSafetyIncident,
+  safetyCompanySettingsSchema, isExcludedSyntheticSafetyIncident,
   type SafetyCoverage, type SafetyDataset, type SafetyFilters, type SafetyScope,
 } from './safetyIntelligenceContracts.ts'
 import { isDraftIncidentStatus, matchesIncidentSeverity, normalizeIncidentReportType, normalizeIncidentStatus } from './incidentReportFilters.ts'
@@ -16,12 +16,26 @@ export class SafetyRetrievalError extends Error {
   }
 }
 
+async function canReadOrganizationIncidents(client: SupabaseClient, context: AiAccessContext) {
+  const [permissionResult, closureResult] = await Promise.all([
+    client.rpc('has_org_permission', {
+      p_organization_id: context.organizationId,
+      p_permission: 'view_all_incidents',
+    }),
+    client.rpc('can_close_incidents', { target_organization_id: context.organizationId }),
+  ])
+  if (permissionResult.error || typeof permissionResult.data !== 'boolean'
+    || closureResult.error || typeof closureResult.data !== 'boolean') {
+    throw new SafetyRetrievalError()
+  }
+  return permissionResult.data || closureResult.data
+}
+
 export async function resolveSafetyScope(client: SupabaseClient, context: AiAccessContext, filters: SafetyFilters): Promise<SafetyScope> {
-  const { data, error } = await client.rpc('can_close_incidents', { target_organization_id: context.organizationId })
-  if (error || typeof data !== 'boolean') throw new SafetyRetrievalError()
+  const canReadOrganization = await canReadOrganizationIncidents(client, context)
   return {
     userId: context.userId, organizationId: context.organizationId,
-    visibility: hasOrganizationIncidentVisibility(context.role, data) ? 'organization' : 'personal',
+    visibility: canReadOrganization ? 'organization' : 'personal',
     ...(filters.siteId ? { siteId: filters.siteId } : {}),
     siteAssignmentEnforced: false,
   }
@@ -71,6 +85,7 @@ export async function retrieveSafetyDataset(
   if (!Number.isInteger(limits.pageSize) || limits.pageSize < 1 || limits.pageSize > 500
     || !Number.isInteger(limits.maxRows) || limits.maxRows < 1) throw new SafetyRetrievalError()
   const org = context.organizationId
+  const canReadOrganization = await canReadOrganizationIncidents(client, context)
   // Only the caller's anon-key/token client is accepted. No privileged client is created here.
   const [incidents, legacyActions, newActions, investigations, causes, findings, closures, sites, facilities, settingsResult] = await Promise.all([
     readPages(client, org, 'incidents', 'id,organization_id,reference_number,title,report_type,status,occurred_at,reported_at,updated_at,site_id,facility_id,department,shift,severity,potential_severity,incident_category,client_submission_id,digital_signature', safetyIncidentSchema, 'id', limits),
@@ -151,7 +166,7 @@ export async function retrieveSafetyDataset(
   const coverage: SafetyCoverage[] = (Object.keys(pages) as Array<keyof typeof pages>).map((source) => ({
     source, retrieved: source === 'incidents' ? scopedIncidents.length : rows[source].length, included: rows[source].length,
     complete: pages[source].complete,
-    access: hasOrganizationIncidentVisibility(context.role, false) ? 'organization' : 'caller_visible',
+    access: canReadOrganization ? 'organization' : 'caller_visible',
     reasons: [
       ...(pages[source].complete ? [] : ['Authorized source exceeded the retrieval limit.']),
       ...(source === 'incidents' && syntheticCount ? [`${syntheticCount} confirmed synthetic incident records are excluded from operational analytics.`] : []),
