@@ -228,6 +228,7 @@ export function KnowledgePage({ client, scope }: { client: SupabaseClient; scope
               scope={scope}
               documentId={selectedId}
               sites={directory.data?.sites ?? []}
+              activeSites={directory.data?.activeSites ?? []}
               people={directory.data?.people ?? []}
               onClose={() => setSelectedId(null)}
             />
@@ -252,7 +253,7 @@ export function KnowledgePage({ client, scope }: { client: SupabaseClient; scope
       <KnowledgeMetadataForm
         mode="create"
         currentUserId={scope.userId}
-        sites={directory.data?.sites ?? []}
+        sites={directory.data?.activeSites ?? []}
         people={directory.data?.people ?? []}
         pending={create.isPending}
         error={create.error ? errorMessage(create.error) : undefined}
@@ -303,9 +304,10 @@ function DocumentRow({ document, owner, selected, onSelect }: { document: Knowle
 type Panel = { kind: 'version' } | { kind: 'edit'; version: KnowledgeVersion } | { kind: 'reject'; version: KnowledgeVersion } | null
 type ConfirmAction = { kind: 'archive' } | { kind: 'approve'; version: KnowledgeVersion } | null
 
-function DocumentDetail({ client, scope, documentId, sites, people, onClose }: {
+function DocumentDetail({ client, scope, documentId, sites, activeSites, people, onClose }: {
   client: SupabaseClient; scope: KnowledgeScope; documentId: string
-  sites: Array<{ id: string; name: string }>; people: Array<{ id: string; full_name: string }>; onClose: () => void
+  sites: Array<{ id: string; name: string }>; activeSites: Array<{ id: string; name: string }>
+  people: Array<{ id: string; full_name: string }>; onClose: () => void
 }) {
   const detail = useKnowledgeDocument(client, scope, documentId)
   const [panel, setPanel] = useState<Panel>(null)
@@ -315,6 +317,11 @@ function DocumentDetail({ client, scope, documentId, sites, people, onClose }: {
   const action = useKnowledgeMutation(scope.organizationId, async (run: () => Promise<unknown>) => run())
   const names = new Map(people.map((person) => [person.id, person.full_name]))
   const siteNames = new Map(sites.map((site) => [site.id, site.name]))
+  const sitesForVersion = (version: KnowledgeVersion | null) => [
+    ...activeSites,
+    ...sites.filter((site) => site.id === version?.site_id && !activeSites.some((activeSite) => activeSite.id === site.id)),
+  ]
+  const inactiveSiteIds = sites.filter((site) => !activeSites.some((activeSite) => activeSite.id === site.id)).map((site) => site.id)
 
   if (detail.isPending) return <Card><CardContent className="pt-6"><Skeleton className="h-56 w-full" /></CardContent></Card>
   if (detail.isError) return <Alert tone="danger">{errorMessage(detail.error)}</Alert>
@@ -389,7 +396,7 @@ function DocumentDetail({ client, scope, documentId, sites, people, onClose }: {
           <h3 className="font-display text-base font-semibold text-foreground">Upload a new version</h3>
           <p className="mt-1 text-xs text-muted">Earlier versions are preserved. The new version starts as a draft.</p>
           <div className="mt-4">
-            <KnowledgeMetadataForm mode="version" version={latest} currentUserId={scope.userId} sites={sites} people={people} pending={action.isPending}
+            <KnowledgeMetadataForm mode="version" version={latest} currentUserId={scope.userId} sites={sitesForVersion(latest)} inactiveSiteIds={inactiveSiteIds} people={people} pending={action.isPending}
               error={action.isError ? errorMessage(action.error) : undefined} onCancel={() => setPanel(null)}
               onSubmit={(metadata, file) => file && perform('New draft version uploaded.', () => uploadKnowledgeVersion(client, { documentId: document.id, metadata, file }))} />
           </div>
@@ -398,7 +405,7 @@ function DocumentDetail({ client, scope, documentId, sites, people, onClose }: {
         {panel?.kind === 'edit' && <div className="rounded-xl border border-line bg-surface-soft/40 p-4">
           <h3 className="font-display text-base font-semibold text-foreground">Edit draft v{panel.version.version_number} metadata</h3>
           <div className="mt-4">
-            <KnowledgeMetadataForm mode="edit" version={panel.version} currentUserId={scope.userId} sites={sites} people={people} pending={action.isPending}
+            <KnowledgeMetadataForm mode="edit" version={panel.version} currentUserId={scope.userId} sites={sitesForVersion(panel.version)} inactiveSiteIds={inactiveSiteIds} people={people} pending={action.isPending}
               error={action.isError ? errorMessage(action.error) : undefined} onCancel={() => setPanel(null)}
               onSubmit={(metadata) => perform('Draft metadata saved.', () => knowledgeActions.updateMetadata(client, panel.version.id, metadata))} />
           </div>

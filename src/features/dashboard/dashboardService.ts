@@ -53,7 +53,7 @@ function configuredActiveNames(value: unknown): string[] {
     if (item && typeof item === 'object') {
       const candidate = item as Record<string, unknown>
       const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
-      return name && candidate.active !== false ? [name] : []
+      return name && candidate.active !== false && candidate.deleted !== true ? [name] : []
     }
     return []
   })

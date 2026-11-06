@@ -7,6 +7,7 @@ import { Skeleton } from '../../components/ui/skeleton'
 import { cn } from '../../lib/utils'
 import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions, buildShiftSettings, type CompanyShift } from '../../lib/companyFilterOptions'
 import { normalizeIncidentCategoryName } from '../../lib/incidentCategory'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 import { AiSafetySummary } from './AiSafetySummary'
 import { DashboardCommandStrip, type DashboardStripStat } from './DashboardCommandStrip'
 import { DashboardFilterBar } from './DashboardFilterBar'
@@ -130,16 +131,17 @@ export function DashboardPage({ organizationId, currentUserId, organizationName,
       }))
     }
     // Company Settings dispatches this event after a save, so refresh filter choices and dashboard data without reloading the page.
-    const handleSettingsUpdated = () => {
+    const handleSettingsUpdated = (event: Event) => {
+      if (!companySettingsEventMatchesOrganization(event, organizationId)) return
       void loadSettings()
       void invalidateDashboardData(queryClient, organizationId)
     }
     void loadSettings()
-    window.addEventListener('company-settings-updated', handleSettingsUpdated)
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
 
     return () => {
       active = false
-      window.removeEventListener('company-settings-updated', handleSettingsUpdated)
+      window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
     }
   }, [organizationId, queryClient, supabase])
 

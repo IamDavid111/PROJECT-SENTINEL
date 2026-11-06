@@ -22,6 +22,7 @@ import { ReportWizardFooter } from './ReportWizardFooter'
 import { SubmitIncidentDialogs } from './SubmitIncidentDialogs'
 import { incidentFormSchema, incidentSubmissionSchema, type IncidentFormValues } from './incidentSchemas'
 import { enqueueIncidentSubmission } from './incidentOfflineQueue'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 import { useCreateIncidentDraft, useIncident, useIncidentOrganization, useSubmitIncident, useSubmitNewIncident, useUpdateIncidentDraft, useUploadIncidentEvidence } from './useIncidentData'
 import type { IncidentDetail, IncidentDraftInput, IncidentReportType, IncidentSubmissionInput } from './incidentTypes'
 
@@ -32,7 +33,7 @@ function configuredOptions(value: unknown, fallback: string[], legacyValue = '')
   if (!Array.isArray(value)) return legacyValue ? [legacyValue] : fallback
   const options = value.flatMap((item) => {
     if (typeof item === 'string') return [item.trim()].filter(Boolean)
-    if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string' && (!('active' in item) || item.active !== false)) return [item.name.trim()].filter(Boolean)
+    if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string' && (!('active' in item) || item.active !== false) && (!('deleted' in item) || item.deleted !== true)) return [item.name.trim()].filter(Boolean)
     return []
   })
   if (legacyValue && !options.some((option) => option.toLowerCase() === legacyValue.toLowerCase())) options.push(legacyValue)
@@ -43,7 +44,10 @@ function configuredSiteNames(value: unknown) {
   if (!Array.isArray(value)) return []
   return value.flatMap((item) => {
     const rawName = typeof item === 'string' ? item : item && typeof item === 'object' && typeof (item as Record<string, unknown>).name === 'string' ? (item as Record<string, unknown>).name as string : ''
-    if (!rawName || (typeof item === 'object' && item !== null && 'active' in item && (item as Record<string, unknown>).active === false)) return []
+    if (!rawName || (typeof item === 'object' && item !== null && (
+      (('active' in item) && (item as Record<string, unknown>).active === false)
+      || (('deleted' in item) && (item as Record<string, unknown>).deleted === true)
+    ))) return []
     return rawName.trim() ? [rawName.trim()] : []
   })
 }
@@ -55,7 +59,7 @@ function configuredShiftNames(value: unknown, legacyValue = '') {
   const names = shifts.flatMap((item: unknown) => {
     if (!item || typeof item !== 'object') return []
     const shift = item as Record<string, unknown>
-    return typeof shift.name === 'string' && shift.name.trim() && shift.active !== false ? [shift.name.trim()] : []
+    return typeof shift.name === 'string' && shift.name.trim() && shift.active !== false && shift.deleted !== true ? [shift.name.trim()] : []
   })
   if (legacyValue && !names.some((name) => name.toLowerCase() === legacyValue.toLowerCase())) names.push(legacyValue)
   return names
@@ -268,22 +272,35 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   useEffect(() => {
     if (!organization.data?.organizationId) return
     let active = true
-    void Promise.all([
-      supabase.from('sites').select('id, name').eq('organization_id', organization.data.organizationId).order('name'),
-      supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours').eq('organization_id', organization.data.organizationId).maybeSingle(),
-    ]).then(([siteResult, settingsResult]) => {
-      if (!active) return
-      if (siteResult.error || settingsResult.error) {
-        setSettingsError('Unable to load company configuration. Please try again before reporting an incident.')
-        setSites([])
-        setSettings({})
-      } else {
-        setSites(siteResult.data || [])
-        setSettings(settingsResult.data || {})
-      }
-      setSettingsLoading(false)
-    })
-    return () => { active = false }
+    const organizationId = organization.data.organizationId
+    const loadSettings = () => {
+      setSettingsLoading(true)
+      setSettingsError('')
+      void Promise.all([
+        supabase.from('sites').select('id, name').eq('organization_id', organizationId).order('name'),
+        supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours').eq('organization_id', organizationId).maybeSingle(),
+      ]).then(([siteResult, settingsResult]) => {
+        if (!active) return
+        if (siteResult.error || settingsResult.error) {
+          setSettingsError('Unable to load company configuration. Please try again before reporting an incident.')
+          setSites([])
+          setSettings({})
+        } else {
+          setSites(siteResult.data || [])
+          setSettings(settingsResult.data || {})
+        }
+        setSettingsLoading(false)
+      })
+    }
+    const handleSettingsUpdated = (event: Event) => {
+      if (companySettingsEventMatchesOrganization(event, organizationId)) loadSettings()
+    }
+    loadSettings()
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    return () => {
+      active = false
+      window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    }
   }, [organization.data?.organizationId, supabase])
 
   if (existingDraftId && existingDraft.isLoading) {

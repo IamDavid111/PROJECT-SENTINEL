@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, MouseEvent, ReactNode } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useQueryClient } from '@tanstack/react-query'
@@ -28,6 +28,7 @@ import {
 import type { DataTableColumn, FileUploadItem } from '../../components/ui'
 import { createInspection, downloadQhseFile, getInspectionWorkspace, validateQhseFile } from './inspectionActionService'
 import type { InspectionRecord, QhsePerson, QhseSite } from './inspectionActionService'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 
 const acceptedFileTypes = 'image/jpeg,image/png,image/webp,application/pdf'
 
@@ -111,6 +112,7 @@ export function InspectionWorkspace({
 }) {
   const queryClient = useQueryClient()
   const [sites, setSites] = useState<QhseSite[]>([])
+  const [activeSites, setActiveSites] = useState<QhseSite[]>([])
   const [people, setPeople] = useState<QhsePerson[]>([])
   const [inspections, setInspections] = useState<InspectionRecord[]>([])
   const [siteId, setSiteId] = useState('')
@@ -131,20 +133,21 @@ export function InspectionWorkspace({
   const [rangeFilter, setRangeFilter] = useState<'30' | '90' | 'all'>('all')
   const [currentTime, setCurrentTime] = useState(() => Date.now())
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true)
     try {
       const data = await getInspectionWorkspace(supabase)
       setOrganizationId(data.organizationId)
       setSites(data.sites)
+      setActiveSites(data.activeSites)
       setPeople(data.people)
       setInspections(data.inspections)
-      setSiteId((current) => current || data.sites[0]?.id || '')
+      setSiteId((current) => current || data.activeSites[0]?.id || '')
       setError('')
     } finally {
       setLoading(false)
     }
-  }
+  }, [supabase])
 
   useEffect(() => {
     let active = true
@@ -154,9 +157,10 @@ export function InspectionWorkspace({
         setError('')
         setOrganizationId(data.organizationId)
         setSites(data.sites)
+        setActiveSites(data.activeSites)
         setPeople(data.people)
         setInspections(data.inspections)
-        setSiteId(data.sites[0]?.id || '')
+        setSiteId(data.activeSites[0]?.id || '')
       })
       .catch((loadError: unknown) => {
         if (active) setError(loadError instanceof Error ? loadError.message : 'Unable to load inspections.')
@@ -168,6 +172,18 @@ export function InspectionWorkspace({
       active = false
     }
   }, [supabase])
+
+  useEffect(() => {
+    if (!organizationId) return
+    const handleSettingsUpdated = (event: Event) => {
+      if (!companySettingsEventMatchesOrganization(event, organizationId)) return
+      void refresh().catch((loadError: unknown) => {
+        setError(loadError instanceof Error ? loadError.message : 'Unable to refresh inspections.')
+      })
+    }
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    return () => window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+  }, [organizationId, refresh])
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000)
@@ -322,7 +338,7 @@ export function InspectionWorkspace({
                 required
               >
                 <option value="">Select a site</option>
-                {sites.map((site) => (
+                {activeSites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}
                   </option>
@@ -437,7 +453,7 @@ export function InspectionWorkspace({
           <FilterField label="Site">
             <Select value={siteFilter} onChange={(event) => setSiteFilter(event.target.value)}>
               <option value="all">All sites</option>
-              {sites.map((site) => (
+              {activeSites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name}
                 </option>

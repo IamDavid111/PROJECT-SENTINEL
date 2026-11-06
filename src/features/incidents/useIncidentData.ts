@@ -24,12 +24,12 @@ import { invalidateSafetyIntelligence } from '../safety-intelligence/safetyIntel
 import { syncQueuedIncidentSubmissions } from './incidentOfflineQueue'
 import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentSubmissionInput, IncidentSummary } from './incidentTypes'
 
-export function useIncidentClosureAccess(client: SupabaseClient, organizationId: string, userId: string) {
+export function useIncidentClosureAccess(client: SupabaseClient, organizationId: string, userId: string, enabled = true) {
   return useQuery({
     // Delegated access is personal, even when two users belong to the same organization.
     queryKey: ['incident-closure-access', organizationId, userId],
     queryFn: () => getIncidentClosureAccess(client, organizationId),
-    enabled: Boolean(organizationId && userId),
+    enabled: Boolean(enabled && organizationId && userId),
     staleTime: 0,
     refetchOnWindowFocus: true,
   })
@@ -56,11 +56,12 @@ export function useIncidentOrganization(client: SupabaseClient) {
   })
 }
 
-export function useIncidentOfflineSync(client: SupabaseClient) {
+export function useIncidentOfflineSync(client: SupabaseClient, enabled = true) {
   const queryClient = useQueryClient()
 
   // Try queued submissions when the app starts and again when the browser reports that it is online.
   useEffect(() => {
+    if (!enabled) return
     let active = true
     const sync = async () => {
       if (!active) return
@@ -82,7 +83,7 @@ export function useIncidentOfflineSync(client: SupabaseClient) {
       active = false
       window.removeEventListener('online', handleOnline)
     }
-  }, [client, queryClient])
+  }, [client, enabled, queryClient])
 }
 
 export function useIncidents(client: SupabaseClient, filters: IncidentListFilters = {}, scope: IncidentListScope = 'organization') {

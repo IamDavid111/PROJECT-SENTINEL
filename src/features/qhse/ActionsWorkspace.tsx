@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { useQueryClient } from '@tanstack/react-query'
@@ -8,6 +8,7 @@ import { createAction, downloadQhseFile, getActionsWorkspace, resolveAction, rea
 import type { ActionRecord, ActionType, EligibleIncident, QhsePerson, QhseSite } from './inspectionActionService'
 import { ActionCreateForm } from './ActionCreateForm'
 import { ActionRegister } from './ActionRegister'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 
 function localDateTime() {
   const date = new Date(Date.now() + 24 * 60 * 60 * 1000)
@@ -37,6 +38,7 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
   const queryClient = useQueryClient()
   const [actions, setActions] = useState<ActionRecord[]>([])
   const [sites, setSites] = useState<QhseSite[]>([])
+  const [activeSites, setActiveSites] = useState<QhseSite[]>([])
   const [people, setPeople] = useState<QhsePerson[]>([])
   const [eligibleIncidents, setEligibleIncidents] = useState<EligibleIncident[]>([])
   const [linkedIncidents, setLinkedIncidents] = useState<EligibleIncident[]>([])
@@ -62,19 +64,20 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
   const [actionStatusFilter, setActionStatusFilter] = useState<'all' | 'open' | 'overdue' | 'closed'>('all')
   const submitInProgress = useRef(false)
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const data = await getActionsWorkspace(supabase, assignedOnly, assignedOnly && organizationActionsView)
     setOrganizationId(data.organizationId)
     setCurrentUserId(data.userId)
     setActions(data.actions)
     setSites(data.sites)
+    setActiveSites(data.activeSites)
     setPeople(data.people)
     setEligibleIncidents(data.eligibleIncidents)
     setLinkedIncidents(data.linkedIncidents)
     setLoadedOrganizationActionsView(organizationActionsView)
-    setSiteId((current) => current || data.sites[0]?.id || '')
+    setSiteId((current) => current || data.activeSites[0]?.id || '')
     setAssigneeId((current) => current || data.people[0]?.id || '')
-  }
+  }, [supabase, assignedOnly, organizationActionsView])
 
   useEffect(() => {
     let active = true
@@ -85,11 +88,12 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
       setCurrentUserId(data.userId)
       setActions(data.actions)
       setSites(data.sites)
+      setActiveSites(data.activeSites)
       setPeople(data.people)
       setEligibleIncidents(data.eligibleIncidents)
       setLinkedIncidents(data.linkedIncidents)
       setLoadedOrganizationActionsView(organizationActionsView)
-      setSiteId(data.sites[0]?.id || '')
+      setSiteId(data.activeSites[0]?.id || '')
       setAssigneeId(data.people[0]?.id || '')
     }).catch((loadError: unknown) => {
       if (active) {
@@ -99,6 +103,18 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [assignedOnly, organizationActionsView, supabase])
+
+  useEffect(() => {
+    if (!organizationId) return
+    const handleSettingsUpdated = (event: Event) => {
+      if (!companySettingsEventMatchesOrganization(event, organizationId)) return
+      void refresh().catch((loadError: unknown) => {
+        setError(loadError instanceof Error ? loadError.message : 'Unable to refresh actions.')
+      })
+    }
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    return () => window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+  }, [organizationId, refresh])
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 60_000)
@@ -242,7 +258,7 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
           onIncidentChange={setIncidentId}
           description={description}
           onDescriptionChange={setDescription}
-          sites={sites}
+          sites={activeSites}
           people={people}
           eligibleIncidents={eligibleIncidents}
           busy={busy}
