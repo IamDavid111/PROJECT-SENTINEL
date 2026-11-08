@@ -1,4 +1,5 @@
 import { ArrowRight } from 'lucide-react'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { cn } from '../../lib/utils'
 import { OrganizationManagementSystemsSection } from './OrganizationManagementSystemsSection'
@@ -19,11 +20,13 @@ const TONE_CLASS: Record<NonNullable<DashboardStripStat['tone']>, string> = {
 }
 
 /** Shift-board readout: date, full-width greeting, organization context, and the four attention numbers. */
-export function DashboardCommandStrip({ userName, organizationName, role, stats }: {
+export function DashboardCommandStrip({ userName, organizationName, role, stats, client, organizationId }: {
   userName: string
   organizationName: string
   role: string
   stats: DashboardStripStat[]
+  client: SupabaseClient
+  organizationId: string
 }) {
   const now = new Date()
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening'
@@ -56,7 +59,7 @@ export function DashboardCommandStrip({ userName, organizationName, role, stats 
         </p>
       </div>
 
-      <OrganizationManagementSystemsSection />
+      <OrganizationManagementSystemsSection client={client} organizationId={organizationId} />
 
       <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">
         {stats.map((stat) => (

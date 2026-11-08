@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { Alert, Button, Card, Select, Spinner } from '../../components/ui'
+import { DOCUMENT_UPLOAD_ACCEPT } from '../../lib/documentUpload'
 import {
   getLegalComplianceCapabilities,
   activateLegalComplianceRenewal,
@@ -33,8 +34,6 @@ const EMPTY_DRAFT: LegalComplianceDraft = {
   responsible_person_id: '',
   compliance_status: 'not_assessed',
 }
-
-const DOCUMENT_ACCEPT = '.pdf,.doc,.docx,.xlsx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain'
 
 export function ComplianceFrameworksSection({ client, organizationId, userId }: {
   client: SupabaseClient
@@ -160,19 +159,41 @@ export function ComplianceFrameworksSection({ client, organizationId, userId }: 
 
     setSaving(true)
     let saved: LegalComplianceObligation | null = null
-    let documentMetadataSaved = !file
     let cleanupWarning = ''
+    let renewalVersionId: string | null = null
+    let renewalDocumentPath: string | null = null
+    let renewalActivated = false
+    let replacementDocumentPath: string | null = null
+    let replacementDocumentSaved = !file
     try {
-      saved = await saveLegalComplianceObligation(client, organizationId, userId, draft, editingRecord?.id)
+      if (renewingRecord) {
+        if (!file) throw new Error('Upload the renewed license, permit, approval, or certificate before saving the renewal.')
+        const renewal = await beginLegalComplianceRenewal(client, organizationId, renewingRecord.id, draft)
+        renewalVersionId = renewal.id
+        const uploaded = await uploadLegalComplianceDocument(client, organizationId, renewingRecord.id, renewal.id, file)
+        renewalDocumentPath = uploaded.path
+        await setLegalComplianceDocument(client, organizationId, renewal.id, uploaded, userId)
+        await activateLegalComplianceRenewal(client, organizationId, renewingRecord.id, renewal.id)
+        renewalActivated = true
+        resetForm()
+        setMessage(`${draft.obligation_name} renewed successfully. Version ${renewal.version_number} is now active.`)
+        await reload()
+        return
+      }
+
+      const replacementDocument = file && editingRecord
+        ? await uploadLegalComplianceDocument(client, organizationId, editingRecord.id, editingRecord.active_version.id, file)
+        : undefined
+      replacementDocumentPath = replacementDocument?.path ?? null
+      saved = await saveLegalComplianceObligation(client, organizationId, userId, draft, editingRecord?.id, replacementDocument)
       if (file) {
-        const uploaded = await uploadLegalComplianceDocument(client, organizationId, saved.id, saved.active_version.id, file)
-        try {
+        const uploaded = replacementDocument
+          ?? await uploadLegalComplianceDocument(client, organizationId, saved.id, saved.active_version.id, file)
+        replacementDocumentPath = uploaded.path
+        if (!editingRecord) {
           await setLegalComplianceDocument(client, organizationId, saved.active_version.id, uploaded, userId)
-          documentMetadataSaved = true
-        } catch (caught) {
-          await removeLegalComplianceDocument(client, uploaded.path)
-          throw caught
         }
+        replacementDocumentSaved = true
         if (editingRecord?.active_version.document_path) {
           try {
             await removeLegalComplianceDocument(client, editingRecord.active_version.document_path)
@@ -185,7 +206,28 @@ export function ComplianceFrameworksSection({ client, organizationId, userId }: 
       setMessage(`${editingRecord ? 'Obligation updated' : 'Obligation created'} successfully.${cleanupWarning}`)
       await reload()
     } catch (caught) {
-      if (saved && !editingRecord && file && !documentMetadataSaved) {
+      if (renewalVersionId && !renewalActivated) {
+        if (renewalDocumentPath) {
+          try {
+            await removeLegalComplianceDocument(client, renewalDocumentPath)
+          } catch {
+            cleanupWarning = ' The uploaded renewal file could not be removed; contact your Super Admin.'
+          }
+        }
+        try {
+          await abandonLegalComplianceRenewal(client, organizationId, renewingRecord!.id, renewalVersionId)
+        } catch {
+          cleanupWarning += ' The unfinished renewal could not be closed; contact your Super Admin.'
+        }
+      }
+      if (replacementDocumentPath && !replacementDocumentSaved) {
+        try {
+          await removeLegalComplianceDocument(client, replacementDocumentPath)
+        } catch {
+          cleanupWarning += ' The uploaded replacement file could not be removed; contact your Super Admin.'
+        }
+      }
+      if (saved && !editingRecord && file && !replacementDocumentSaved) {
         try {
           await softDeleteLegalComplianceObligation(client, organizationId, saved.id)
         } catch {
@@ -193,7 +235,7 @@ export function ComplianceFrameworksSection({ client, organizationId, userId }: 
           return
         }
       }
-      setError(caught instanceof Error ? caught.message : 'Unable to save the obligation.')
+      setError(`${caught instanceof Error ? caught.message : 'Unable to save the obligation.'}${cleanupWarning}`)
     } finally {
       setSaving(false)
     }
@@ -243,33 +285,33 @@ export function ComplianceFrameworksSection({ client, organizationId, userId }: 
         {message && <Alert tone="success">{message}</Alert>}
         <form className="grid gap-4 border-t border-line pt-4" onSubmit={(event) => void save(event)}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-foreground">{editingRecord ? 'Edit obligation' : 'Add obligation'}</h3>
-            {editingRecord && <Button type="button" size="sm" variant="ghost" onClick={resetForm}>Cancel edit</Button>}
+            <h3 className="text-sm font-semibold text-foreground">{renewingRecord ? `Renew ${renewingRecord.obligation_name}` : editingRecord ? 'Edit obligation' : 'Add obligation'}</h3>
+            {(editingRecord || renewingRecord) && <Button type="button" size="sm" variant="ghost" onClick={resetForm}>Cancel</Button>}
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <label className="grid gap-1.5 text-sm font-medium text-foreground">Obligation name
-              <input required maxLength={200} value={draft.obligation_name} onChange={(event) => setDraft((current) => ({ ...current, obligation_name: event.target.value }))} className="h-10 rounded-xl border border-line bg-surface px-3 text-sm text-foreground" disabled={saving} />
+              <input required maxLength={200} value={draft.obligation_name} onChange={(event) => setDraft((current) => ({ ...current, obligation_name: event.target.value }))} className="h-10 rounded-xl border border-line bg-surface px-3 text-sm text-foreground" disabled={saving || Boolean(renewingRecord)} />
             </label>
             <label className="grid gap-1.5 text-sm font-medium text-foreground">Category
-              <Select value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value as ComplianceCategory }))} disabled={saving}>
+              <Select value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value as ComplianceCategory }))} disabled={saving || Boolean(renewingRecord)}>
                 <option value="license">License</option><option value="permit">Permit</option><option value="approval">Approval</option><option value="certification">Certification</option><option value="other">Other</option>
               </Select>
             </label>
             <label className="grid gap-1.5 text-sm font-medium text-foreground">Issuing authority
-              <input required maxLength={200} value={draft.issuing_authority} onChange={(event) => setDraft((current) => ({ ...current, issuing_authority: event.target.value }))} className="h-10 rounded-xl border border-line bg-surface px-3 text-sm text-foreground" disabled={saving} />
+              <input required maxLength={200} value={draft.issuing_authority} onChange={(event) => setDraft((current) => ({ ...current, issuing_authority: event.target.value }))} className="h-10 rounded-xl border border-line bg-surface px-3 text-sm text-foreground" disabled={saving || Boolean(renewingRecord)} />
             </label>
             <label className="grid gap-1.5 text-sm font-medium text-foreground">Organization / site / department
-              <Select value={draft.scope_type} onChange={(event) => setDraft((current) => ({ ...current, scope_type: event.target.value as ComplianceScopeType, site_id: null, department: null }))} disabled={saving}>
+              <Select value={draft.scope_type} onChange={(event) => setDraft((current) => ({ ...current, scope_type: event.target.value as ComplianceScopeType, site_id: null, department: null }))} disabled={saving || Boolean(renewingRecord)}>
                 <option value="organization">Organization</option><option value="site">Site</option><option value="department">Department</option>
               </Select>
             </label>
             {draft.scope_type === 'site' && <label className="grid gap-1.5 text-sm font-medium text-foreground">Site
-              <Select value={draft.site_id || ''} onChange={(event) => setDraft((current) => ({ ...current, site_id: event.target.value || null }))} disabled={saving}>
+              <Select value={draft.site_id || ''} onChange={(event) => setDraft((current) => ({ ...current, site_id: event.target.value || null }))} disabled={saving || Boolean(renewingRecord)}>
                 <option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
               </Select>
             </label>}
             {draft.scope_type === 'department' && <label className="grid gap-1.5 text-sm font-medium text-foreground">Department
-              <input required maxLength={160} value={draft.department || ''} onChange={(event) => setDraft((current) => ({ ...current, department: event.target.value }))} className="h-10 rounded-xl border border-line bg-surface px-3 text-sm text-foreground" disabled={saving} />
+              <input required maxLength={160} value={draft.department || ''} onChange={(event) => setDraft((current) => ({ ...current, department: event.target.value }))} className="h-10 rounded-xl border border-line bg-surface px-3 text-sm text-foreground" disabled={saving || Boolean(renewingRecord)} />
             </label>}
             <label className="grid gap-1.5 text-sm font-medium text-foreground">Issue date
               <input required type="date" value={draft.issue_date} onChange={(event) => setDraft((current) => ({ ...current, issue_date: event.target.value }))} className="h-10 rounded-xl border border-line bg-surface px-3 text-sm text-foreground" disabled={saving} />
@@ -287,12 +329,14 @@ export function ComplianceFrameworksSection({ client, organizationId, userId }: 
                 <option value="not_assessed">Not assessed</option><option value="compliant">Compliant</option><option value="non_compliant">Non-compliant</option><option value="under_review">Under review</option>
               </Select>
             </label>
-            <label className="grid gap-1.5 text-sm font-medium text-foreground sm:col-span-2">Supporting document (optional)
-              <input type="file" accept={DOCUMENT_ACCEPT} onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="block w-full text-sm text-muted file:mr-3 file:rounded-lg file:border file:border-line file:bg-surface file:px-3 file:py-2 file:text-sm file:font-medium file:text-foreground" disabled={saving} />
-              {editingRecord?.active_version.document_name && <span className="text-xs text-muted">Current file: {editingRecord.active_version.document_name}</span>}
+            <label className="grid gap-1.5 text-sm font-medium text-foreground sm:col-span-2">Supporting document {renewingRecord ? '(required for renewal)' : '(optional)'}
+              <input type="file" accept={DOCUMENT_UPLOAD_ACCEPT} onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="block w-full text-sm text-muted file:mr-3 file:rounded-lg file:border file:border-line file:bg-surface file:px-3 file:py-2 file:text-sm file:font-medium file:text-foreground" disabled={saving} />
+              <span className="text-xs text-muted">Images, documents, spreadsheets, presentations, or text files up to 20 MB.</span>
+              {!renewingRecord && editingRecord?.active_version.document_name && <span className="text-xs text-muted">Current file: {editingRecord.active_version.document_name}</span>}
+              {renewingRecord && <span className="text-xs text-muted">The renewal is saved as a new version; previous versions and documents are retained.</span>}
             </label>
           </div>
-          <div><Button type="submit" loading={saving}>{editingRecord ? 'Save changes' : 'Create obligation'}</Button></div>
+          <div><Button type="submit" loading={saving}>{renewingRecord ? 'Upload and activate renewal' : editingRecord ? 'Save changes' : 'Create obligation'}</Button></div>
         </form>
       </Card>
 
@@ -306,7 +350,11 @@ export function ComplianceFrameworksSection({ client, organizationId, userId }: 
                 <h4 className="text-base font-semibold text-foreground">{record.obligation_name}</h4>
                 <p className="text-sm text-muted">{record.category[0].toUpperCase() + record.category.slice(1)} · {record.issuing_authority}</p>
               </div>
-              <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => editRecord(record)}>Edit</Button><Button size="sm" variant="ghost" onClick={() => void deleteRecord(record)}>Delete</Button></div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => editRecord(record)}>Edit</Button>
+                <Button size="sm" variant="outline" onClick={() => renewRecord(record)}>Renew</Button>
+                <Button size="sm" variant="ghost" onClick={() => void deleteRecord(record)}>Delete</Button>
+              </div>
             </div>
             <dl className="grid gap-2 text-sm sm:grid-cols-3">
               <div><dt className="text-xs text-muted">Scope</dt><dd className="text-foreground">{record.scope_type === 'site' ? sites.find((site) => site.id === record.site_id)?.name || 'Site' : record.scope_type === 'department' ? record.department : 'Organization'}</dd></div>

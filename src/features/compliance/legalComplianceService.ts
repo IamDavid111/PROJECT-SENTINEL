@@ -1,14 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getDocumentUploadMimeType } from '../../lib/documentUpload'
 
 const LEGAL_COMPLIANCE_BUCKET = 'legal-compliance-documents'
-const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024
-const ALLOWED_DOCUMENT_TYPES = new Set([
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-])
 
 export type ComplianceCategory = 'license' | 'permit' | 'approval' | 'certification' | 'other'
 export type ComplianceScopeType = 'organization' | 'site' | 'department'
@@ -72,6 +65,23 @@ export interface ComplianceDocumentInput {
 
 export type ComplianceExpiryState = 'no_expiry' | 'valid' | 'expiring_soon' | 'expired'
 
+export interface LegalComplianceSummary {
+  total: number
+  valid: number
+  expiring_soon: number
+  expired: number
+}
+
+export const legalComplianceSummaryUpdatedEvent = 'legal-compliance-summary-updated'
+
+function notifyLegalComplianceSummaryUpdated(organizationId: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(legalComplianceSummaryUpdatedEvent, {
+      detail: { organizationId },
+    }))
+  }
+}
+
 export function getComplianceExpiryState(expiryDate: string | null, today = new Date()): {
   state: ComplianceExpiryState
   daysRemaining: number | null
@@ -83,6 +93,27 @@ export function getComplianceExpiryState(expiryDate: string | null, today = new 
   return {
     state: daysRemaining < 0 ? 'expired' : daysRemaining <= 30 ? 'expiring_soon' : 'valid',
     daysRemaining,
+  }
+}
+
+export async function getLegalComplianceSummary(client: SupabaseClient, organizationId: string): Promise<LegalComplianceSummary> {
+  const { data, error } = await client.rpc('get_legal_compliance_obligation_summary', {
+    p_organization_id: organizationId,
+  })
+  if (error) throw new Error(error.message || 'Unable to load the Legal and Compliance summary.')
+
+  const summary = data?.[0]
+  if (!summary) throw new Error('The Legal and Compliance summary was not returned.')
+  const counts = [summary.total, summary.valid, summary.expiring_soon, summary.expired]
+  if (counts.some((count) => typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0)) {
+    throw new Error('The Legal and Compliance summary contains invalid counts.')
+  }
+
+  return {
+    total: summary.total,
+    valid: summary.valid,
+    expiring_soon: summary.expiring_soon,
+    expired: summary.expired,
   }
 }
 
@@ -137,6 +168,7 @@ export async function saveLegalComplianceObligation(
   userId: string,
   draft: LegalComplianceDraft,
   obligationId?: string,
+  document?: ComplianceDocumentInput,
 ): Promise<LegalComplianceObligation> {
   const parentValues = {
     organization_id: organizationId,
@@ -165,6 +197,14 @@ export async function saveLegalComplianceObligation(
         expiry_date: draft.expiry_date || null,
         responsible_person_id: draft.responsible_person_id,
         compliance_status: draft.compliance_status,
+        ...(document ? {
+          document_path: document.path,
+          document_name: document.name,
+          document_mime_type: document.mimeType,
+          document_size: document.size,
+          uploaded_by: userId,
+          uploaded_at: new Date().toISOString(),
+        } : {}),
       })
       .eq('organization_id', organizationId)
       .eq('obligation_id', obligationId)
@@ -172,6 +212,7 @@ export async function saveLegalComplianceObligation(
       .select('*')
       .single()
     if (versionError || !version) throw new Error(versionError?.message || 'Unable to update the active obligation version.')
+    notifyLegalComplianceSummaryUpdated(organizationId)
     return { ...parent, active_version: version } as LegalComplianceObligation
   }
 
@@ -203,12 +244,12 @@ export async function saveLegalComplianceObligation(
     if (cleanupError) throw new Error('The obligation was created but its initial version could not be saved or cleaned up. Contact your Super Admin.')
     throw new Error(versionError?.message || 'Unable to create the initial obligation version.')
   }
+  notifyLegalComplianceSummaryUpdated(organizationId)
   return { ...parent, active_version: createdVersion } as LegalComplianceObligation
 }
 
 export function validateLegalComplianceDocument(file: File): void {
-  if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) throw new Error('Choose a PDF, Word document, spreadsheet, or plain-text file.')
-  if (file.size < 1 || file.size > MAX_DOCUMENT_SIZE) throw new Error('Supporting documents must be 100 MB or smaller.')
+  getDocumentUploadMimeType(file)
 }
 
 export async function uploadLegalComplianceDocument(
@@ -219,11 +260,12 @@ export async function uploadLegalComplianceDocument(
   file: File,
 ): Promise<ComplianceDocumentInput> {
   validateLegalComplianceDocument(file)
+  const mimeType = getDocumentUploadMimeType(file)
   const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const path = `${organizationId}/${obligationId}/${versionId}/${crypto.randomUUID()}-${safeFilename}`
-  const { error } = await client.storage.from(LEGAL_COMPLIANCE_BUCKET).upload(path, file, { upsert: false, contentType: file.type })
+  const { error } = await client.storage.from(LEGAL_COMPLIANCE_BUCKET).upload(path, file, { upsert: false, contentType: mimeType })
   if (error) throw new Error(error.message || 'Unable to upload the supporting document.')
-  return { path, name: file.name, mimeType: file.type, size: file.size }
+  return { path, name: file.name, mimeType, size: file.size }
 }
 
 export async function setLegalComplianceDocument(
@@ -292,6 +334,7 @@ export async function activateLegalComplianceRenewal(client: SupabaseClient, org
     p_version_id: versionId,
   })
   if (error || !data) throw new Error(error?.message || 'Unable to activate the compliance renewal.')
+  notifyLegalComplianceSummaryUpdated(organizationId)
   return data as LegalComplianceVersion
 }
 
@@ -315,4 +358,5 @@ export async function softDeleteLegalComplianceObligation(
     .eq('organization_id', organizationId)
     .is('deleted_at', null)
   if (error) throw new Error(error.message || 'Unable to delete the obligation.')
+  notifyLegalComplianceSummaryUpdated(organizationId)
 }
