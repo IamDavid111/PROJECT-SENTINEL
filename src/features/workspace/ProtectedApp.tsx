@@ -60,22 +60,19 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   const [policyObjectivesAccess, setPolicyObjectivesAccess] = useState({ canView: false, canManage: false, loaded: false })
   const [legalComplianceAccess, setLegalComplianceAccess] = useState({ canView: false, canManage: false, loaded: false })
   const [organizationId, setOrganizationId] = useState('')
-<<<<<<< HEAD
   const [profileLoadedForUser, setProfileLoadedForUser] = useState('')
-  const closureAccess = useIncidentClosureAccess(
-    supabase,
-    organizationId,
-    profileLoadedForUser === session.user.id ? session.user.id : '',
-  )
-=======
   const [policyStatus, setPolicyStatus] = useState<SafetyPolicyStatus | null>(null)
   const [policyStatusLoaded, setPolicyStatusLoaded] = useState(false)
   const [policyCheckLoading, setPolicyCheckLoading] = useState(true)
   const [policyError, setPolicyError] = useState('')
   const policyVerified = policyStatusLoaded && !policyCheckLoading && !policyError && policyStatus?.required === false
   useIncidentOfflineSync(supabase, policyVerified)
-  const closureAccess = useIncidentClosureAccess(supabase, organizationId, session.user.id, policyVerified)
->>>>>>> main
+  const closureAccess = useIncidentClosureAccess(
+    supabase,
+    organizationId,
+    profileLoadedForUser === session.user.id ? session.user.id : '',
+    policyVerified,
+  )
   const [profileName, setProfileName] = useState(session.user.email || 'User')
   const [organizationName, setOrganizationName] = useState('Organization workspace')
   const [loading, setLoading] = useState(true)
@@ -185,11 +182,10 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     } finally {
       setPolicyCheckLoading(false)
     }
-<<<<<<< HEAD
-    window.addEventListener('hashchange', handleHashChange)
-    // A valid sign-in does not by itself identify the user's organization or app role.
-    // Load the profile first, then use its organization ID to fetch membership and organization details.
-    // The membership role is used below to build the workspace's permission-aware navigation.
+  }, [])
+
+  useEffect(() => {
+    // Load the profile first, then resolve organization membership and permissions for the workspace.
     let active = true
     const loadMembership = async () => {
       const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id, account_status').eq('id', session.user.id).maybeSingle()
@@ -200,16 +196,6 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           message: profileError.message,
         })
         setError('Your profile could not be loaded. Please retry or contact your administrator.')
-=======
-  }, [])
-
-  useEffect(() => {
-    // Load only identity and membership before policy verification; other workspace data waits for the gate.
-    const loadMembership = async () => {
-      const { data: profile, error: profileError } = await supabase.from('profiles').select('full_name, organization_id, account_status').eq('id', session.user.id).maybeSingle()
-      if (profileError) {
-        setError(profileError.message)
->>>>>>> main
         setLoading(false)
         return
       }
@@ -226,7 +212,6 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       if (profile?.full_name) setProfileName(profile.full_name)
       if (profile?.organization_id) {
         setOrganizationId(profile.organization_id)
-<<<<<<< HEAD
         const [
           { data: membership, error: membershipError },
           { data: organization, error: organizationError },
@@ -250,24 +235,16 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
             message: organizationError.message,
           })
           setError('Your organization access could not be loaded. Please retry or contact your administrator.')
-=======
-        const { data: membership, error: membershipError } = await supabase
-          .from('memberships')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .eq('organization_id', profile.organization_id)
-          .maybeSingle()
-        if (membershipError) {
-          setError(membershipError.message)
->>>>>>> main
           setLoading(false)
           return
         }
+        if (organization?.company_name) setOrganizationName(organization.company_name)
         if (membership?.role) {
           const membershipRole = String(membership.role)
           setRole(membershipRole)
-<<<<<<< HEAD
-          if (!USER_MANAGEMENT_BACKEND_TO_ROLE[membershipRole] && membershipRole !== 'Super Administrator') {
+          if (membershipRole === 'Super Administrator') {
+            setCustomRolePermissions(null)
+          } else if (!USER_MANAGEMENT_BACKEND_TO_ROLE[membershipRole]) {
             const { data: customRole, error: customRoleError } = await supabase.from('custom_roles').select('permissions').eq('organization_id', profile.organization_id).eq('name', membershipRole).eq('is_active', true).maybeSingle()
             if (!active) return
             if (customRoleError) {
@@ -282,26 +259,18 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
             setCustomRolePermissions(Array.isArray(customRole?.permissions) ? customRole.permissions as string[] : [])
           } else {
             setCustomRolePermissions([])
-=======
-          if (membershipRole === 'Super Administrator') {
-            setCustomRolePermissions(null)
->>>>>>> main
           }
           setProfileLoadedForUser(session.user.id)
         }
         await verifySafetyPolicy()
       }
-      setLoading(false)
+      if (active) setLoading(false)
     }
     void loadMembership()
-<<<<<<< HEAD
     return () => {
       active = false
-      window.removeEventListener('hashchange', handleHashChange)
     }
-  }, [session.user.email, session.user.id])
-=======
-  }, [session.user.email, session.user.id, verifySafetyPolicy])
+  }, [session.user.id, verifySafetyPolicy])
 
   useEffect(() => {
     const verifyAfterNavigation = () => {
@@ -319,7 +288,6 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       window.removeEventListener('safety-policy-updated', verifyOnFocus)
     }
   }, [organizationId, policyStatusLoaded, verifySafetyPolicy])
->>>>>>> main
 
   useEffect(() => {
     if (loading) {
@@ -880,28 +848,24 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           </div>
         </header>
         <section className="workspace-content">
-<<<<<<< HEAD
-{closureAccess.isError && <Alert tone="danger">
-  {closureAccess.error.message}
-  <Button
-    variant="outline"
-    size="sm"
-    className="mt-2"
-    loading={closureAccess.isFetching}
-    onClick={() => void closureAccess.refetch()}
-  >
-    Retry permission check
-  </Button>
-</Alert>}
-=======
-{closureAccess.isError && <Alert tone="danger">{closureAccess.error.message}</Alert>}
+          {closureAccess.isError && <Alert tone="danger">
+            {closureAccess.error.message}
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              loading={closureAccess.isFetching}
+              onClick={() => void closureAccess.refetch()}
+            >
+              Retry permission check
+            </Button>
+          </Alert>}
           {route === 'dashboard' && canManageCompanySettings && policyStatusLoaded && policyStatus?.active === false && (
             <Alert tone="warning">
               No safety policy is published. Users can continue without one.{' '}
               <a className="font-semibold underline underline-offset-2" href="#settings">Set one up in Settings.</a>
             </Alert>
           )}
->>>>>>> main
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} currentUserId={session.user.id} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canCreateInspections} canCreateCorrectiveAction={canManageActions} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
           {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={legacyFeatureRole} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} />}
           {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} canClose={canAccess('close_incidents')} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}

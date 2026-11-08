@@ -29,13 +29,8 @@ export function useIncidentClosureAccess(client: SupabaseClient, organizationId:
     // Delegated access is personal, even when two users belong to the same organization.
     queryKey: ['incident-closure-access', organizationId, userId],
     queryFn: () => getIncidentClosureAccess(client, organizationId),
-<<<<<<< HEAD
-    enabled: Boolean(organizationId && userId),
-    staleTime: 30_000,
-=======
     enabled: Boolean(enabled && organizationId && userId),
     staleTime: 0,
->>>>>>> main
     refetchOnWindowFocus: true,
   })
 }
