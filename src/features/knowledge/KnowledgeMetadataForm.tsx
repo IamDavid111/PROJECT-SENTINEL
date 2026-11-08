@@ -62,12 +62,13 @@ function toMetadata(values: MetadataFormValues): KnowledgeMetadataInput {
   }
 }
 
-export function KnowledgeMetadataForm({ mode, version, currentUserId, sites, people, pending, error, onSubmit, onCancel }: {
+export function KnowledgeMetadataForm({ mode, version, currentUserId, sites, people, inactiveSiteIds = [], pending, error, onSubmit, onCancel }: {
   mode: 'create' | 'version' | 'edit'
   version?: KnowledgeVersion | null
   currentUserId: string
   sites: Array<{ id: string; name: string }>
   people: Array<{ id: string; full_name: string }>
+  inactiveSiteIds?: string[]
   pending: boolean
   error?: string
   onSubmit: (metadata: KnowledgeMetadataInput, file: File | null) => void
@@ -126,7 +127,7 @@ export function KnowledgeMetadataForm({ mode, version, currentUserId, sites, peo
       <Field label="Site" htmlFor={`${idPrefix}-site`} error={errors.siteId?.message}>
         <Select id={`${idPrefix}-site`} {...form.register('siteId')}>
           <option value="">All sites</option>
-          {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+          {sites.map((site) => <option key={site.id} value={site.id} disabled={inactiveSiteIds.includes(site.id)}>{site.name}</option>)}
         </Select>
       </Field>
       <Field label="Department" htmlFor={`${idPrefix}-department`}>

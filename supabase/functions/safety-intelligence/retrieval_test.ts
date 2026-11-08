@@ -18,6 +18,7 @@ type Scenario = {
   wrongMembership?: boolean; denyPermission?: boolean; malformed?: boolean; failedRead?: boolean;
   foreignRow?: boolean;
   customPermissions?: string[];
+  organizationPermission?: boolean;
 }
 function fixtureFetch(data = dataset(), scenario: Scenario = {}, seen: URL[] = []): typeof fetch {
   const tenant = scenario.organizationId ?? org
@@ -35,6 +36,10 @@ function fixtureFetch(data = dataset(), scenario: Scenario = {}, seen: URL[] = [
     })
     if (table === 'custom_roles') return json({ permissions: scenario.denyPermission ? [] : scenario.customPermissions ?? [] })
     if (table === 'can_close_incidents') return json(scenario.delegated ?? false)
+    if (url.pathname.endsWith('/rpc/has_org_permission')) {
+      return json(scenario.organizationPermission
+        ?? (scenario.role === 'Super Administrator' || scenario.customPermissions?.includes('view_all_incidents') === true))
+    }
     if (table === 'company_settings') {
       assert(url.searchParams.get('organization_id') === `eq.${tenant}`, 'Missing trusted settings tenant predicate')
       assert(!init?.method || init.method === 'GET', 'Settings retrieval attempted a write')

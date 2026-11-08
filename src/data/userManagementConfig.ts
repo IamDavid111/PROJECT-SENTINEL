@@ -10,6 +10,18 @@ export const USER_MANAGEMENT_ROLE_DEFINITIONS = [
   { id: 'maintenance_engineer', name: 'Maintenance Engineer', backendName: 'Maintenance Engineer' },
 ] as const
 
+export const ORGANIZATION_MANAGEABLE_BUILTIN_ROLE_KEYS = [
+  'Organization Administrator',
+  'QHSE Manager',
+  'Site Supervisor',
+  'Safety Officer / HSE Officer',
+  'Auditor',
+  'Contractor',
+  'Executive / Management',
+  'Field Worker',
+  'Maintenance Engineer',
+] as const
+
 export type UserManagementRoleDefinition = typeof USER_MANAGEMENT_ROLE_DEFINITIONS[number]
 
 export const USER_MANAGEMENT_ROLES = USER_MANAGEMENT_ROLE_DEFINITIONS.map((role) => role.name) as [
@@ -200,25 +212,24 @@ const LEGACY_ROLE_PERMISSION_KEYS: Record<string, readonly PermissionKey[]> = {
   Auditor: ['view_knowledge_documents', 'use_ai_assistant', 'start_audit', 'view_reports', 'view_profile', 'view_activity'],
 }
 
-// Build the permission set used by app-side checks from built-in, legacy, and custom role entries.
-// This result controls frontend visibility; it is not a replacement for backend authorization.
-export function permissionsForRole(role: string, customPermissions: readonly string[] = []): readonly PermissionKey[] {
+// Persisted organization role permissions override built-in defaults; backend checks use the same permission keys.
+export function permissionsForRole(role: string, customPermissions: readonly string[] | null = null): readonly PermissionKey[] {
   if (role === 'Super Administrator') return SUPER_ADMINISTRATOR_PERMISSION_KEYS
   const displayRole = USER_MANAGEMENT_BACKEND_TO_ROLE[role]
-  const backendPermissions = customPermissions.filter((permission): permission is PermissionKey => USER_MANAGEMENT_PERMISSION_CATALOG.some((definition) => definition.key === permission))
-  if (!displayRole) return Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...(LEGACY_ROLE_PERMISSION_KEYS[role] || []), ...backendPermissions]))
+  const backendPermissions = (customPermissions ?? []).filter((permission): permission is PermissionKey => USER_MANAGEMENT_PERMISSION_CATALOG.some((definition) => definition.key === permission))
+  if (customPermissions !== null) return Array.from(new Set(backendPermissions))
+  if (!displayRole) return Array.from(new Set([...BASELINE_PERMISSION_KEYS, ...(LEGACY_ROLE_PERMISSION_KEYS[role] || [])]))
   return Array.from(new Set([
     ...USER_MANAGEMENT_ROLE_PERMISSION_MATRIX[displayRole],
     ...(LEGACY_ROLE_PERMISSION_KEYS[role] || []),
-    ...backendPermissions,
   ]))
 }
 
-export function hasPermission(role: string, permission: PermissionKey, backendPermissions: readonly string[] = []) {
+export function hasPermission(role: string, permission: PermissionKey, backendPermissions: readonly string[] | null = null) {
   return permissionsForRole(role, backendPermissions).includes(permission)
 }
 
-export function hasRolePermission(role: string, permission: PermissionKey, customPermissions: readonly string[] = []) {
+export function hasRolePermission(role: string, permission: PermissionKey, customPermissions: readonly string[] | null = null) {
   return permissionsForRole(role, customPermissions).includes(permission)
 }
 

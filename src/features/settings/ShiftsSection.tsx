@@ -24,23 +24,25 @@ function isOvernight(start: string, end: string) {
   return end <= start
 }
 
-export function ShiftsSection({ shifts, dirty, onAdd, onEdit, onToggle }: {
+export function ShiftsSection({ shifts, dirty, onAdd, onEdit, onToggle, onDelete }: {
   shifts: CompanyShiftSetting[]
   dirty: boolean
   onAdd: () => void
   onEdit: (shift: CompanyShiftSetting) => void
   onToggle: (id: string) => void
+  onDelete: (shift: CompanyShiftSetting) => void
 }) {
+  const activeShifts = shifts.filter((shift) => !shift.deleted)
   return (
     <SettingsSectionShell
       title="Shifts"
-      description="Operating windows used by filters, reports, and safety intelligence."
+      description="Enable or disable shifts for future use. Delete permanently removes a shift from future forms and filters."
       dirty={dirty}
       action={<Button size="sm" onClick={onAdd}>Add shift</Button>}
     >
-      {shifts.length ? (
+      {activeShifts.length ? (
         <div className="grid gap-2">
-          {shifts.map((shift) => (
+          {activeShifts.map((shift) => (
             <div key={shift.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line px-4 py-3">
               <div className="grid gap-0.5">
                 <div className="flex flex-wrap items-center gap-2">
@@ -49,9 +51,11 @@ export function ShiftsSection({ shifts, dirty, onAdd, onEdit, onToggle }: {
                 </div>
                 <span className="font-mono text-xs text-muted">{shift.start} – {shift.end} · {shiftDuration(shift.start, shift.end)}</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-xs text-muted">{shift.active ? 'Enabled' : 'Disabled'}</span>
                 <Toggle checked={shift.active} onCheckedChange={() => onToggle(shift.id)} aria-label={`Toggle ${shift.name} shift`} />
                 <Button variant="outline" size="sm" onClick={() => onEdit(shift)}>Edit</Button>
+                <Button variant="danger" size="sm" onClick={() => onDelete(shift)}>Delete</Button>
               </div>
             </div>
           ))}

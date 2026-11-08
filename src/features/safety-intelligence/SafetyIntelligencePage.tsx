@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { SafetyFilters, SafetyScope } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
 import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions } from '../../lib/companyFilterOptions'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 import { incidentReportTypes, incidentStatuses } from '../incidents/incidentTypes'
 import { SafetyIntelligenceError } from './safetyIntelligenceService'
 import { useSafetyIntelligence } from './useSafetyIntelligence'
@@ -86,10 +87,13 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
         })
     }
     void loadSettings()
-    window.addEventListener('company-settings-updated', loadSettings)
+    const handleSettingsUpdated = (event: Event) => {
+      if (companySettingsEventMatchesOrganization(event, scope.organizationId)) loadSettings()
+    }
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
     return () => {
       active = false
-      window.removeEventListener('company-settings-updated', loadSettings)
+      window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
     }
   }, [client, scope.organizationId])
 

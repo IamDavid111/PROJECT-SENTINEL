@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
-import authIllustration from '../../assets/auth-illustration.jpg'
 import { BrandLockup } from '../../components/brand/BrandLockup'
+import { BrandedBackground } from '../../components/brand/BrandedBackground'
 import { Icon } from '../../components/ui'
 import { cn } from '../../lib/utils'
 
@@ -36,13 +36,7 @@ export function AuthLayout({
   return (
     <main className="min-h-screen bg-surface-soft text-foreground lg:grid lg:h-screen lg:grid-cols-[1.05fr_0.95fr] lg:overflow-hidden">
       <section className="relative hidden overflow-hidden bg-ink lg:flex lg:h-screen lg:flex-col lg:justify-end">
-        <img
-          src={authIllustration}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover object-left brightness-[0.6] contrast-125"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-ink/20 via-transparent to-ink" aria-hidden="true" />
-        <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-ink via-ink/95 to-transparent" aria-hidden="true" />
+        <BrandedBackground variant="auth-desktop" />
         <div className="relative p-8 xl:p-10">
           <div className="max-w-sm">
             <BrandLockup href="#top" onDark size="md" className="mb-6" />
@@ -66,8 +60,7 @@ export function AuthLayout({
       </section>
 
       <section className="relative h-44 overflow-hidden bg-ink lg:hidden">
-        <img src={authIllustration} alt="" className="absolute inset-0 h-full w-full object-cover object-left brightness-[0.6] contrast-125" />
-        <div className="absolute inset-0 bg-gradient-to-b from-ink/70 via-ink/30 to-surface-soft" aria-hidden="true" />
+        <BrandedBackground variant="auth-mobile" />
         <div className="relative flex h-full flex-col justify-between p-4">
           <BrandLockup href="#top" onDark size="sm" />
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-300">Secure operations access</p>

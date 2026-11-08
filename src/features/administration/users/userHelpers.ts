@@ -2,8 +2,8 @@ import { USER_MANAGEMENT_BACKEND_TO_ROLE, USER_MANAGEMENT_PERMISSION_CATALOG } f
 import type { Permission } from '../../../app/navigation'
 import type { ManagedUser, ManagedUserFilters } from './types'
 
-export function matchesManagedUserFilters(user: ManagedUser, filters: ManagedUserFilters) {
-  const displayRole = USER_MANAGEMENT_BACKEND_TO_ROLE[user.role] || user.role
+export function matchesManagedUserFilters(user: ManagedUser, filters: ManagedUserFilters, roleLabels: Record<string, string> = {}) {
+  const displayRole = roleLabels[user.role] || USER_MANAGEMENT_BACKEND_TO_ROLE[user.role] || user.role
   const searchableText = `${user.id} ${user.full_name} ${user.employee_id || ''} ${user.department || ''} ${user.role} ${displayRole}`.toLowerCase()
   const matchesQuery = searchableText.includes(filters.query.trim().toLowerCase())
   const matchesRole = filters.role === 'all' || user.role === filters.role
@@ -28,8 +28,8 @@ export type CustomRoleRecord = {
   scope?: Record<string, unknown> | null
   is_system?: boolean
   is_active?: boolean
+  is_deleted?: boolean
   created_by?: string | null
   created_at?: string | null
   updated_at?: string | null
 }
-
