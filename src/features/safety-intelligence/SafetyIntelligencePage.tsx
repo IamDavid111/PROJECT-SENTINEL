@@ -230,7 +230,7 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
 
       {/* Cards are rendered only from a validated successful server snapshot, never a fallback dataset. */}
       <SafetyKpiCards snapshot={data} />
-      <OrganizationManagementSystemsSection complianceLabel="Compliance Performance" />
+      <OrganizationManagementSystemsSection client={client} organizationId={scope.organizationId} complianceLabel="Compliance Performance" />
       <IncidentTrendChart snapshot={data} />
       <SafetyLocations snapshot={data} />
       <SafetyPlanningOutlook snapshot={data} />
