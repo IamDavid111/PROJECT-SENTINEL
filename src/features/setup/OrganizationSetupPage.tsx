@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 
@@ -17,7 +17,7 @@ import {
   Stepper,
   type FileUploadItem,
 } from '../../components/ui'
-import { countries, worldRegions } from '../../lib/locations'
+import { getCountriesForRegion, getCountryOption, getCountryRegion, worldRegions } from '../../lib/locations'
 import { organizationSetupSchema, type OrganizationSetupFormValues } from '../../lib/schemas'
 import { supabase } from '../../lib/supabase'
 import { AuthLayout } from '../auth/AuthLayout'
@@ -31,6 +31,8 @@ const COMPANY_SIZES = ['1-50', '51-250', '251-1,000', '1,001+']
 // Logo upload and linking are separate steps afterward, so a logo error does not undo successful organization creation.
 export function OrganizationSetupPage({ email }: { email: string }) {
   const pending = useMemo(() => loadPendingRegistration(), [])
+  const pendingCountryRegion = getCountryRegion(getCountryOption(pending.country || '')?.code || '')
+  const pendingRegion = worldRegions.find((region) => region === pending.region)
   const [step, setStep] = useState(0)
   const [companyCode, setCompanyCode] = useState(pending.companyCode || '')
   const [logo, setLogo] = useState<File | null>(null)
@@ -46,7 +48,9 @@ export function OrganizationSetupPage({ email }: { email: string }) {
       companyType: pending.companyType || '',
       industry: pending.industry || '',
       companySize: pending.companySize || '',
-      region: pending.region || '',
+      region: pendingCountryRegion
+        ? pendingRegion === pendingCountryRegion ? pendingRegion : pendingCountryRegion
+        : pendingRegion || '',
       country: pending.country || '',
       state: pending.state || '',
       address: pending.address || '',
@@ -56,19 +60,12 @@ export function OrganizationSetupPage({ email }: { email: string }) {
     },
   })
 
+  const region = form.watch('region')
   const country = form.watch('country')
-  const initialCountry = useRef(country)
-  const stateOptions = countries.find((option) => option.name === country)?.regions ?? []
+  const stateOptions = getCountryOption(country)?.regions ?? []
+  const countryOptions = getCountriesForRegion(region)
   const errors = form.formState.errors as Record<string, { message?: string } | undefined>
   const errorFor = (name: keyof OrganizationSetupFormValues) => errors[name]?.message
-
-  useEffect(() => {
-    if (initialCountry.current === country) return
-    initialCountry.current = country
-    form.setValue('state', '')
-    // Reset only when the country actually changes, not on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [country])
 
   const logoFiles: FileUploadItem[] = logo
     ? [{ id: 'logo', name: logo.name, size: logo.size, type: logo.type }]
@@ -224,22 +221,45 @@ export function OrganizationSetupPage({ email }: { email: string }) {
                 <Input id="companyRegistrationNumber" placeholder="Optional" {...form.register('companyRegistrationNumber')} />
               </Field>
               <Field label="Region" htmlFor="region" required error={errorFor('region')}>
-                <Select id="region" {...form.register('region')}>
+                <Select
+                  id="region"
+                  {...form.register('region', {
+                    onChange: () => {
+                      form.setValue('country', '', { shouldDirty: true, shouldValidate: true })
+                      form.setValue('state', '', { shouldDirty: true, shouldValidate: true })
+                    },
+                  })}
+                >
                   <option value="">Select region</option>
                   {worldRegions.map((region) => <option key={region}>{region}</option>)}
                 </Select>
               </Field>
               <Field label="Country" htmlFor="country" required error={errorFor('country')}>
-                <Select id="country" {...form.register('country')}>
-                  <option value="">Select country</option>
-                  {countries.map((option) => <option value={option.name} key={option.code}>{option.name}</option>)}
+                <Select
+                  id="country"
+                  disabled={!region}
+                  {...form.register('country', {
+                    onChange: () => form.setValue('state', '', { shouldDirty: true, shouldValidate: true }),
+                  })}
+                >
+                  <option value="">{region ? 'Select country' : 'Select a region first'}</option>
+                  {countryOptions.map((option) => <option value={option.name} key={option.code}>{option.name}</option>)}
                 </Select>
               </Field>
               <Field label="State / Province" htmlFor="state" required error={errorFor('state')}>
-                <Select id="state" disabled={!country} {...form.register('state')}>
-                  <option value="">{country ? 'Select state or province' : 'Select a country first'}</option>
-                  {stateOptions.map(([name, code]) => <option value={name} key={code}>{name}</option>)}
-                </Select>
+                {stateOptions.length > 0 ? (
+                  <Select id="state" disabled={!country} {...form.register('state')}>
+                    <option value="">{country ? 'Select state or province' : 'Select a country first'}</option>
+                    {stateOptions.map(([name, code]) => <option value={name} key={code}>{name}</option>)}
+                  </Select>
+                ) : (
+                  <Input
+                    id="state"
+                    disabled={!country}
+                    placeholder={country ? 'Enter state or province (or Not applicable)' : 'Select a country first'}
+                    {...form.register('state')}
+                  />
+                )}
               </Field>
               <FormFull>
                 <Field label="Address" htmlFor="address">

@@ -51,7 +51,7 @@ export function ShiftDialog({ open, onClose, draft, setDraft, editing, error, on
   )
 }
 
-export function SiteDialog({ open, onClose, organizationId, name, setName, code, setCode, error, onSave }: {
+export function SiteDialog({ open, onClose, organizationId, name, setName, code, setCode, editing, error, onSave }: {
   open: boolean
   onClose: () => void
   organizationId: string
@@ -59,6 +59,7 @@ export function SiteDialog({ open, onClose, organizationId, name, setName, code,
   setName: (value: string) => void
   code: string
   setCode: (value: string) => void
+  editing: boolean
   error: string
   onSave: () => void
 }) {
@@ -66,12 +67,12 @@ export function SiteDialog({ open, onClose, organizationId, name, setName, code,
     <Dialog
       open={open}
       onClose={onClose}
-      title="Add site"
-      description="Add an operational site and generate its organization code."
+      title={editing ? 'Edit site' : 'Add site'}
+      description={editing ? 'Update the site name or generate a new organization code.' : 'Add an operational site and generate its organization code.'}
       footer={
         <>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={onSave}>Add site</Button>
+          <Button size="sm" onClick={onSave}>{editing ? 'Save site' : 'Add site'}</Button>
         </>
       }
     >
@@ -80,6 +81,38 @@ export function SiteDialog({ open, onClose, organizationId, name, setName, code,
           <Input id="settings-site-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Main Plant" />
         </Field>
         <SiteCodeField organizationId={organizationId} value={code} onChange={setCode} />
+        <FormMessage error={error} />
+      </div>
+    </Dialog>
+  )
+}
+
+export function ConfigurationNameDialog({ open, title, value, onChange, onClose, onSave, error }: {
+  open: boolean
+  title: string
+  value: string
+  onChange: (value: string) => void
+  onClose: () => void
+  onSave: () => void
+  error: string
+}) {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={title}
+      description="Update this option name. Historical records will retain their original values."
+      footer={(
+        <>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={onSave}>Save changes</Button>
+        </>
+      )}
+    >
+      <div className="grid gap-4">
+        <Field label="Name" htmlFor="settings-configuration-name" required>
+          <Input id="settings-configuration-name" value={value} onChange={(event) => onChange(event.target.value)} autoFocus />
+        </Field>
         <FormMessage error={error} />
       </div>
     </Dialog>

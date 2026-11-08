@@ -28,13 +28,26 @@ export function useKnowledgeDirectory(client: SupabaseClient, organizationId: st
   return useQuery({
     queryKey: knowledgeQueryKeys.directory(organizationId),
     queryFn: async () => {
-      const [sites, people] = await Promise.all([
+      const [sites, people, settings] = await Promise.all([
         client.from('sites').select('id, name').eq('organization_id', organizationId).order('name'),
         client.from('profiles').select('id, full_name').eq('organization_id', organizationId).order('full_name'),
+        client.from('company_settings').select('operational_sites').eq('organization_id', organizationId).maybeSingle(),
       ])
-      if (sites.error || people.error) throw new Error('Unable to load sites and members.')
+      if (sites.error || people.error || settings.error) throw new Error('Unable to load sites and members.')
+      const configuredNames = Array.isArray(settings.data?.operational_sites)
+        ? settings.data.operational_sites.flatMap((entry: unknown) => {
+          if (typeof entry === 'string') return entry.trim() ? [entry.trim().toLowerCase()] : []
+          if (!entry || typeof entry !== 'object') return []
+          const item = entry as { name?: unknown; active?: unknown; deleted?: unknown }
+          return typeof item.name === 'string' && item.name.trim() && item.active !== false && item.deleted !== true
+            ? [item.name.trim().toLowerCase()]
+            : []
+        })
+        : []
+      const allSites = (sites.data ?? []) as Array<{ id: string; name: string }>
       return {
-        sites: (sites.data ?? []) as Array<{ id: string; name: string }>,
+        sites: allSites,
+        activeSites: allSites.filter((site) => configuredNames.includes(site.name.trim().toLowerCase())),
         people: (people.data ?? []) as Array<{ id: string; full_name: string }>,
       }
     },

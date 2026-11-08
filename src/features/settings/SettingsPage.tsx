@@ -3,16 +3,33 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { Alert, Badge, Button, ConfirmDialog, PageHeader, Skeleton } from '../../components/ui'
 import { ClosureAccessSection } from './ClosureAccessSection'
+import { ConfigurationArchiveSection, type ArchivedConfigurationItem } from './ConfigurationArchiveSection'
 import { DepartmentsSection } from './DepartmentsSection'
 import { EmergencyContactsSection } from './EmergencyContactsSection'
 import { IncidentCategoriesSection } from './IncidentCategoriesSection'
-import { ContactDialog, ShiftDialog, SiteDialog } from './SettingsDialogs'
+import { ConfigurationNameDialog, ContactDialog, ShiftDialog, SiteDialog } from './SettingsDialogs'
 import { SeveritySection } from './SeveritySection'
 import { ShiftsSection } from './ShiftsSection'
 import { SitesSection } from './SitesSection'
+import { SafetyPolicySettingsSection } from '../safety-policy/SafetyPolicySettingsSection'
+import { PolicyObjectivesSettingsSection } from '../safety-policy/PolicyObjectivesSettingsSection'
+import { ComplianceFrameworksSection } from '../compliance/ComplianceFrameworksSection'
+import type {
+  CompanyShiftSetting,
+  DepartmentOption,
+  IncidentCategoryOption,
+  SeverityOption,
+  SiteOption,
+} from './companySettingsTypes'
 import { useCompanySettings } from './useCompanySettings'
 
-type SectionKey = 'shifts' | 'departments' | 'sites' | 'contacts' | 'severity' | 'categories' | 'closure'
+type SectionKey = 'shifts' | 'departments' | 'sites' | 'contacts' | 'severity' | 'categories' | 'safety-policy' | 'policy-objectives' | 'compliance-frameworks' | 'closure' | 'archive'
+type DeleteTarget =
+  | { category: 'shift'; item: CompanyShiftSetting }
+  | { category: 'department'; item: DepartmentOption }
+  | { category: 'site'; item: SiteOption }
+  | { category: 'severity'; item: SeverityOption }
+  | { category: 'incident_category'; item: IncidentCategoryOption }
 
 const NAV_GROUPS: { label: string; items: { key: SectionKey; label: string }[] }[] = [
   { label: 'Organization', items: [
@@ -27,39 +44,72 @@ const NAV_GROUPS: { label: string; items: { key: SectionKey; label: string }[] }
     { key: 'severity', label: 'Severity levels' },
     { key: 'categories', label: 'Incident categories' },
   ] },
+  { label: 'HSSE Policy and Objective Management', items: [
+    { key: 'safety-policy', label: 'Safety Policy' },
+    { key: 'policy-objectives', label: 'Policy and Objectives' },
+  ] },
+  { label: 'Compliance', items: [
+    { key: 'compliance-frameworks', label: 'Compliance Frameworks' },
+  ] },
   { label: 'Access', items: [
     { key: 'closure', label: 'Closure access' },
   ] },
+  { label: 'Configuration', items: [
+    { key: 'archive', label: 'Archive' },
+  ] },
 ]
 
-export function SettingsPage({ client, organizationId, userId }: {
+export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly = false, policyObjectivesOnly = false, complianceFrameworksOnly = false, canManagePolicyObjectives = false, canManageLegalCompliance = false }: {
   client: SupabaseClient
   organizationId: string
   userId: string
+  safetyPolicyOnly?: boolean
+  policyObjectivesOnly?: boolean
+  complianceFrameworksOnly?: boolean
+  canManagePolicyObjectives?: boolean
+  canManageLegalCompliance?: boolean
 }) {
   const settings = useCompanySettings({ organizationId, userId })
-  const [activeSection, setActiveSection] = useState<SectionKey>('shifts')
+  const [activeSection, setActiveSection] = useState<SectionKey>(policyObjectivesOnly ? 'policy-objectives' : complianceFrameworksOnly ? 'compliance-frameworks' : safetyPolicyOnly ? 'safety-policy' : 'shifts')
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<ArchivedConfigurationItem | null>(null)
+  const [archiveVersion, setArchiveVersion] = useState(0)
   const lastSavedLabel = settings.lastSavedAt
     ? settings.lastSavedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
     : null
 
   const counts: Record<SectionKey, number | null> = {
-    shifts: settings.shifts.length,
-    departments: settings.departments.length,
-    sites: settings.sites.length,
+    shifts: settings.shifts.filter((item) => !item.deleted).length,
+    departments: settings.departments.filter((item) => !item.deleted).length,
+    sites: settings.sites.filter((item) => !item.deleted).length,
     contacts: settings.contacts.length,
-    severity: settings.severities.length,
-    categories: settings.categories.length,
+    severity: settings.severities.filter((item) => !item.deleted).length,
+    categories: settings.categories.filter((item) => !item.deleted).length,
+    'safety-policy': null,
+    'policy-objectives': null,
+    'compliance-frameworks': null,
     closure: null,
+    archive: null,
   }
   const isDirty = (key: SectionKey) => settings.dirtySections.includes(key)
-
-  const openSiteEditor = () => {
-    settings.clearFeedback()
-    settings.setSiteDraft('')
-    settings.setSiteCodeDraft('')
-    settings.setSiteOpen(true)
-  }
+  const visibleNavGroups = policyObjectivesOnly
+    ? NAV_GROUPS.flatMap((group) => {
+        const items = group.items.filter((item) => item.key === 'policy-objectives')
+        return items.length ? [{ ...group, items }] : []
+      })
+    : complianceFrameworksOnly
+    ? NAV_GROUPS.flatMap((group) => {
+        const items = group.items.filter((item) => item.key === 'compliance-frameworks')
+        return items.length ? [{ ...group, items }] : []
+      })
+    : safetyPolicyOnly
+    ? NAV_GROUPS.flatMap((group) => {
+        const items = group.items.filter((item) => item.key === 'safety-policy'
+          || (canManagePolicyObjectives && item.key === 'policy-objectives')
+          || (canManageLegalCompliance && item.key === 'compliance-frameworks'))
+        return items.length ? [{ ...group, items }] : []
+      })
+    : NAV_GROUPS
 
   const section = (() => {
     switch (activeSection) {
@@ -71,6 +121,7 @@ export function SettingsPage({ client, organizationId, userId }: {
             onAdd={() => settings.openShiftEditor()}
             onEdit={settings.openShiftEditor}
             onToggle={settings.toggleShift}
+            onDelete={(item) => setDeleteTarget({ category: 'shift', item })}
           />
         )
       case 'departments':
@@ -81,7 +132,9 @@ export function SettingsPage({ client, organizationId, userId }: {
             dirty={isDirty('departments')}
             onDraftChange={settings.setDepartmentDraft}
             onAdd={settings.addDepartment}
+            onEdit={(item) => settings.openNameEditor('department', item)}
             onToggle={settings.toggleDepartment}
+            onDelete={(item) => setDeleteTarget({ category: 'department', item })}
           />
         )
       case 'sites':
@@ -89,8 +142,10 @@ export function SettingsPage({ client, organizationId, userId }: {
           <SitesSection
             sites={settings.sites}
             dirty={isDirty('sites')}
-            onAdd={openSiteEditor}
+            onAdd={() => settings.openSiteEditor()}
+            onEdit={settings.openSiteEditor}
             onToggle={settings.toggleSite}
+            onDelete={(item) => setDeleteTarget({ category: 'site', item })}
           />
         )
       case 'contacts':
@@ -112,7 +167,9 @@ export function SettingsPage({ client, organizationId, userId }: {
             dirty={isDirty('severity')}
             onDraftChange={settings.setSeverityDraft}
             onAdd={settings.addSeverity}
+            onEdit={(item) => settings.openNameEditor('severity', item)}
             onToggle={settings.toggleSeverity}
+            onDelete={(item) => setDeleteTarget({ category: 'severity', item })}
           />
         )
       case 'categories':
@@ -123,11 +180,28 @@ export function SettingsPage({ client, organizationId, userId }: {
             dirty={isDirty('categories')}
             onDraftChange={settings.setCategoryDraft}
             onAdd={settings.addIncidentCategory}
+            onEdit={(item) => settings.openNameEditor('incident_category', item)}
             onToggle={settings.toggleCategory}
+            onDelete={(item) => setDeleteTarget({ category: 'incident_category', item })}
           />
         )
+      case 'safety-policy':
+        return <SafetyPolicySettingsSection client={client} />
+      case 'policy-objectives':
+        return <PolicyObjectivesSettingsSection client={client} organizationId={organizationId} />
+      case 'compliance-frameworks':
+        return <ComplianceFrameworksSection client={client} organizationId={organizationId} userId={userId} />
       case 'closure':
         return <ClosureAccessSection client={client} organizationId={organizationId} userId={userId} />
+      case 'archive':
+        return (
+          <ConfigurationArchiveSection
+            key={`${organizationId}:${archiveVersion}`}
+            organizationId={organizationId}
+            restoring={settings.restoring}
+            onRestore={setRestoreTarget}
+          />
+        )
     }
   })()
 
@@ -175,7 +249,7 @@ export function SettingsPage({ client, organizationId, userId }: {
 
       <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="hidden h-fit rounded-card border border-line bg-surface p-3 lg:sticky lg:top-24 lg:block">
-          {NAV_GROUPS.map((group) => (
+          {visibleNavGroups.map((group) => (
             <div key={group.label} className="grid gap-1 border-b border-line py-2 first:pt-0 last:border-0 last:pb-0">
               <span className="px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{group.label}</span>
               {group.items.map((item) => navButton(item))}
@@ -185,7 +259,7 @@ export function SettingsPage({ client, organizationId, userId }: {
 
         <div className="grid min-w-0 gap-5">
           <div className="flex gap-2 overflow-x-auto pb-1 lg:hidden">
-            {NAV_GROUPS.flatMap((group) => group.items).map((item) => navButton(item, true))}
+            {visibleNavGroups.flatMap((group) => group.items).map((item) => navButton(item, true))}
           </div>
 
           {settings.error && <Alert tone="danger">{settings.error}</Alert>}
@@ -193,7 +267,7 @@ export function SettingsPage({ client, organizationId, userId }: {
 
           {section}
 
-          {settings.dirty && (
+          {!safetyPolicyOnly && !policyObjectivesOnly && !complianceFrameworksOnly && settings.dirty && (
             <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface/95 p-3 shadow-card backdrop-blur">
               <div className="flex items-center gap-2 text-sm text-foreground">
                 <span className="h-2 w-2 rounded-full bg-caution" aria-hidden="true" />
@@ -220,14 +294,29 @@ export function SettingsPage({ client, organizationId, userId }: {
 
       <SiteDialog
         open={settings.siteOpen}
-        onClose={() => { settings.setSiteOpen(false); settings.clearFeedback() }}
+        onClose={settings.closeSiteEditor}
         organizationId={organizationId}
         name={settings.siteDraft}
         setName={settings.setSiteDraft}
         code={settings.siteCodeDraft}
         setCode={settings.setSiteCodeDraft}
+        editing={Boolean(settings.editingSiteId)}
         error={settings.error}
         onSave={settings.addSite}
+      />
+
+      <ConfigurationNameDialog
+        open={Boolean(settings.nameEditTarget)}
+        title={settings.nameEditTarget?.category === 'department'
+          ? 'Edit department'
+          : settings.nameEditTarget?.category === 'severity'
+            ? 'Edit severity level'
+            : 'Edit incident category'}
+        value={settings.nameEditDraft}
+        onChange={settings.setNameEditDraft}
+        onClose={settings.closeNameEditor}
+        onSave={() => void settings.saveNameEdit()}
+        error={settings.error}
       />
 
       <ContactDialog
@@ -247,6 +336,54 @@ export function SettingsPage({ client, organizationId, userId }: {
         title="Remove emergency contact?"
         description={settings.contactToRemove ? `Remove ${settings.contactToRemove.name} from the emergency contacts list?` : undefined}
         confirmLabel="Remove contact"
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => { if (!settings.deleting) setDeleteTarget(null) }}
+        onConfirm={() => {
+          if (!deleteTarget) return
+          void settings.deleteSettingItem(deleteTarget.category, deleteTarget.item).then((deleted) => {
+            if (deleted) setDeleteTarget(null)
+          })
+        }}
+        title={deleteTarget ? `Delete ${deleteTarget.item.name}?` : 'Delete configuration item?'}
+        description={deleteTarget
+          ? `${deleteTarget.item.name} will no longer be available in future forms and filters. Historical records, reports, and exports will retain the original displayed name. This action cannot be undone.`
+          : undefined}
+        confirmLabel="Confirm Delete"
+        cancelLabel="Cancel"
+        loading={settings.deleting}
+      />
+
+      <ConfirmDialog
+        open={Boolean(restoreTarget || settings.pendingRestore)}
+        onClose={() => {
+          if (settings.restoring) return
+          setRestoreTarget(null)
+          settings.clearPendingRestore()
+        }}
+        onConfirm={() => {
+          if (restoreTarget) {
+            void settings.restoreSettingItem(restoreTarget.category, restoreTarget.id, restoreTarget.name).then((restored) => {
+              if (!restored) return
+              setRestoreTarget(null)
+              setArchiveVersion((version) => version + 1)
+            })
+            return
+          }
+          void settings.restorePendingItem()
+        }}
+        title={restoreTarget ? `Restore ${restoreTarget.name}?` : 'Restore archived configuration?'}
+        description={settings.pendingRestore && !restoreTarget
+          ? 'A previously archived configuration item with this name already exists. Would you like to restore its original configuration?'
+          : restoreTarget
+            ? `${restoreTarget.name} will be restored with its original configuration and available again in its company settings section.`
+            : undefined}
+        confirmLabel={settings.pendingRestore && !restoreTarget ? 'Restore Existing Item' : 'Restore'}
+        cancelLabel="Cancel"
+        tone="default"
+        loading={settings.restoring}
       />
     </div>
   )

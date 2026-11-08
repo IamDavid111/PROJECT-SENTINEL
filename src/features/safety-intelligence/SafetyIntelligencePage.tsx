@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { SafetyFilters, SafetyScope } from '../../../supabase/functions/_shared/safetyIntelligenceContracts'
 import { buildDepartmentOptions, buildSeverityOptions, buildShiftOptions } from '../../lib/companyFilterOptions'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 import { incidentReportTypes, incidentStatuses } from '../incidents/incidentTypes'
 import { SafetyIntelligenceError } from './safetyIntelligenceService'
 import { useSafetyIntelligence } from './useSafetyIntelligence'
@@ -11,6 +12,7 @@ import { SafetyLocations } from './SafetyLocations'
 import { SafetyPlanningOutlook } from './SafetyPlanningOutlook'
 import { SafetyAssistant } from '../ai/SafetyAssistant'
 import { ExecutiveAnalyticsExport } from './ExecutiveAnalyticsExport'
+import { OrganizationManagementSystemsSection } from '../dashboard/OrganizationManagementSystemsSection'
 import { Alert, Badge, Button, FilterBar, Icon, PageHeader, SegmentedControl, Select, Skeleton } from '../../components/ui'
 
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
@@ -86,10 +88,13 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
         })
     }
     void loadSettings()
-    window.addEventListener('company-settings-updated', loadSettings)
+    const handleSettingsUpdated = (event: Event) => {
+      if (companySettingsEventMatchesOrganization(event, scope.organizationId)) loadSettings()
+    }
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
     return () => {
       active = false
-      window.removeEventListener('company-settings-updated', loadSettings)
+      window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
     }
   }, [client, scope.organizationId])
 
@@ -225,6 +230,7 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
 
       {/* Cards are rendered only from a validated successful server snapshot, never a fallback dataset. */}
       <SafetyKpiCards snapshot={data} />
+      <OrganizationManagementSystemsSection complianceLabel="Compliance Performance" />
       <IncidentTrendChart snapshot={data} />
       <SafetyLocations snapshot={data} />
       <SafetyPlanningOutlook snapshot={data} />

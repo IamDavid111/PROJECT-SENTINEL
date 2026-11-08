@@ -21,7 +21,7 @@ export function activeSettingNames(value: unknown) {
   return value.flatMap((item) => {
     if (typeof item === 'string') return item.trim() ? [item.trim()] : []
     if (!item || typeof item !== 'object') return []
-    const entry = item as { name?: unknown; active?: unknown }
-    return typeof entry.name === 'string' && entry.name.trim() && entry.active !== false ? [entry.name.trim()] : []
+    const entry = item as { name?: unknown; active?: unknown; deleted?: unknown }
+    return typeof entry.name === 'string' && entry.name.trim() && entry.active !== false && entry.deleted !== true ? [entry.name.trim()] : []
   })
 }

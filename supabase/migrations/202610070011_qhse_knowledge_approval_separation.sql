@@ -4,7 +4,7 @@
 -- organisations are not blocked, and it is recorded explicitly in the activity log.
 
 -- True when any other active member of the organisation could approve knowledge documents.
-create function public.knowledge_has_other_approver(target_organization_id uuid, excluded_user_id uuid)
+create or replace function public.knowledge_has_other_approver(target_organization_id uuid, excluded_user_id uuid)
 returns boolean language sql stable security definer set search_path = public
 as $$
   select exists (

@@ -26,6 +26,7 @@ import type { LinkedIncidentAction } from '../qhse/inspectionActionService'
 import { activeSettingNames, formatDate, formatDateTime, incidentHref, label } from './incidentFormatting'
 import { exportExcel, exportPdf, exportRows, exportWord, type ExportFormat } from './incidentExport'
 import { MyReportsFilters } from './MyReportsFilters'
+import { companySettingsEventMatchesOrganization, companySettingsUpdatedEvent } from '../../lib/companySettingsSync'
 
 const pageSize = 10
 
@@ -50,7 +51,13 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
   const [administrator, setAdministrator] = useState('Authenticated user')
   const [selectedScope, setSelectedScope] = useState(scope)
   const [closingIncident, setClosingIncident] = useState<IncidentSummary | null>(null)
-  const [filters, setFilters] = useState<IncidentListFilters>({ status: 'all', incidentCategory: 'all', severity: 'all', siteId: 'all', department: 'all', page: 1, pageSize })
+  const [filters, setFilters] = useState<IncidentListFilters>(() => {
+    const requestedReportType = new URLSearchParams(window.location.hash.split('?')[1] || '').get('reportType')
+    const reportType = scope === 'organization'
+      ? incidentReportTypes.find((type) => type === requestedReportType)
+      : undefined
+    return { status: 'all', incidentCategory: 'all', severity: 'all', siteId: 'all', department: 'all', reportType, page: 1, pageSize }
+  })
   const [typeCounts, setTypeCounts] = useState<{ byType: Record<string, number>; open: number; closed: number } | null>(null)
   const incidents = useIncidents(supabase, filters, canViewAll ? selectedScope : 'own')
   const incidentIds = incidents.data?.items.map((incident) => incident.id) || []
@@ -62,14 +69,28 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
 
   useEffect(() => {
     if (!organization.data?.organizationId) return
-    void Promise.all([
-      supabase.from('sites').select('id, name').eq('organization_id', organization.data.organizationId).order('name'),
-      supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels').eq('organization_id', organization.data.organizationId).maybeSingle(),
-    ]).then(([siteResult, settingsResult]) => {
-      setSettings(settingsResult.data || {})
-      const configuredSiteNames = activeSettingNames(settingsResult.data?.operational_sites)
-      setSites((siteResult.data || []).filter((site) => configuredSiteNames.some((name) => name.toLowerCase() === site.name.toLowerCase())))
-    })
+    let active = true
+    const organizationId = organization.data.organizationId
+    const loadSettings = () => {
+      void Promise.all([
+        supabase.from('sites').select('id, name').eq('organization_id', organizationId).order('name'),
+        supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels').eq('organization_id', organizationId).maybeSingle(),
+      ]).then(([siteResult, settingsResult]) => {
+        if (!active) return
+        setSettings(settingsResult.data || {})
+        const configuredSiteNames = activeSettingNames(settingsResult.data?.operational_sites)
+        setSites((siteResult.data || []).filter((site) => configuredSiteNames.some((name) => name.toLowerCase() === site.name.toLowerCase())))
+      })
+    }
+    const handleSettingsUpdated = (event: Event) => {
+      if (companySettingsEventMatchesOrganization(event, organizationId)) loadSettings()
+    }
+    loadSettings()
+    window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    return () => {
+      active = false
+      window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
+    }
   }, [organization.data?.organizationId, supabase])
 
   useEffect(() => {
