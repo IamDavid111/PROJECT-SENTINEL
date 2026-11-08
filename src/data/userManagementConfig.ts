@@ -108,6 +108,10 @@ export const USER_MANAGEMENT_PERMISSION_CATALOG = [
   { key: 'approve_knowledge_documents', label: 'Approve Document Uploads', description: 'Allows approving or rejecting submitted QHSE documents independently of upload rights. Only Super Administrators can approve their own submissions.', group: 'QHSE Knowledge' },
   { key: 'view_confidential_knowledge', label: 'View Confidential Documents', description: 'Allows viewing QHSE documents classified as confidential.', group: 'QHSE Knowledge' },
   { key: 'view_restricted_knowledge', label: 'View Restricted Documents', description: 'Allows viewing QHSE documents classified as restricted.', group: 'QHSE Knowledge' },
+  { key: 'view_policy_objectives_register', label: 'View Policy and Objectives Register', description: 'Allows access to approved organizational HSSE policies and objectives.', group: 'Administration' },
+  { key: 'manage_policy_objectives', label: 'Manage Policy and Objectives', description: 'Allows creating, editing, replacing documents for, and deleting organizational HSSE policies and objectives.', group: 'Administration' },
+  { key: 'view_legal_compliance_register', label: 'View Legal and Compliance Register', description: 'Allows access to the organization Legal and Compliance Obligations Register.', group: 'Administration' },
+  { key: 'manage_legal_compliance_obligations', label: 'Manage Legal and Compliance Obligations', description: 'Allows creating, editing, document uploads, renewal, and deletion of organization compliance obligations.', group: 'Administration' },
 ] as const satisfies readonly PermissionDefinition[]
 
 export type PermissionKey = typeof USER_MANAGEMENT_PERMISSION_CATALOG[number]['key']

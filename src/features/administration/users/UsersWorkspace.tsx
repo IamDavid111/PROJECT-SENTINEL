@@ -14,6 +14,7 @@ import { DepartmentDialog } from './DepartmentDialog'
 import { InvitationsCard } from './InvitationsCard'
 import { InviteUserCard } from './InviteUserCard'
 import { MockDataCard } from './MockDataCard'
+import { UserPolicyObjectivePermissionsDialog } from './UserPolicyObjectivePermissionsDialog'
 import { UsersTable } from './UsersTable'
 import { exportCsv, exportExcel, exportPdf, exportWord } from './userExport'
 import { getDepartmentLabel, matchesManagedUserFilters, type CustomRoleRecord } from './userHelpers'
@@ -28,7 +29,7 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEditUsers, canSuspendUsers, canDeactivateUsers, canManageUserRoles, canManageRolesPermissions }: { organizationId: string; currentUserId: string; canInviteUsers: boolean; canEditUsers: boolean; canSuspendUsers: boolean; canDeactivateUsers: boolean; canManageUserRoles: boolean; canManageRolesPermissions: boolean }) {
+export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, canEditUsers, canSuspendUsers, canDeactivateUsers, canManageUserRoles, canManageRolesPermissions, canManagePolicyPermissions }: { organizationId: string; currentUserId: string; canInviteUsers: boolean; canEditUsers: boolean; canSuspendUsers: boolean; canDeactivateUsers: boolean; canManageUserRoles: boolean; canManageRolesPermissions: boolean; canManagePolicyPermissions: boolean }) {
   const [users, setUsers] = useState<ManagedUser[]>([])
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
@@ -70,6 +71,7 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
   } | null>(null)
   const [successionDialog, setSuccessionDialog] = useState<{ action: 'appoint' | 'remove' | 'relinquish'; user?: ManagedUser } | null>(null)
   const [successionBusy, setSuccessionBusy] = useState(false)
+  const [policyPermissionTarget, setPolicyPermissionTarget] = useState<ManagedUser | null>(null)
 
   const loadDepartments = useCallback(async () => {
     const { data, error: settingsError } = await supabase
@@ -616,11 +618,13 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
         canDeactivateUsers={canDeactivateUsers}
         canAppointSuperAdmins={Boolean(succession?.can_appoint)}
         canRemoveSuperAdmins={Boolean(succession?.can_remove)}
+        canManagePolicyPermissions={canManagePolicyPermissions}
         originalSuperAdminId={succession?.original_super_admin_id ?? null}
         superAdminCount={succession?.active_super_admin_count ?? 0}
         onUpdate={(user, field, value) => void updateUser(user, field, value)}
         onAppointSuperAdmin={(user) => setSuccessionDialog({ action: 'appoint', user })}
         onRemoveSuperAdmin={(user) => setSuccessionDialog({ action: 'remove', user })}
+        onManagePolicyPermissions={setPolicyPermissionTarget}
       />
 
       {showInvitations && canInviteUsers && (
@@ -642,6 +646,13 @@ export function UsersWorkspace({ organizationId, currentUserId, canInviteUsers, 
           await loadCustomRoles()
           setMessage(`Custom role "${roleName}" created and selected.`)
         }}
+      />
+
+      <UserPolicyObjectivePermissionsDialog
+        open={Boolean(policyPermissionTarget)}
+        onClose={() => setPolicyPermissionTarget(null)}
+        organizationId={organizationId}
+        user={policyPermissionTarget}
       />
 
       <DepartmentDialog

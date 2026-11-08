@@ -3,7 +3,7 @@ import { USER_ACTION_OPTIONS } from '../../../data/userManagementConfig'
 import { getDepartmentLabel } from './userHelpers'
 import type { ManagedUser } from './types'
 
-export function UsersTable({ users, loading, roleOptions, roleLabels, currentUserId, canManageUserRoles, canEditUsers, canSuspendUsers, canDeactivateUsers, canAppointSuperAdmins, canRemoveSuperAdmins, originalSuperAdminId, superAdminCount, onUpdate, onAppointSuperAdmin, onRemoveSuperAdmin }: {
+export function UsersTable({ users, loading, roleOptions, roleLabels, currentUserId, canManageUserRoles, canEditUsers, canSuspendUsers, canDeactivateUsers, canAppointSuperAdmins, canRemoveSuperAdmins, canManagePolicyPermissions, originalSuperAdminId, superAdminCount, onUpdate, onAppointSuperAdmin, onRemoveSuperAdmin, onManagePolicyPermissions }: {
   users: ManagedUser[]
   loading: boolean
   roleOptions: Array<{ id: string; label: string; value: string }>
@@ -15,11 +15,13 @@ export function UsersTable({ users, loading, roleOptions, roleLabels, currentUse
   canDeactivateUsers: boolean
   canAppointSuperAdmins: boolean
   canRemoveSuperAdmins: boolean
+  canManagePolicyPermissions: boolean
   originalSuperAdminId: string | null
   superAdminCount: number
   onUpdate: (user: ManagedUser, field: 'role' | 'account_status', value: string) => void
   onAppointSuperAdmin: (user: ManagedUser) => void
   onRemoveSuperAdmin: (user: ManagedUser) => void
+  onManagePolicyPermissions: (user: ManagedUser) => void
 }) {
   const actionOptions = USER_ACTION_OPTIONS.filter((action) => action === 'Suspend' ? canSuspendUsers : canDeactivateUsers)
 
@@ -115,6 +117,11 @@ export function UsersTable({ users, loading, roleOptions, roleLabels, currentUse
           {canRemoveSuperAdmins && user.role === 'Super Administrator' && user.id !== currentUserId && (
             <Button size="sm" variant="outline" onClick={() => onRemoveSuperAdmin(user)}>
               Remove Super Admin
+            </Button>
+          )}
+          {canManagePolicyPermissions && user.role !== 'Super Administrator' && (
+            <Button size="sm" variant="outline" onClick={() => onManagePolicyPermissions(user)}>
+              Register access
             </Button>
           )}
         </div>

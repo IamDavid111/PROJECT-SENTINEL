@@ -12,6 +12,7 @@ export type PreferenceState = {
   incident_assignments: boolean
   corrective_action_reminders: boolean
   audit_reminders: boolean
+  compliance_obligation_reminders: boolean
 }
 
 const CHANNELS: [keyof PreferenceState, string, string][] = [
@@ -24,6 +25,7 @@ const ALERTS: [keyof PreferenceState, string, string][] = [
   ['incident_assignments', 'Incident assignments', 'When an incident is assigned to you.'],
   ['corrective_action_reminders', 'Corrective action reminders', 'When an action is due or overdue.'],
   ['audit_reminders', 'Audit reminders', 'When an audit is scheduled or due.'],
+  ['compliance_obligation_reminders', 'Compliance obligation reminders', 'At 30 and 14 days before an obligation expires.'],
 ]
 
 function PreferenceRow({ label, description, checked, onChange }: {
@@ -44,7 +46,7 @@ function PreferenceRow({ label, description, checked, onChange }: {
 }
 
 export function NotificationPreferencesWorkspace({ userId, organizationId }: { userId: string; organizationId: string }) {
-  const [preferences, setPreferences] = useState<PreferenceState>({ email: true, sms: false, push: true, incident_assignments: true, corrective_action_reminders: true, audit_reminders: true })
+  const [preferences, setPreferences] = useState<PreferenceState>({ email: true, sms: false, push: true, incident_assignments: true, corrective_action_reminders: true, audit_reminders: true, compliance_obligation_reminders: true })
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -54,7 +56,7 @@ export function NotificationPreferencesWorkspace({ userId, organizationId }: { u
     const loadPreferences = async () => {
       setLoading(true)
       setError('')
-      const { data, error: preferencesError } = await supabase.from('notification_preferences').select('email, sms, push, incident_assignments, corrective_action_reminders, audit_reminders').eq('user_id', userId).maybeSingle()
+      const { data, error: preferencesError } = await supabase.from('notification_preferences').select('email, sms, push, incident_assignments, corrective_action_reminders, audit_reminders, compliance_obligation_reminders').eq('user_id', userId).maybeSingle()
       if (preferencesError) setError(preferencesError.message)
       else if (data) setPreferences(data)
       setLoading(false)

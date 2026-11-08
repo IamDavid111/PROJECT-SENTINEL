@@ -20,6 +20,16 @@ export type ActionAssignmentEmailDetails = {
   incidentReference: string | null
 }
 
+export type LegalComplianceExpiryEmailDetails = {
+  recipientEmail: string
+  recipientName: string
+  organizationName: string
+  obligationName: string
+  issuingAuthority: string
+  expiryDate: string
+  daysBefore: 14 | 30
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, '&amp;')
@@ -105,6 +115,29 @@ function renderActionAssignmentEmail(details: ActionAssignmentEmailDetails) {
     </table>`
 }
 
+function renderLegalComplianceExpiryEmail(details: LegalComplianceExpiryEmailDetails) {
+  const recipientName = escapeHtml(details.recipientName)
+  const organizationName = escapeHtml(details.organizationName)
+  const obligationName = escapeHtml(details.obligationName)
+  const issuingAuthority = escapeHtml(details.issuingAuthority)
+  const expiryDate = escapeHtml(details.expiryDate)
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0;background:#eef2f6;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+    <tr><td align="center"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(16,32,48,0.08);">
+      <tr><td style="background:#16212e;padding:24px 32px;"><div style="color:#ffffff;font-size:18px;font-weight:700;">SentinelQHSE</div><div style="color:#8fa3b8;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;margin-top:4px;">Compliance reminder</div></td></tr>
+      <tr><td style="padding:32px;"><h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;color:#16212e;">Compliance obligation expires in ${details.daysBefore} days</h1>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#3d4d5e;">Hello ${recipientName}, an obligation for ${organizationName} is approaching its expiry date.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f8fa;border-radius:10px;padding:4px 16px;margin-bottom:24px;">
+          <tr><td style="padding:6px 0;color:#5b6b7c;font-size:14px;">Obligation</td><td style="padding:6px 0;color:#16212e;font-size:14px;font-weight:600;text-align:right;">${obligationName}</td></tr>
+          <tr><td style="padding:6px 0;color:#5b6b7c;font-size:14px;">Issuing authority</td><td style="padding:6px 0;color:#16212e;font-size:14px;font-weight:600;text-align:right;">${issuingAuthority}</td></tr>
+          <tr><td style="padding:6px 0;color:#5b6b7c;font-size:14px;">Expiry date</td><td style="padding:6px 0;color:#16212e;font-size:14px;font-weight:600;text-align:right;">${expiryDate}</td></tr>
+        </table>
+        <p style="margin:0;font-size:13px;color:#5b6b7c;">Sign in to SentinelQHSE and review the Legal and Compliance Obligations Register.</p>
+      </td></tr>
+      <tr><td style="background:#f6f8fa;padding:18px 32px;border-top:1px solid #e3e9ef;"><p style="margin:0;font-size:12px;color:#8fa3b8;">This reminder was sent according to your organization’s compliance notification settings.</p></td></tr>
+    </table></td></tr>
+  </table>`
+}
+
 export async function sendInviteEmail(details: InviteEmailDetails) {
   const serviceId = Deno.env.get('EMAILJS_SERVICE_ID')
   const templateId = Deno.env.get('EMAILJS_TEMPLATE_ID')
@@ -178,4 +211,32 @@ export async function sendActionAssignmentEmail(details: ActionAssignmentEmailDe
   if (!response.ok) {
     throw new Error(`Action assignment email could not be sent (HTTP ${response.status})`)
   }
+}
+
+export async function sendLegalComplianceExpiryEmail(details: LegalComplianceExpiryEmailDetails) {
+  const serviceId = Deno.env.get('EMAILJS_SERVICE_ID')
+  const templateId = Deno.env.get('EMAILJS_TEMPLATE_ID')
+  const publicKey = Deno.env.get('EMAILJS_PUBLIC_KEY')
+  const privateKey = Deno.env.get('EMAILJS_PRIVATE_KEY')
+  if (!serviceId || !templateId || !publicKey || !privateKey) {
+    throw new Error('Compliance reminder email delivery is not configured')
+  }
+  const response = await fetch(EMAILJS_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: serviceId,
+      template_id: templateId,
+      user_id: publicKey,
+      accessToken: privateKey,
+      template_params: {
+        to_email: details.recipientEmail,
+        to_name: details.recipientName,
+        from_name: 'SentinelQHSE',
+        subject: `Compliance obligation expires in ${details.daysBefore} days`,
+        message: renderLegalComplianceExpiryEmail(details),
+      },
+    }),
+  })
+  if (!response.ok) throw new Error(`Compliance reminder email could not be sent (HTTP ${response.status})`)
 }

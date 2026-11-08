@@ -175,7 +175,7 @@ export function DashboardPage({ organizationId, currentUserId, organizationName,
   const stats: DashboardStripStat[] = [
     { key: 'open-incidents', label: 'Open incidents', value: statValue('open-incidents'), hint: 'Submitted, not yet closed', href: '#incidents' },
     { key: 'open-high-risk', label: 'High-risk open', value: statValue('open-high-risk-incidents'), hint: 'High or critical severity', href: '#incidents', tone: 'danger' },
-    { key: 'near-misses', label: 'Near misses', value: statValue('near-misses'), hint: 'Reported in this window', href: '#report-incident' },
+    { key: 'near-misses', label: 'Near misses', value: statValue('near-misses'), hint: 'Reported in this window', href: '#incidents?reportType=near_miss' },
     { key: 'open-actions', label: 'Open actions', value: actionMetrics.length ? String(openActions) : '—', hint: 'Corrective, preventive, investigation', href: actionHref },
   ]
 
