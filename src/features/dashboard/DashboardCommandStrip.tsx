@@ -1,4 +1,7 @@
+import { ArrowRight } from 'lucide-react'
+
 import { cn } from '../../lib/utils'
+import { OrganizationManagementSystemsSection } from './OrganizationManagementSystemsSection'
 
 export type DashboardStripStat = {
   key: string
@@ -53,14 +56,19 @@ export function DashboardCommandStrip({ userName, organizationName, role, stats 
         </p>
       </div>
 
+      <OrganizationManagementSystemsSection />
+
       <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-4">
         {stats.map((stat) => (
           <a
             key={stat.key}
             href={stat.href}
-            className="group grid gap-1 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:border-l sm:border-line sm:pl-4 sm:first:border-l-0 sm:first:pl-0"
+            className="group grid gap-1 rounded-lg border border-transparent p-2 transition-colors hover:border-brand/50 hover:bg-surface-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 sm:border-l sm:border-line sm:pl-4 sm:first:border-l-0 sm:first:pl-0"
           >
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{stat.label}</span>
+            <span className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+              {stat.label}
+              <ArrowRight size={14} className="shrink-0 text-brand transition-transform group-hover:translate-x-1" aria-hidden="true" />
+            </span>
             <span className={cn('font-display text-3xl font-semibold tabular-nums tracking-tight', stat.tone ? TONE_CLASS[stat.tone] : 'text-foreground')}>
               {stat.value}
             </span>

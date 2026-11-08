@@ -12,6 +12,8 @@ import { SeveritySection } from './SeveritySection'
 import { ShiftsSection } from './ShiftsSection'
 import { SitesSection } from './SitesSection'
 import { SafetyPolicySettingsSection } from '../safety-policy/SafetyPolicySettingsSection'
+import { PolicyObjectivesSettingsSection } from '../safety-policy/PolicyObjectivesSettingsSection'
+import { ComplianceFrameworksSection } from '../compliance/ComplianceFrameworksSection'
 import type {
   CompanyShiftSetting,
   DepartmentOption,
@@ -21,7 +23,7 @@ import type {
 } from './companySettingsTypes'
 import { useCompanySettings } from './useCompanySettings'
 
-type SectionKey = 'shifts' | 'departments' | 'sites' | 'contacts' | 'severity' | 'categories' | 'safety-policy' | 'closure' | 'archive'
+type SectionKey = 'shifts' | 'departments' | 'sites' | 'contacts' | 'severity' | 'categories' | 'safety-policy' | 'policy-objectives' | 'compliance-frameworks' | 'closure' | 'archive'
 type DeleteTarget =
   | { category: 'shift'; item: CompanyShiftSetting }
   | { category: 'department'; item: DepartmentOption }
@@ -41,7 +43,13 @@ const NAV_GROUPS: { label: string; items: { key: SectionKey; label: string }[] }
   { label: 'Safety', items: [
     { key: 'severity', label: 'Severity levels' },
     { key: 'categories', label: 'Incident categories' },
+  ] },
+  { label: 'HSSE Policy and Objective Management', items: [
     { key: 'safety-policy', label: 'Safety Policy' },
+    { key: 'policy-objectives', label: 'Policy and Objectives' },
+  ] },
+  { label: 'Compliance', items: [
+    { key: 'compliance-frameworks', label: 'Compliance Frameworks' },
   ] },
   { label: 'Access', items: [
     { key: 'closure', label: 'Closure access' },
@@ -51,14 +59,18 @@ const NAV_GROUPS: { label: string; items: { key: SectionKey; label: string }[] }
   ] },
 ]
 
-export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly = false }: {
+export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly = false, policyObjectivesOnly = false, complianceFrameworksOnly = false, canManagePolicyObjectives = false, canManageLegalCompliance = false }: {
   client: SupabaseClient
   organizationId: string
   userId: string
   safetyPolicyOnly?: boolean
+  policyObjectivesOnly?: boolean
+  complianceFrameworksOnly?: boolean
+  canManagePolicyObjectives?: boolean
+  canManageLegalCompliance?: boolean
 }) {
   const settings = useCompanySettings({ organizationId, userId })
-  const [activeSection, setActiveSection] = useState<SectionKey>(safetyPolicyOnly ? 'safety-policy' : 'shifts')
+  const [activeSection, setActiveSection] = useState<SectionKey>(policyObjectivesOnly ? 'policy-objectives' : complianceFrameworksOnly ? 'compliance-frameworks' : safetyPolicyOnly ? 'safety-policy' : 'shifts')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [restoreTarget, setRestoreTarget] = useState<ArchivedConfigurationItem | null>(null)
   const [archiveVersion, setArchiveVersion] = useState(0)
@@ -74,13 +86,27 @@ export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly 
     severity: settings.severities.filter((item) => !item.deleted).length,
     categories: settings.categories.filter((item) => !item.deleted).length,
     'safety-policy': null,
+    'policy-objectives': null,
+    'compliance-frameworks': null,
     closure: null,
     archive: null,
   }
   const isDirty = (key: SectionKey) => settings.dirtySections.includes(key)
-  const visibleNavGroups = safetyPolicyOnly
+  const visibleNavGroups = policyObjectivesOnly
     ? NAV_GROUPS.flatMap((group) => {
-        const items = group.items.filter((item) => item.key === 'safety-policy')
+        const items = group.items.filter((item) => item.key === 'policy-objectives')
+        return items.length ? [{ ...group, items }] : []
+      })
+    : complianceFrameworksOnly
+    ? NAV_GROUPS.flatMap((group) => {
+        const items = group.items.filter((item) => item.key === 'compliance-frameworks')
+        return items.length ? [{ ...group, items }] : []
+      })
+    : safetyPolicyOnly
+    ? NAV_GROUPS.flatMap((group) => {
+        const items = group.items.filter((item) => item.key === 'safety-policy'
+          || (canManagePolicyObjectives && item.key === 'policy-objectives')
+          || (canManageLegalCompliance && item.key === 'compliance-frameworks'))
         return items.length ? [{ ...group, items }] : []
       })
     : NAV_GROUPS
@@ -161,6 +187,10 @@ export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly 
         )
       case 'safety-policy':
         return <SafetyPolicySettingsSection client={client} />
+      case 'policy-objectives':
+        return <PolicyObjectivesSettingsSection client={client} organizationId={organizationId} />
+      case 'compliance-frameworks':
+        return <ComplianceFrameworksSection client={client} organizationId={organizationId} userId={userId} />
       case 'closure':
         return <ClosureAccessSection client={client} organizationId={organizationId} userId={userId} />
       case 'archive':
@@ -237,7 +267,7 @@ export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly 
 
           {section}
 
-          {!safetyPolicyOnly && settings.dirty && (
+          {!safetyPolicyOnly && !policyObjectivesOnly && !complianceFrameworksOnly && settings.dirty && (
             <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface/95 p-3 shadow-card backdrop-blur">
               <div className="flex items-center gap-2 text-sm text-foreground">
                 <span className="h-2 w-2 rounded-full bg-caution" aria-hidden="true" />

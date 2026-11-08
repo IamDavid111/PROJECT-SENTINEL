@@ -14,14 +14,11 @@ export const primaryNavigation: { route: AppRoute; label: string; icon: IconName
   { route: 'marketplace', label: 'HSE Marketplace', icon: 'marketplace', permission: 'view_marketplace' },
 ]
 
-export const secondaryNavigation: { route: AppRoute; label: string; permission: PermissionKey }[] = [
-  { route: 'profile', label: 'User Profile', permission: 'view_profile' },
-  { route: 'preferences', label: 'Notification Preferences', permission: 'view_profile' },
-  { route: 'activity-log', label: 'Activity Log', permission: 'view_activity' },
-  { route: 'administration', label: 'Administration', permission: 'access_administration' },
-  { route: 'settings', label: 'Settings', permission: 'manage_settings' },
-  { route: 'my-reports', label: 'My Reports', permission: 'view_own_reports' },
-  { route: 'assigned-actions', label: 'Assigned Actions', permission: 'view_own_reports' },
+export const secondaryNavigation: { route: AppRoute; label: string; permission: PermissionKey; icon: IconName }[] = [
+  { route: 'my-account', label: 'My Account', permission: 'view_profile', icon: 'profile' },
+  { route: 'administration', label: 'Administration', permission: 'access_administration', icon: 'administration' },
+  { route: 'settings', label: 'Settings', permission: 'manage_settings', icon: 'settings' },
+  { route: 'my-workspace', label: 'My Workspace', permission: 'view_own_reports', icon: 'assignedActions' },
 ]
 
 export const futureModuleRoutes: { route: AppRoute; label: string; permission: PermissionKey }[] = [

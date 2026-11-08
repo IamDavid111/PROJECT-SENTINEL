@@ -10,6 +10,7 @@ export interface DropdownMenuItem {
   icon?: IconProps['name']
   tone?: 'default' | 'danger'
   disabled?: boolean
+  active?: boolean
   onSelect?: () => void
 }
 
@@ -19,6 +20,7 @@ export interface DropdownMenuProps {
   align?: 'start' | 'end'
   variant?: 'outline' | 'ghost' | 'default'
   size?: 'sm' | 'default'
+  showChevron?: boolean
   className?: string
 }
 
@@ -32,6 +34,7 @@ export function DropdownMenu({
   align = 'end',
   variant = 'outline',
   size = 'sm',
+  showChevron = true,
   className,
 }: DropdownMenuProps) {
   const ref = useRef<HTMLDetailsElement>(null)
@@ -65,7 +68,7 @@ export function DropdownMenu({
         )}
       >
         {label}
-        <Icon name="chevronDown" size={14} />
+        {showChevron && <Icon name="chevronDown" size={14} aria-hidden="true" />}
       </summary>
       <div
         role="menu"
@@ -79,6 +82,7 @@ export function DropdownMenu({
             key={item.id}
             type="button"
             role="menuitem"
+            aria-current={item.active ? 'page' : undefined}
             disabled={item.disabled}
             onClick={() => {
               item.onSelect?.()
@@ -86,7 +90,7 @@ export function DropdownMenu({
             }}
             className={cn(
               'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors',
-              item.tone === 'danger' ? 'text-danger hover:bg-danger/10' : 'text-foreground hover:bg-surface-soft',
+              item.tone === 'danger' ? 'text-danger hover:bg-danger/10' : item.active ? 'bg-brand/10 font-medium text-brand' : 'text-foreground hover:bg-surface-soft',
               item.disabled && 'cursor-not-allowed opacity-50',
             )}
           >

@@ -124,6 +124,9 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
   const finishMutation = async (successMessage: string) => {
     await refresh()
     if (organizationId) await queryClient.invalidateQueries({ queryKey: ['dashboard', organizationId] })
+    if (assignedOnly && organizationId && currentUserId) {
+      await queryClient.invalidateQueries({ queryKey: ['assigned-action-count', organizationId, currentUserId] })
+    }
     setMessage(successMessage)
   }
 

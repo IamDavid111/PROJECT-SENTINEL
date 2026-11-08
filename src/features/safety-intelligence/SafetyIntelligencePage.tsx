@@ -12,6 +12,7 @@ import { SafetyLocations } from './SafetyLocations'
 import { SafetyPlanningOutlook } from './SafetyPlanningOutlook'
 import { SafetyAssistant } from '../ai/SafetyAssistant'
 import { ExecutiveAnalyticsExport } from './ExecutiveAnalyticsExport'
+import { OrganizationManagementSystemsSection } from '../dashboard/OrganizationManagementSystemsSection'
 import { Alert, Badge, Button, FilterBar, Icon, PageHeader, SegmentedControl, Select, Skeleton } from '../../components/ui'
 
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
@@ -229,6 +230,7 @@ export function SafetyIntelligencePage({ client, scope, canViewKnowledge = false
 
       {/* Cards are rendered only from a validated successful server snapshot, never a fallback dataset. */}
       <SafetyKpiCards snapshot={data} />
+      <OrganizationManagementSystemsSection complianceLabel="Compliance Performance" />
       <IncidentTrendChart snapshot={data} />
       <SafetyLocations snapshot={data} />
       <SafetyPlanningOutlook snapshot={data} />

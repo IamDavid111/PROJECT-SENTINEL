@@ -51,7 +51,13 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
   const [administrator, setAdministrator] = useState('Authenticated user')
   const [selectedScope, setSelectedScope] = useState(scope)
   const [closingIncident, setClosingIncident] = useState<IncidentSummary | null>(null)
-  const [filters, setFilters] = useState<IncidentListFilters>({ status: 'all', incidentCategory: 'all', severity: 'all', siteId: 'all', department: 'all', page: 1, pageSize })
+  const [filters, setFilters] = useState<IncidentListFilters>(() => {
+    const requestedReportType = new URLSearchParams(window.location.hash.split('?')[1] || '').get('reportType')
+    const reportType = scope === 'organization'
+      ? incidentReportTypes.find((type) => type === requestedReportType)
+      : undefined
+    return { status: 'all', incidentCategory: 'all', severity: 'all', siteId: 'all', department: 'all', reportType, page: 1, pageSize }
+  })
   const [typeCounts, setTypeCounts] = useState<{ byType: Record<string, number>; open: number; closed: number } | null>(null)
   const incidents = useIncidents(supabase, filters, canViewAll ? selectedScope : 'own')
   const incidentIds = incidents.data?.items.map((incident) => incident.id) || []
