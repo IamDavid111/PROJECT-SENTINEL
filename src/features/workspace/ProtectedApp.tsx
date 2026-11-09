@@ -270,7 +270,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     return () => {
       active = false
     }
-  }, [session.user.id, verifySafetyPolicy])
+  }, [session.user.email, session.user.id, verifySafetyPolicy])
 
   useEffect(() => {
     const verifyAfterNavigation = () => {
