@@ -64,12 +64,22 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   const [organizationId, setOrganizationId] = useState('')
   const [profileLoadedForUser, setProfileLoadedForUser] = useState('')
   const [policyStatus, setPolicyStatus] = useState<SafetyPolicyStatus | null>(null)
+  const [policyStatusUserId, setPolicyStatusUserId] = useState('')
   const [policyStatusLoaded, setPolicyStatusLoaded] = useState(false)
   const [policyCheckLoading, setPolicyCheckLoading] = useState(true)
   const [policyError, setPolicyError] = useState('')
-  const policyVerificationRequest = useRef<Promise<SafetyPolicyStatus | null> | null>(null)
+  const policyVerificationRequest = useRef<{
+    userId: string
+    promise: Promise<SafetyPolicyStatus | null>
+  } | null>(null)
+  const policyVerificationUserId = useRef(session.user.id)
   const policyVerificationMounted = useRef(true)
-  const policyVerified = policyStatusLoaded && !policyCheckLoading && !policyError && policyStatus?.required === false
+  const hasPolicyStatusForCurrentUser = policyStatusUserId === session.user.id
+  const currentPolicyStatus = hasPolicyStatusForCurrentUser ? policyStatus : null
+  const currentPolicyStatusLoaded = hasPolicyStatusForCurrentUser && policyStatusLoaded
+  const currentPolicyCheckLoading = !hasPolicyStatusForCurrentUser || policyCheckLoading
+  const currentPolicyError = hasPolicyStatusForCurrentUser ? policyError : ''
+  const policyVerified = currentPolicyStatusLoaded && !currentPolicyCheckLoading && !currentPolicyError && currentPolicyStatus?.required === false
   useIncidentOfflineSync(supabase, policyVerified)
   const closureAccess = useIncidentClosureAccess(
     supabase,
@@ -170,35 +180,43 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     if (isPhoneViewport) window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus())
   }
 
-  const verifySafetyPolicy = useCallback(async () => {
-    if (policyVerificationRequest.current) return policyVerificationRequest.current
+  const verifySafetyPolicy = useCallback(async (userId: string) => {
+    if (policyVerificationUserId.current !== userId) return null
+    if (policyVerificationRequest.current?.userId === userId) {
+      return policyVerificationRequest.current.promise
+    }
 
     setPolicyCheckLoading(true)
     setPolicyError('')
     const request = (async () => {
+      const isCurrentRequest = () => policyVerificationMounted.current
+        && policyVerificationUserId.current === userId
+        && policyVerificationRequest.current?.promise === request
       try {
         const currentStatus = await getSafetyPolicyStatus(supabase)
-        if (policyVerificationMounted.current) {
+        if (isCurrentRequest()) {
+          setPolicyStatusUserId(userId)
           setPolicyStatus(currentStatus)
           setPolicyStatusLoaded(true)
         }
         return currentStatus
       } catch (caught) {
-        if (policyVerificationMounted.current) {
+        if (isCurrentRequest()) {
+          setPolicyStatusUserId(userId)
           setPolicyStatus(null)
           setPolicyStatusLoaded(false)
           setPolicyError(caught instanceof Error ? caught.message : 'Unable to verify the Safety Policy.')
         }
         return null
       } finally {
-        if (policyVerificationMounted.current) setPolicyCheckLoading(false)
+        if (isCurrentRequest()) setPolicyCheckLoading(false)
       }
     })()
-    policyVerificationRequest.current = request
+    policyVerificationRequest.current = { userId, promise: request }
     try {
       return await request
     } finally {
-      if (policyVerificationRequest.current === request) policyVerificationRequest.current = null
+      if (policyVerificationRequest.current?.promise === request) policyVerificationRequest.current = null
     }
   }, [])
 
@@ -210,6 +228,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   }, [])
 
   useEffect(() => {
+    policyVerificationUserId.current = session.user.id
     // Load the profile first, then resolve organization membership and permissions for the workspace.
     let active = true
     const loadMembership = async () => {
@@ -287,13 +306,16 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           }
           setProfileLoadedForUser(session.user.id)
         }
-        await verifySafetyPolicy()
+        await verifySafetyPolicy(session.user.id)
       }
       if (active) setLoading(false)
     }
     void loadMembership()
     return () => {
       active = false
+      if (policyVerificationUserId.current === session.user.id) {
+        policyVerificationUserId.current = ''
+      }
     }
   }, [session.user.email, session.user.id, verifySafetyPolicy])
 
@@ -305,7 +327,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       setRoute(nextRoute)
     }
     const verifyOnFocus = () => {
-      if (organizationId && policyStatusLoaded) void verifySafetyPolicy()
+      if (organizationId && currentPolicyStatusLoaded) void verifySafetyPolicy(session.user.id)
     }
     window.addEventListener('hashchange', verifyAfterNavigation)
     window.addEventListener('focus', verifyOnFocus)
@@ -315,7 +337,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       window.removeEventListener('focus', verifyOnFocus)
       window.removeEventListener('safety-policy-updated', verifyOnFocus)
     }
-  }, [organizationId, policyStatusLoaded, verifySafetyPolicy])
+  }, [currentPolicyStatusLoaded, organizationId, session.user.id, verifySafetyPolicy])
 
   useEffect(() => {
     if (loading) {
@@ -697,14 +719,14 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       <Button onClick={() => { window.location.hash = '#top' }}>Return to home</Button>
     </Card>
   </div>
-  if (policyCheckLoading || !policyStatusLoaded || policyError || policyStatus?.required) {
+  if (currentPolicyCheckLoading || !currentPolicyStatusLoaded || currentPolicyError || currentPolicyStatus?.required) {
     return (
       <SafetyPolicyAcknowledgement
-        policy={policyStatus?.policy ?? null}
-        loading={policyCheckLoading}
-        error={policyError}
+        policy={currentPolicyStatus?.policy ?? null}
+        loading={currentPolicyCheckLoading}
+        error={currentPolicyError}
         isDarkMode={isDarkMode}
-        onRetry={() => { void verifySafetyPolicy() }}
+        onRetry={() => { void verifySafetyPolicy(session.user.id) }}
         onSignOut={() => { void signOutFromPolicyError() }}
         onAcknowledge={async (onRecorded) => {
           await acknowledgeSafetyPolicy(supabase)
@@ -888,7 +910,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
               Retry permission check
             </Button>
           </Alert>}
-          {route === 'dashboard' && canManageCompanySettings && policyStatusLoaded && policyStatus?.active === false && (
+          {route === 'dashboard' && canManageCompanySettings && currentPolicyStatusLoaded && currentPolicyStatus?.active === false && (
             <Alert tone="warning">
               No safety policy is published. Users can continue without one.{' '}
               <a className="font-semibold underline underline-offset-2" href="#settings">Set one up in Settings.</a>
