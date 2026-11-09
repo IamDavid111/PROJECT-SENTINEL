@@ -65,6 +65,8 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   const [policyStatusLoaded, setPolicyStatusLoaded] = useState(false)
   const [policyCheckLoading, setPolicyCheckLoading] = useState(true)
   const [policyError, setPolicyError] = useState('')
+  const policyVerificationRequest = useRef<Promise<SafetyPolicyStatus | null> | null>(null)
+  const policyVerificationMounted = useRef(true)
   const policyVerified = policyStatusLoaded && !policyCheckLoading && !policyError && policyStatus?.required === false
   useIncidentOfflineSync(supabase, policyVerified)
   const closureAccess = useIncidentClosureAccess(
@@ -167,20 +169,41 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   }
 
   const verifySafetyPolicy = useCallback(async () => {
+    if (policyVerificationRequest.current) return policyVerificationRequest.current
+
     setPolicyCheckLoading(true)
     setPolicyError('')
+    const request = (async () => {
+      try {
+        const currentStatus = await getSafetyPolicyStatus(supabase)
+        if (policyVerificationMounted.current) {
+          setPolicyStatus(currentStatus)
+          setPolicyStatusLoaded(true)
+        }
+        return currentStatus
+      } catch (caught) {
+        if (policyVerificationMounted.current) {
+          setPolicyStatus(null)
+          setPolicyStatusLoaded(false)
+          setPolicyError(caught instanceof Error ? caught.message : 'Unable to verify the Safety Policy.')
+        }
+        return null
+      } finally {
+        if (policyVerificationMounted.current) setPolicyCheckLoading(false)
+      }
+    })()
+    policyVerificationRequest.current = request
     try {
-      const currentStatus = await getSafetyPolicyStatus(supabase)
-      setPolicyStatus(currentStatus)
-      setPolicyStatusLoaded(true)
-      return currentStatus
-    } catch (caught) {
-      setPolicyStatus(null)
-      setPolicyStatusLoaded(false)
-      setPolicyError(caught instanceof Error ? caught.message : 'Unable to verify the Safety Policy.')
-      return null
+      return await request
     } finally {
-      setPolicyCheckLoading(false)
+      if (policyVerificationRequest.current === request) policyVerificationRequest.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    policyVerificationMounted.current = true
+    return () => {
+      policyVerificationMounted.current = false
     }
   }, [])
 
