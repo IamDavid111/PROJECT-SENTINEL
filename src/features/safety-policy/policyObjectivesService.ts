@@ -1,14 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { getDocumentUploadMimeType } from '../../lib/documentUpload'
 
 const POLICY_OBJECTIVES_BUCKET = 'hsse-policy-documents'
-const MAX_DOCUMENT_SIZE = 100 * 1024 * 1024
-const ALLOWED_DOCUMENT_TYPES = new Set([
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-])
 
 export type PolicyObjectiveType = 'policy' | 'objective'
 
@@ -46,12 +39,18 @@ export async function getPolicyObjectivesCapabilities(client: SupabaseClient, or
   return { canView: viewResponse.data === true, canManage: manageResponse.data === true }
 }
 
-export async function listPolicyObjectives(client: SupabaseClient, organizationId: string): Promise<PolicyObjectiveRecord[]> {
-  const { data, error } = await client
+export async function listPolicyObjectives(
+  client: SupabaseClient,
+  organizationId: string,
+  itemType?: PolicyObjectiveType,
+): Promise<PolicyObjectiveRecord[]> {
+  let query = client
     .from('organization_policy_objectives')
     .select('id, organization_id, item_type, title, description, performance_target, baseline_value, approval_status, document_path, document_name, document_mime_type, document_size, created_at, updated_at')
     .eq('organization_id', organizationId)
     .order('updated_at', { ascending: false })
+  if (itemType) query = query.eq('item_type', itemType)
+  const { data, error } = await query
   if (error) throw new Error(error.message || 'Unable to load Policy and Objectives records.')
   return (data || []) as PolicyObjectiveRecord[]
 }
@@ -61,6 +60,7 @@ export async function savePolicyObjective(
   organizationId: string,
   draft: PolicyObjectiveDraft,
   recordId?: string,
+  document?: { path: string; name: string; mimeType: string; size: number },
 ): Promise<PolicyObjectiveRecord> {
   const values = {
     organization_id: organizationId,
@@ -70,43 +70,71 @@ export async function savePolicyObjective(
     performance_target: draft.performance_target.trim(),
     baseline_value: draft.baseline_value.trim(),
     approval_status: 'approved',
+    ...(document ? {
+      document_path: document.path,
+      document_name: document.name,
+      document_mime_type: document.mimeType,
+      document_size: document.size,
+    } : {}),
   }
   const query = recordId
-    ? client.from('organization_policy_objectives').update(values).eq('id', recordId).eq('organization_id', organizationId)
+    ? client.from('organization_policy_objectives').update(values).eq('id', recordId).eq('organization_id', organizationId).eq('item_type', draft.item_type)
     : client.from('organization_policy_objectives').insert(values)
   const { data, error } = await query.select('*').single()
   if (error || !data) throw new Error(error?.message || 'Unable to save the Policy and Objectives record.')
   return data as PolicyObjectiveRecord
 }
 
-export function validatePolicyObjectiveDocument(file: File): void {
-  if (!ALLOWED_DOCUMENT_TYPES.has(file.type)) {
-    throw new Error('Choose a PDF, Word document, spreadsheet, or plain-text file.')
-  }
-  if (file.size > MAX_DOCUMENT_SIZE) throw new Error('Supporting documents must be 100 MB or smaller.')
+export function validatePolicyDocument(file: File): void {
+  getDocumentUploadMimeType(file)
 }
 
-export async function uploadPolicyObjectiveDocument(
+export function validateObjectiveDocument(file: File): void {
+  getDocumentUploadMimeType(file)
+}
+
+async function uploadDocument(
   client: SupabaseClient,
   organizationId: string,
   recordId: string,
   file: File,
 ): Promise<{ path: string; name: string; mimeType: string; size: number }> {
-  validatePolicyObjectiveDocument(file)
+  const mimeType = getDocumentUploadMimeType(file)
   const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const path = `${organizationId}/${recordId}/${crypto.randomUUID()}-${safeFilename}`
   const { error } = await client.storage.from(POLICY_OBJECTIVES_BUCKET).upload(path, file, {
     upsert: false,
-    contentType: file.type,
+    contentType: mimeType,
   })
   if (error) throw new Error(error.message || 'Unable to upload the supporting document.')
-  return { path, name: file.name, mimeType: file.type, size: file.size }
+  return { path, name: file.name, mimeType, size: file.size }
+}
+
+export async function uploadPolicyDocument(
+  client: SupabaseClient,
+  organizationId: string,
+  recordId: string,
+  file: File,
+) {
+  validatePolicyDocument(file)
+  return uploadDocument(client, organizationId, recordId, file)
+}
+
+export async function uploadObjectiveDocument(
+  client: SupabaseClient,
+  organizationId: string,
+  recordId: string,
+  file: File,
+) {
+  validateObjectiveDocument(file)
+  return uploadDocument(client, organizationId, recordId, file)
 }
 
 export async function setPolicyObjectiveDocument(
   client: SupabaseClient,
   organizationId: string,
   recordId: string,
+  itemType: PolicyObjectiveType,
   document: { path: string; name: string; mimeType: string; size: number } | null,
 ): Promise<void> {
   const { error } = await client
@@ -119,6 +147,7 @@ export async function setPolicyObjectiveDocument(
     })
     .eq('id', recordId)
     .eq('organization_id', organizationId)
+    .eq('item_type', itemType)
     .select('id')
     .single()
   if (error) throw new Error(error.message || 'Unable to update the supporting document.')

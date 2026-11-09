@@ -8,16 +8,20 @@ import {
   listPolicyObjectives,
   type PolicyObjectiveRecord,
 } from './policyObjectivesService'
+import { Icon } from '../../components/ui/icon'
+import type { AppRoute } from '../../app/routes'
 
-export function PolicyObjectivesRegisterPage({ client, organizationId }: {
+export function PolicyObjectivesRegisterPage({ client, organizationId, previousRoute }: {
   client: SupabaseClient
   organizationId: string
+  previousRoute: AppRoute | null
 }) {
   const [records, setRecords] = useState<PolicyObjectiveRecord[]>([])
   const [selectedRecord, setSelectedRecord] = useState<PolicyObjectiveRecord | null>(null)
   const [canView, setCanView] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const backRoute = previousRoute === 'dashboard' || previousRoute === 'executive-analytics' ? previousRoute : null
 
   useEffect(() => {
     let active = true
@@ -59,6 +63,14 @@ export function PolicyObjectivesRegisterPage({ client, organizationId }: {
         eyebrow="Organization register"
         title="Policy and Objectives Register"
         description="Approved organizational HSSE policies, objectives, performance targets, and baselines."
+        actions={
+          <Button variant="outline" size="sm" onClick={() => {
+            if (backRoute) window.history.back()
+            else window.location.hash = '#dashboard'
+          }}>
+            <Icon name="arrowLeft" size={15} />Back
+          </Button>
+        }
       />
 
       {loading ? (

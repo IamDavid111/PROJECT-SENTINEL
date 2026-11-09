@@ -187,6 +187,8 @@ export function DashboardPage({ organizationId, currentUserId, organizationName,
           organizationName={organizationName}
           role={role}
           stats={stats}
+          client={supabase}
+          organizationId={organizationId}
         />
         <DashboardFilterBar
           filters={filters}

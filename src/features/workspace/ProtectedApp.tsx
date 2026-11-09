@@ -53,6 +53,8 @@ function IntelligenceCoveragePending() {
 export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
   const queryClient = useQueryClient()
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
+  const [previousRoute, setPreviousRoute] = useState<AppRoute | null>(null)
+  const routeRef = useRef(route)
 
   const [role, setRole] = useState<string | null>(null)
   const [customRolePermissions, setCustomRolePermissions] = useState<string[] | null>([])
@@ -297,7 +299,10 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
 
   useEffect(() => {
     const verifyAfterNavigation = () => {
-      setRoute(getAppRoute())
+      const nextRoute = getAppRoute()
+      setPreviousRoute(routeRef.current)
+      routeRef.current = nextRoute
+      setRoute(nextRoute)
     }
     const verifyOnFocus = () => {
       if (organizationId && policyStatusLoaded) void verifySafetyPolicy()
@@ -923,8 +928,8 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           {route === 'roles-permissions' && canAccess('view_roles_permissions') && <RolesPermissionsWorkspace organizationId={organizationId} canManage={role === 'Super Administrator' && canAccess('manage_roles_permissions')} />}
           {route === 'my-account' && (canAccess('view_profile') || canAccess('view_activity')) && <MyAccountWorkspace userId={session.user.id} organizationId={organizationId} email={session.user.email || ''} canViewProfile={canAccess('view_profile')} canViewActivity={canAccess('view_activity')} />}
           {route === 'my-workspace' && canAccess('view_own_reports') && <MyWorkspace client={supabase} organizationId={organizationId} userId={session.user.id} canViewAllIncidents={canAccess('view_all_incidents')} canCloseIncidents={canAccess('close_incidents')} canExportReports={canAccess('export_reports')} canManageActions={canManageActions} canViewAllAssignedActions={canAccess('view_all_assigned_actions')} />}
-          {route === 'policy-objectives-register' && <PolicyObjectivesRegisterPage client={supabase} organizationId={organizationId} />}
-          {route === 'legal-compliance-obligations-register' && <LegalComplianceObligationsRegisterPage client={supabase} organizationId={organizationId} />}
+          {route === 'policy-objectives-register' && <PolicyObjectivesRegisterPage client={supabase} organizationId={organizationId} previousRoute={previousRoute} />}
+          {route === 'legal-compliance-obligations-register' && <LegalComplianceObligationsRegisterPage client={supabase} organizationId={organizationId} previousRoute={previousRoute} />}
           {route === 'settings' && canOpenSettings && (
             <SettingsPage
               client={supabase}
