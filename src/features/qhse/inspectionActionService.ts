@@ -209,7 +209,8 @@ export async function createAction(client: SupabaseClient, input: { type: Action
   }).select('id').single()
   if (error) throw new Error(error.message || 'Unable to create the action.')
   if (!action) throw new Error('The action could not be saved.')
-  return notifyActionAssignment(client, action.id)
+  const notificationResult = await notifyActionAssignment(client, action.id)
+  return { ...notificationResult, actionId: action.id }
 }
 
 async function notifyActionAssignment(client: SupabaseClient, actionId: string) {
