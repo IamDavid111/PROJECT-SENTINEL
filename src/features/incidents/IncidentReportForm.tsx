@@ -163,6 +163,8 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   const [facilitiesAvailable, setFacilitiesAvailable] = useState(true)
   const [settings, setSettings] = useState<Record<string, unknown>>({})
   const [settingsLoading, setSettingsLoading] = useState(true)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const settingsLoadedRef = useRef(false)
   const [settingsError, setSettingsError] = useState('')
   const [submitMessage, setSubmitMessage] = useState('')
   const [submitError, setSubmitError] = useState('')
@@ -311,34 +313,50 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     if (!organization.data?.organizationId) return
     let active = true
     const organizationId = organization.data.organizationId
-    const loadSettings = () => {
-      setSettingsLoading(true)
-      setSettingsError('')
-      void Promise.all([
-        supabase.from('sites').select('id, name').eq('organization_id', organizationId).order('name'),
-        supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours, weather_conditions').eq('organization_id', organizationId).maybeSingle(),
-        supabase.from('facilities').select('id, name, site_id, department_key').eq('organization_id', organizationId).eq('active', true).is('archived_at', null).order('name'),
-      ]).then(([siteResult, settingsResult, facilityResult]) => {
+    settingsLoadedRef.current = false
+    setSettingsLoaded(false)
+    const loadSettings = async () => {
+      const initialLoad = !settingsLoadedRef.current
+      if (initialLoad) {
+        setSettingsLoading(true)
+        setSettingsError('')
+      }
+      try {
+        const [siteResult, settingsResult, facilityResult] = await Promise.all([
+          supabase.from('sites').select('id, name').eq('organization_id', organizationId).order('name'),
+          supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours, weather_conditions').eq('organization_id', organizationId).maybeSingle(),
+          supabase.from('facilities').select('id, name, site_id, department_key').eq('organization_id', organizationId).eq('active', true).is('archived_at', null).order('name'),
+        ])
         if (!active) return
         const facilitySchemaMissing = facilityResult.error?.code === '42703' || facilityResult.error?.code === 'PGRST204'
         if (siteResult.error || settingsResult.error || (facilityResult.error && !facilitySchemaMissing)) {
+          throw siteResult.error || settingsResult.error || facilityResult.error
+        }
+        setSites(siteResult.data || [])
+        setFacilities(facilityResult.data || [])
+        setFacilitiesAvailable(!facilitySchemaMissing)
+        setSettings(settingsResult.data || {})
+        settingsLoadedRef.current = true
+        setSettingsLoaded(true)
+      } catch (caught) {
+        if (!active) return
+        if (initialLoad) {
           setSettingsError('Unable to load company configuration. Please try again before reporting an incident.')
           setSites([])
           setFacilities([])
           setSettings({})
         } else {
-          setSites(siteResult.data || [])
-          setFacilities(facilityResult.data || [])
-          setFacilitiesAvailable(!facilitySchemaMissing)
-          setSettings(settingsResult.data || {})
+          // A background settings refresh must never replace an in-progress report.
+          console.warn('Unable to refresh company configuration; keeping the last loaded configuration.', caught)
         }
-        setSettingsLoading(false)
-      })
+      } finally {
+        if (active && initialLoad) setSettingsLoading(false)
+      }
     }
     const handleSettingsUpdated = (event: Event) => {
-      if (companySettingsEventMatchesOrganization(event, organizationId)) loadSettings()
+      if (companySettingsEventMatchesOrganization(event, organizationId)) void loadSettings()
     }
-    loadSettings()
+    void loadSettings()
     window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
     return () => {
       active = false
@@ -364,7 +382,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       />
     )
   }
-  if (settingsLoading) {
+  if (settingsLoading && !settingsLoaded) {
     return (
       <div className="grid gap-5">
         <PageHeader eyebrow="Report incident" title="Report an incident" description="Loading company configuration." />
@@ -372,7 +390,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       </div>
     )
   }
-  if (settingsError) {
+  if (settingsError && !settingsLoaded) {
     return (
       <EmptyState
         icon="settings"

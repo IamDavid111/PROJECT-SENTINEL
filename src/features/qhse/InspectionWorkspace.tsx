@@ -136,8 +136,8 @@ export function InspectionWorkspace({
   const [rangeFilter, setRangeFilter] = useState<'30' | '90' | 'all'>('all')
   const [currentTime, setCurrentTime] = useState(() => Date.now())
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const refresh = useCallback(async (background = false) => {
+    if (!background) setLoading(true)
     try {
       const data = await getInspectionWorkspace(supabase)
       setOrganizationId(data.organizationId)
@@ -148,7 +148,7 @@ export function InspectionWorkspace({
       setSiteId((current) => current || data.activeSites[0]?.id || '')
       setError('')
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }, [supabase])
 
@@ -180,7 +180,7 @@ export function InspectionWorkspace({
     if (!organizationId) return
     const handleSettingsUpdated = (event: Event) => {
       if (!companySettingsEventMatchesOrganization(event, organizationId)) return
-      void refresh().catch((loadError: unknown) => {
+      void refresh(true).catch((loadError: unknown) => {
         setError(loadError instanceof Error ? loadError.message : 'Unable to refresh inspections.')
       })
     }
