@@ -153,6 +153,8 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
   const [sites, setSites] = useState<SiteOption[]>([])
   const [settings, setSettings] = useState<Record<string, unknown>>({})
   const [settingsLoading, setSettingsLoading] = useState(true)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const settingsLoadedRef = useRef(false)
   const [settingsError, setSettingsError] = useState('')
   const [submitMessage, setSubmitMessage] = useState('')
   const [submitError, setSubmitError] = useState('')
@@ -273,29 +275,43 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
     if (!organization.data?.organizationId) return
     let active = true
     const organizationId = organization.data.organizationId
-    const loadSettings = () => {
-      setSettingsLoading(true)
-      setSettingsError('')
-      void Promise.all([
-        supabase.from('sites').select('id, name').eq('organization_id', organizationId).order('name'),
-        supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours').eq('organization_id', organizationId).maybeSingle(),
-      ]).then(([siteResult, settingsResult]) => {
+    settingsLoadedRef.current = false
+    setSettingsLoaded(false)
+    const loadSettings = async () => {
+      const initialLoad = !settingsLoadedRef.current
+      if (initialLoad) {
+        setSettingsLoading(true)
+        setSettingsError('')
+      }
+      try {
+        const [siteResult, settingsResult] = await Promise.all([
+          supabase.from('sites').select('id, name').eq('organization_id', organizationId).order('name'),
+          supabase.from('company_settings').select('departments, operational_sites, incident_categories, severity_levels, working_hours').eq('organization_id', organizationId).maybeSingle(),
+        ])
         if (!active) return
-        if (siteResult.error || settingsResult.error) {
+        if (siteResult.error || settingsResult.error) throw siteResult.error || settingsResult.error
+        setSites(siteResult.data || [])
+        setSettings(settingsResult.data || {})
+        settingsLoadedRef.current = true
+        setSettingsLoaded(true)
+      } catch (caught) {
+        if (!active) return
+        if (initialLoad) {
           setSettingsError('Unable to load company configuration. Please try again before reporting an incident.')
           setSites([])
           setSettings({})
         } else {
-          setSites(siteResult.data || [])
-          setSettings(settingsResult.data || {})
+          // A background settings refresh must never replace an in-progress report.
+          console.warn('Unable to refresh company configuration; keeping the last loaded configuration.', caught)
         }
-        setSettingsLoading(false)
-      })
+      } finally {
+        if (active && initialLoad) setSettingsLoading(false)
+      }
     }
     const handleSettingsUpdated = (event: Event) => {
-      if (companySettingsEventMatchesOrganization(event, organizationId)) loadSettings()
+      if (companySettingsEventMatchesOrganization(event, organizationId)) void loadSettings()
     }
-    loadSettings()
+    void loadSettings()
     window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
     return () => {
       active = false
@@ -321,7 +337,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       />
     )
   }
-  if (settingsLoading) {
+  if (settingsLoading && !settingsLoaded) {
     return (
       <div className="grid gap-5">
         <PageHeader eyebrow="Report incident" title="Report an incident" description="Loading company configuration." />
@@ -329,7 +345,7 @@ export function IncidentReportForm({ supabase, reportType, initialTitle, initial
       </div>
     )
   }
-  if (settingsError) {
+  if (settingsError && !settingsLoaded) {
     return (
       <EmptyState
         icon="settings"

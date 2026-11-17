@@ -50,6 +50,19 @@ function IntelligenceCoveragePending() {
   </Card>
 }
 
+// Refresh only after a real tab/app return. Native file pickers do not change
+// document visibility, so choosing a file no longer triggers workspace refreshes.
+function onDocumentVisible(callback: () => void) {
+  let wasHidden = document.visibilityState === 'hidden'
+  const handleVisibilityChange = () => {
+    const hidden = document.visibilityState === 'hidden'
+    if (!hidden && wasHidden) callback()
+    wasHidden = hidden
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+}
+
 export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: Session; isDarkMode: boolean; onToggleTheme: () => void }) {
   const queryClient = useQueryClient()
   const [route, setRoute] = useState<AppRoute>(() => getAppRoute())
@@ -328,18 +341,18 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       routeRef.current = nextRoute
       setRoute(nextRoute)
     }
-    // Native file pickers blur and refocus the window. Recheck the policy without
-    // replacing the already-authorized workspace with the blocking loading gate.
-    const verifyOnFocus = () => {
+    // Recheck the policy without replacing the already-authorized workspace
+    // with the blocking loading gate.
+    const verifyInBackground = () => {
       if (organizationId && currentPolicyStatusLoaded) void verifySafetyPolicy(session.user.id, true)
     }
+    const removeVisibilityListener = onDocumentVisible(verifyInBackground)
     window.addEventListener('hashchange', verifyAfterNavigation)
-    window.addEventListener('focus', verifyOnFocus)
-    window.addEventListener('safety-policy-updated', verifyOnFocus)
+    window.addEventListener('safety-policy-updated', verifyInBackground)
     return () => {
+      removeVisibilityListener()
       window.removeEventListener('hashchange', verifyAfterNavigation)
-      window.removeEventListener('focus', verifyOnFocus)
-      window.removeEventListener('safety-policy-updated', verifyOnFocus)
+      window.removeEventListener('safety-policy-updated', verifyInBackground)
     }
   }, [currentPolicyStatusLoaded, organizationId, session.user.id, verifySafetyPolicy])
 
@@ -472,8 +485,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       ])
     }
     window.addEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
-    const handleWindowFocus = () => notifyCompanySettingsUpdated(organizationId)
-    window.addEventListener('focus', handleWindowFocus)
+    const removeVisibilityListener = onDocumentVisible(() => notifyCompanySettingsUpdated(organizationId))
     const channel = supabase
       .channel(`company-settings-sync:${organizationId}`)
       .on('postgres_changes', {
@@ -489,7 +501,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       })
     return () => {
       window.removeEventListener(companySettingsUpdatedEvent, handleSettingsUpdated)
-      window.removeEventListener('focus', handleWindowFocus)
+      removeVisibilityListener()
       void supabase.removeChannel(channel)
     }
   }, [organizationId, policyVerified, queryClient])
@@ -553,11 +565,10 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           console.warn(`Role permission live synchronization is unavailable (${status}).`)
         }
       })
-    const handleRoleFocus = () => void refreshRolePermissions()
-    window.addEventListener('focus', handleRoleFocus)
+    const removeVisibilityListener = onDocumentVisible(() => void refreshRolePermissions())
     return () => {
       active = false
-      window.removeEventListener('focus', handleRoleFocus)
+      removeVisibilityListener()
       void supabase.removeChannel(roleChannel)
     }
   }, [organizationId, policyVerified, role, session.user.id])
@@ -576,11 +587,10 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       }
     }
     void refreshPolicyObjectivesAccess()
-    const handleFocus = () => void refreshPolicyObjectivesAccess()
-    window.addEventListener('focus', handleFocus)
+    const removeVisibilityListener = onDocumentVisible(() => void refreshPolicyObjectivesAccess())
     return () => {
       active = false
-      window.removeEventListener('focus', handleFocus)
+      removeVisibilityListener()
     }
   }, [organizationId, policyVerified, role])
 
@@ -592,13 +602,12 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       if (active && dispatchError) console.warn('Compliance reminder email dispatch is unavailable.', dispatchError)
     }
     void dispatchComplianceEmails()
-    const handleFocus = () => void dispatchComplianceEmails()
+    const removeVisibilityListener = onDocumentVisible(() => void dispatchComplianceEmails())
     const interval = window.setInterval(() => void dispatchComplianceEmails(), 60 * 60 * 1000)
-    window.addEventListener('focus', handleFocus)
     return () => {
       active = false
       window.clearInterval(interval)
-      window.removeEventListener('focus', handleFocus)
+      removeVisibilityListener()
     }
   }, [organizationId, policyVerified])
 
@@ -616,11 +625,10 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       }
     }
     void refreshLegalComplianceAccess()
-    const handleFocus = () => void refreshLegalComplianceAccess()
-    window.addEventListener('focus', handleFocus)
+    const removeVisibilityListener = onDocumentVisible(() => void refreshLegalComplianceAccess())
     return () => {
       active = false
-      window.removeEventListener('focus', handleFocus)
+      removeVisibilityListener()
     }
   }, [organizationId, policyVerified, role])
 
