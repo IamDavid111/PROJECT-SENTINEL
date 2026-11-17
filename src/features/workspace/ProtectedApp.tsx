@@ -77,7 +77,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   const hasPolicyStatusForCurrentUser = policyStatusUserId === session.user.id
   const currentPolicyStatus = hasPolicyStatusForCurrentUser ? policyStatus : null
   const currentPolicyStatusLoaded = hasPolicyStatusForCurrentUser && policyStatusLoaded
-  const currentPolicyCheckLoading = !hasPolicyStatusForCurrentUser || policyCheckLoading
+  const currentPolicyCheckLoading = !hasPolicyStatusForCurrentUser || (policyCheckLoading && !policyStatusLoaded)
   const currentPolicyError = hasPolicyStatusForCurrentUser ? policyError : ''
   const policyVerified = currentPolicyStatusLoaded && !currentPolicyCheckLoading && !currentPolicyError && currentPolicyStatus?.required === false
   useIncidentOfflineSync(supabase, policyVerified)
@@ -180,14 +180,16 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     if (isPhoneViewport) window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus())
   }
 
-  const verifySafetyPolicy = useCallback(async (userId: string) => {
+  const verifySafetyPolicy = useCallback(async (userId: string, background = false) => {
     if (policyVerificationUserId.current !== userId) return null
     if (policyVerificationRequest.current?.userId === userId) {
       return policyVerificationRequest.current.promise
     }
 
-    setPolicyCheckLoading(true)
-    setPolicyError('')
+    if (!background) {
+      setPolicyCheckLoading(true)
+      setPolicyError('')
+    }
     const request = (async () => {
       const isCurrentRequest = () => policyVerificationMounted.current
         && policyVerificationUserId.current === userId
@@ -201,7 +203,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
         }
         return currentStatus
       } catch (caught) {
-        if (isCurrentRequest()) {
+        if (isCurrentRequest() && !background) {
           setPolicyStatusUserId(userId)
           setPolicyStatus(null)
           setPolicyStatusLoaded(false)
@@ -209,7 +211,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
         }
         return null
       } finally {
-        if (isCurrentRequest()) setPolicyCheckLoading(false)
+        if (!background && isCurrentRequest()) setPolicyCheckLoading(false)
       }
     })()
     policyVerificationRequest.current = { userId, promise: request }
@@ -326,8 +328,10 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
       routeRef.current = nextRoute
       setRoute(nextRoute)
     }
+    // Native file pickers blur and refocus the window. Recheck the policy without
+    // replacing the already-authorized workspace with the blocking loading gate.
     const verifyOnFocus = () => {
-      if (organizationId && currentPolicyStatusLoaded) void verifySafetyPolicy(session.user.id)
+      if (organizationId && currentPolicyStatusLoaded) void verifySafetyPolicy(session.user.id, true)
     }
     window.addEventListener('hashchange', verifyAfterNavigation)
     window.addEventListener('focus', verifyOnFocus)
