@@ -24,7 +24,7 @@ export type IncidentEvidence = {
   originalFilename: string
   mimeType: string
   fileSize: number
-  uploadedBy: string
+  uploadedBy: string | null
   createdAt: string
 }
 
@@ -58,6 +58,7 @@ export type IncidentSummary = {
   potentialSeverity: string | null
   incidentCategory: string | null
   siteName?: string | null
+  isAnonymous: boolean
   createdBy: string
   createdAt: string
   updatedAt: string
@@ -122,10 +123,7 @@ export type IncidentDraftInput = {
 }
 
 export type IncidentSubmissionInput = IncidentDraftInput & {
-  title: string
-  description: string
   occurredAt: string
-  siteId: string
   location?: string
   severity: string
   incidentCategory?: string

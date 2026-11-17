@@ -73,10 +73,10 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
       {!incidentCounts && <small>The deployed snapshot endpoint does not yet provide incident counts.</small>}
       {incidentCounts && <Reasons reasons={incidentCounts.reasons} />}
     </MetricCard>)}
-    <MetricCard title="Drafts" icon="file" tone="teal" value={incidentCounts?.drafts !== undefined ? number(incidentCounts.drafts) : 'Unavailable'}>
-      {incidentCounts?.state === 'incomplete' && <small>Known counts only; incomplete reporting coverage.</small>}
-      {!incidentCounts && <small>The deployed snapshot endpoint does not yet provide incident counts.</small>}
-      {incidentCounts && <Reasons reasons={incidentCounts.reasons} />}
+    <MetricCard title="Drafts" icon="file" tone="teal" value={incidentCounts?.draftScope === 'organization_open' && incidentCounts.drafts !== undefined ? number(incidentCounts.drafts) : 'Unavailable'}>
+      <small>{incidentCounts?.draftScope === 'organization_open'
+        ? 'Open drafts across the organization; dashboard filters do not apply.'
+        : 'The deployed analytics service does not yet provide an organization-wide draft total.'}</small>
     </MetricCard>
     <MetricCard title="AI Risk Level" icon="target" tone={riskAvailable ? risk.band === 'High' ? 'red' : risk.band === 'Medium' ? 'amber' : 'green' : 'teal'}
       value={riskAvailable && risk.score !== null ? `${number(risk.score)} / 100` : 'Insufficient data'} band={riskAvailable ? risk.band : null}>

@@ -22,6 +22,7 @@ import { incidentQueryKeys } from './incidentQueryKeys'
 import { getIncidentClosureAccess } from './incidentClosureService'
 import { invalidateSafetyIntelligence } from '../safety-intelligence/safetyIntelligenceQueryKeys'
 import { syncQueuedIncidentSubmissions } from './incidentOfflineQueue'
+import { syncOfflineAnonymousDrafts } from './anonymousDraftQueue'
 import type { IncidentDetail, IncidentDraftInput, IncidentEvidence, IncidentListFilters, IncidentListScope, IncidentSubmissionInput, IncidentSummary } from './incidentTypes'
 
 export function useIncidentClosureAccess(client: SupabaseClient, organizationId: string, userId: string, enabled = true) {
@@ -74,6 +75,16 @@ export function useIncidentOfflineSync(client: SupabaseClient, enabled = true) {
         }
       } catch {
         // Keep queued items for a later reconnect attempt.
+      }
+      try {
+        const result = await syncOfflineAnonymousDrafts(client)
+        if (result.failed) console.error('Some anonymous drafts could not be synchronized and remain on this device.')
+        if (result.saved.length) {
+          await queryClient.invalidateQueries({ queryKey: incidentQueryKeys.all })
+          await invalidateSafetyIntelligence(queryClient, result.saved[0].organizationId)
+        }
+      } catch {
+        console.error('Unable to synchronize anonymous drafts; they remain on this device.')
       }
     }
     const handleOnline = () => { void sync() }
@@ -187,7 +198,7 @@ export function useIncidentEvidence(client: SupabaseClient, incidentId: string |
 // Refresh the evidence list and incident detail after an upload; the dashboard also shows recent activity.
 export function useUploadIncidentEvidence(client: SupabaseClient) {
   const queryClient = useQueryClient()
-  return useMutation<IncidentEvidence, Error, { incidentId: string; file: File }>({
+  return useMutation<IncidentEvidence & { sanitization?: 'verified' | 'unverified' }, Error, { incidentId: string; file: File }>({
     mutationFn: ({ incidentId, file }) => uploadIncidentEvidence(client, incidentId, file),
     onSuccess: (evidence) => {
       queryClient.invalidateQueries({ queryKey: incidentQueryKeys.evidence(evidence.organizationId, evidence.incidentId) })

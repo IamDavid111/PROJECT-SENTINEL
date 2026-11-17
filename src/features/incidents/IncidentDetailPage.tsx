@@ -118,8 +118,10 @@ export function IncidentDetailPage({ supabase, incidentId, canClose = false }: {
     setEvidenceError('')
     setEvidenceMessage('')
     try {
-      await uploadEvidence.mutateAsync({ incidentId, file })
-      setEvidenceMessage('Evidence uploaded securely.')
+      const evidence = await uploadEvidence.mutateAsync({ incidentId, file })
+      setEvidenceMessage(evidence.sanitization === 'unverified'
+        ? 'Evidence uploaded privately. It may contain identifying details; sanitization could not be verified.'
+        : 'Evidence uploaded securely.')
     } catch (error) {
       setEvidenceError(error instanceof Error ? error.message : 'Unable to upload evidence.')
     }

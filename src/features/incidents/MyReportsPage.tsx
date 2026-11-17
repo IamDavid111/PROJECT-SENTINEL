@@ -60,6 +60,17 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
   })
   const [typeCounts, setTypeCounts] = useState<{ byType: Record<string, number>; open: number; closed: number } | null>(null)
   const incidents = useIncidents(supabase, filters, canViewAll ? selectedScope : 'own')
+  const isOwnView = !canViewAll || selectedScope === 'own'
+  const notifications = useQuery({
+    queryKey: ['my-report-notifications', organization.data?.organizationId, organization.data?.userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_my_report_notifications')
+      if (error || !Array.isArray(data)) throw new Error('Unable to load your incident notifications.')
+      return data as Array<{ incident_id: string; status: 'investigation_assigned' | 'investigated' | 'closed' }>
+    },
+    enabled: Boolean(isOwnView && organization.data?.userId),
+    refetchInterval: 60_000,
+  })
   const incidentIds = incidents.data?.items.map((incident) => incident.id) || []
   const linkedActions = useQuery({
     queryKey: ['incident-linked-actions', organization.data?.organizationId || 'pending', organization.data?.userId || 'pending', incidentIds],
@@ -270,6 +281,20 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
       {exportMessage && <Alert tone="success">{exportMessage}</Alert>}
       {incidents.isError && <Alert tone="danger">Unable to load incidents. Please try again.</Alert>}
       {linkedActions.isError && <Alert tone="danger">{linkedActions.error.message}</Alert>}
+      {isOwnView && notifications.isError && <Alert tone="danger">Unable to load your incident notifications.</Alert>}
+      {isOwnView && Boolean(notifications.data?.length) && (
+        <section className="rounded-xl border border-line p-4" aria-label="My incident notifications">
+          <h2 className="text-sm font-semibold">Incident notifications</h2>
+          <ul className="mt-2 grid gap-2">
+            {notifications.data?.map((notification, index) => (
+              <li key={`${notification.incident_id}-${notification.status}-${index}`} className="text-sm">
+                <a className="text-brand-dark underline" href={`#incident-detail?id=${notification.incident_id}`}>{notification.incident_id}</a>
+                {' · '}{notification.status.replaceAll('_', ' ')}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="border-y border-line">
         <div className="grid grid-cols-2 gap-4 py-4 sm:grid-cols-3">

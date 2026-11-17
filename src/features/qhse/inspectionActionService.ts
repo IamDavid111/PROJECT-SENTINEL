@@ -8,7 +8,7 @@ const bucket = 'incident-evidence'
 
 export type QhseSite = { id: string; name: string }
 export type QhsePerson = { id: string; full_name: string }
-export type EligibleIncident = { id: string; reference_number: string; title: string; status: string }
+export type EligibleIncident = { id: string; reference_number: string; title: string; status: string; is_anonymous: boolean }
 export type ActionType = 'preventive' | 'corrective' | 'investigation'
 export type InspectionRecord = {
   id: string
@@ -156,7 +156,7 @@ export async function getActionsWorkspace(client: SupabaseClient, assignedOnly =
   if (!assignedOnly) {
     for (let offset = 0; ; offset += 500) {
       const { data: page, error: incidentError } = await client.from('incidents')
-        .select('id, reference_number, title, status')
+        .select('id, reference_number, title, status, is_anonymous')
         .eq('organization_id', context.organizationId)
         .in('status', ['submitted', 'under_review', 'investigation', 'corrective_action', 'pending_verification'])
         .order('created_at', { ascending: false })
@@ -173,7 +173,7 @@ export async function getActionsWorkspace(client: SupabaseClient, assignedOnly =
   let linkedIncidents: EligibleIncident[] = []
   if (linkedIncidentIds.length) {
     const { data: linkedRows, error: linkedIncidentsError } = await client.from('incidents')
-      .select('id, reference_number, title, status')
+      .select('id, reference_number, title, status, is_anonymous')
       .eq('organization_id', context.organizationId)
       .in('id', linkedIncidentIds)
     if (linkedIncidentsError) throw new Error('Unable to load linked incident references for actions.')

@@ -149,6 +149,9 @@ export function ActionRegister({ filteredActions, workspaceLoading, currentTime,
                           </div>
                           <div className="grid gap-4 sm:grid-cols-2">
                             <Field label="Resolution notes" className="sm:col-span-2">
+                              {linkedIncidents.find((incident) => incident.id === action.incident_id)?.is_anonymous && (
+                                <p className="mb-2 text-sm text-muted">Do not include names or details that could identify you.</p>
+                              )}
                               <Textarea rows={3} value={resolutionNotes} onChange={(event) => onResolutionNotesChange(event.target.value)} />
                             </Field>
                             <Field label="Photo or proof (optional)" className="sm:col-span-2">
