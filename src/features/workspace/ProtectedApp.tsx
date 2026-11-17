@@ -31,6 +31,7 @@ import { KnowledgePage } from '../knowledge/KnowledgePage'
 import { MarketplacePage } from '../marketplace/MarketplacePage'
 import { ActionsWorkspace } from '../qhse/ActionsWorkspace'
 import { InspectionWorkspace } from '../qhse/InspectionWorkspace'
+import { InvestigationRegister } from '../qhse/InvestigationRegister'
 import { SafetyIntelligencePage } from '../safety-intelligence/SafetyIntelligencePage'
 import { normalizeEmergencyContacts, type EmergencyContact } from '../settings/companySettingsTypes'
 import { OrganizationSetupPage } from '../setup/OrganizationSetupPage'
@@ -59,6 +60,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   const [role, setRole] = useState<string | null>(null)
   const [customRolePermissions, setCustomRolePermissions] = useState<string[] | null>([])
   const [rolePermissionsLoaded, setRolePermissionsLoaded] = useState(false)
+  const [investigationsAccess, setInvestigationsAccess] = useState<{ loaded: boolean; allowed: boolean }>({ loaded: false, allowed: false })
   const [policyObjectivesAccess, setPolicyObjectivesAccess] = useState({ canView: false, canManage: false, loaded: false })
   const [legalComplianceAccess, setLegalComplianceAccess] = useState({ canView: false, canManage: false, loaded: false })
   const [organizationId, setOrganizationId] = useState('')
@@ -320,6 +322,27 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   }, [session.user.email, session.user.id, verifySafetyPolicy])
 
   useEffect(() => {
+    if (!organizationId || profileLoadedForUser !== session.user.id) return
+    let active = true
+    setInvestigationsAccess({ loaded: false, allowed: false })
+    void supabase.rpc('can_access_investigations').then(({ data, error: accessError }) => {
+      if (!active) return
+      if (accessError) {
+        console.error('Investigation access check failed.', {
+          code: accessError.code,
+          message: accessError.message,
+        })
+        setInvestigationsAccess({ loaded: true, allowed: false })
+        return
+      }
+      setInvestigationsAccess({ loaded: true, allowed: data === true })
+    })
+    return () => {
+      active = false
+    }
+  }, [organizationId, profileLoadedForUser, session.user.id])
+
+  useEffect(() => {
     const verifyAfterNavigation = () => {
       const nextRoute = getAppRoute()
       setPreviousRoute(routeRef.current)
@@ -378,9 +401,11 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
   const canOpenSettings = canManageCompanySettings || canManagePolicyObjectives || canManageLegalCompliance
   const canCreateInspections = canAccess('create_inspection')
   const canManageActions = canAccess('create_corrective_action') || canAccess('manage_corrective_actions')
+  const canViewInvestigations = investigationsAccess.loaded && investigationsAccess.allowed
+  const canOpenInspectionArea = canCreateInspections || canManageActions || canViewInvestigations
   const legacyFeatureRole = role && BUILT_IN_BACKEND_ROLES.includes(role as typeof BUILT_IN_BACKEND_ROLES[number]) ? role as Role : 'Field Worker'
   const visiblePrimaryNavigation = primaryNavigation.filter((item) => item.route === 'inspections'
-    ? canCreateInspections || canManageActions : canAccess(item.permission))
+    ? canOpenInspectionArea : canAccess(item.permission))
   const visibleSecondaryNavigation = secondaryNavigation.filter((item) => {
     if (item.route === 'my-account') return canAccess('view_profile') || canAccess('view_activity')
     if (item.route === 'my-workspace') return canAccess('view_own_reports')
@@ -397,7 +422,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     : route === 'settings'
     ? canOpenSettings
     : route === 'inspections'
-    ? canCreateInspections || canManageActions
+    ? canOpenInspectionArea
     : route === 'corrective-actions'
     ? canManageActions
     : route === 'incident-detail'
@@ -443,6 +468,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
 
   useEffect(() => {
     if (!policyVerified) return
+    if (!loading && route === 'inspections' && !investigationsAccess.loaded) return
     if (!loading && route === 'settings' && !rolePermissionsLoaded) return
     if (!loading && (route === 'my-account' || route === 'my-workspace') && !rolePermissionsLoaded) return
     if (!loading && route === 'settings' && !canManageCompanySettings && (!policyObjectivesAccess.loaded || !legalComplianceAccess.loaded)) return
@@ -455,7 +481,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
     if (!loading && route !== 'executive-analytics' && !(route === 'incidents' && closureAccess.isPending) && !currentRouteAuthorized) {
       if (route !== fallbackRoute) window.location.hash = `#${fallbackRoute}`
     }
-  }, [canManageCompanySettings, canOpenSettings, closureAccess.isPending, currentRouteAuthorized, fallbackRoute, legalComplianceAccess.loaded, loading, policyObjectivesAccess.loaded, policyVerified, rolePermissionsLoaded, route])
+  }, [canManageCompanySettings, canOpenSettings, closureAccess.isPending, currentRouteAuthorized, fallbackRoute, investigationsAccess.loaded, legalComplianceAccess.loaded, loading, policyObjectivesAccess.loaded, policyVerified, rolePermissionsLoaded, route])
 
   useEffect(() => {
     if (!organizationId || !policyVerified) return
@@ -922,7 +948,8 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage key="organization" supabase={supabase} scope="organization" canViewAll canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
 
           {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage showInspectionBack />}
-          {route === 'inspections' && (canCreateInspections || canManageActions) && <InspectionWorkspace supabase={supabase} canManageActions={canManageActions} canCreate={canCreateInspections} />}
+          {route === 'inspections' && canViewInvestigations && !canCreateInspections && !canManageActions && <InvestigationRegister client={supabase} organizationId={organizationId} />}
+          {route === 'inspections' && (canCreateInspections || canManageActions) && <InspectionWorkspace supabase={supabase} canManageActions={canManageActions} canCreate={canCreateInspections} canViewInvestigations={canViewInvestigations} />}
           {route === 'ai-assistant' && canAccess('use_ai_assistant') && (
             closureAccess.isPending ? <IntelligenceCoveragePending />
               : !closureAccess.isError && <SafetyIntelligencePage client={supabase} canViewKnowledge={canAccess('view_knowledge_documents')} scope={{

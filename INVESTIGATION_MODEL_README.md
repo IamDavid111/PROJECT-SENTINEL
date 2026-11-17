@@ -276,6 +276,16 @@ Rollback is non-destructive for existing incident data.
 - Pagination in team member queries (100+ orgs)
 - Lazy-load timeline events (infinite scroll pattern supported)
 
+## Submission Automation and Register
+
+Migration `202611180005_investigation_automation_access.sql` creates one investigation in the same transaction when an incident is submitted. The trigger handles both identified incident inserts and the private anonymous draft-to-submitted transition. It copies the incident severity, calculates the due date from organization settings (or the configured defaults), records a system timeline entry, and queues recipient-scoped notifications for active members of that severity team.
+
+Anonymous records do not copy `created_by` into the investigation. Their creation timeline entry has no actor, and the timeline guard restricts event details to non-identifying investigation fields. The register RPC returns only the incident reference, severity, status, due date, overdue state, team roster, and the admin-only unassigned flag; it never reads the private reporter-link schema.
+
+The register is available as an Investigations tab in the inspection area. Super Administrators, Organization Administrators, QHSE Managers, and closure-access verifiers can see all investigations; other team members see only matching severity levels. The list RPC queues one due-soon notification per team member when a deadline is within 24 hours, or within 6 hours for Critical investigations. This page-load processing is idempotent and uses the notification uniqueness constraint instead of a scheduler.
+
+Targeted coverage for both submission paths, role/team visibility, overdue state, and anonymous identity omission is in `supabase/tests/investigation_automation.sql`.
+
 ## Future Enhancements
 
 1. **Investigation assignment notifications**: Notify assigned team members
