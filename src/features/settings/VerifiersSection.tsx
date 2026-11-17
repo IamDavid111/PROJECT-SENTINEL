@@ -4,13 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Avatar, Badge, Skeleton } from '../../components/ui'
 import { SettingsSectionShell } from './SettingsSectionShell'
 
-type Verifier = {
-  user_id: string
-  full_name: string
-  role: string
-  account_status: string
-}
-
 export function VerifiersSection({ client, organizationId }: {
   client: SupabaseClient
   organizationId: string
@@ -26,7 +19,7 @@ export function VerifiersSection({ client, organizationId }: {
 
       if (error) throw new Error(error.message)
 
-      return (data as unknown as Array<Record<string, unknown>>[]).map((item) => ({
+      return ((data || []) as Array<Record<string, unknown>>).map((item) => ({
         user_id: item.user_id as string,
         full_name: ((item.full_name as Record<string, unknown>) || {}).full_name as string || 'Unknown',
         role: (((item.role as Record<string, unknown>) || {}) as Record<string, unknown>).name as string || 'User',

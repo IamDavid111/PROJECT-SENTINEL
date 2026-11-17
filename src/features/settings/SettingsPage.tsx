@@ -8,6 +8,9 @@ import { DepartmentsSection } from './DepartmentsSection'
 import { EmergencyContactsSection } from './EmergencyContactsSection'
 import { FacilitiesSection } from './FacilitiesSection'
 import { IncidentCategoriesSection } from './IncidentCategoriesSection'
+import { InvestigationDeadlinesSection } from './InvestigationDeadlinesSection'
+import { InvestigationTeamsSection } from './InvestigationTeamsSection'
+import { VerifiersSection } from './VerifiersSection'
 import { ConfigurationNameDialog, ContactDialog, ShiftDialog, SiteDialog } from './SettingsDialogs'
 import { SeveritySection } from './SeveritySection'
 import { ShiftsSection } from './ShiftsSection'
@@ -25,7 +28,7 @@ import type {
 } from './companySettingsTypes'
 import { useCompanySettings } from './useCompanySettings'
 
-type SectionKey = 'shifts' | 'departments' | 'sites' | 'facilities' | 'weather' | 'contacts' | 'severity' | 'categories' | 'safety-policy' | 'policy-objectives' | 'compliance-frameworks' | 'closure' | 'archive'
+type SectionKey = 'shifts' | 'departments' | 'sites' | 'facilities' | 'weather' | 'contacts' | 'severity' | 'categories' | 'safety-policy' | 'policy-objectives' | 'compliance-frameworks' | 'closure' | 'investigation-teams' | 'investigation-deadlines' | 'verifiers' | 'archive'
 type DeleteTarget =
   | { category: 'shift'; item: CompanyShiftSetting }
   | { category: 'department'; item: DepartmentOption }
@@ -49,6 +52,11 @@ const NAV_GROUPS: { label: string; items: { key: SectionKey; label: string }[] }
   { label: 'Safety', items: [
     { key: 'severity', label: 'Severity levels' },
     { key: 'categories', label: 'Incident categories' },
+  ] },
+  { label: 'Investigation Management', items: [
+    { key: 'investigation-teams', label: 'Investigation teams' },
+    { key: 'investigation-deadlines', label: 'Investigation deadlines' },
+    { key: 'verifiers', label: 'Verifiers' },
   ] },
   { label: 'HSSE Policy and Objective Management', items: [
     { key: 'safety-policy', label: 'Safety Policy' },
@@ -128,6 +136,9 @@ export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly 
     'safety-policy': null,
     'policy-objectives': null,
     'compliance-frameworks': null,
+    'investigation-teams': null,
+    'investigation-deadlines': null,
+    verifiers: null,
     closure: null,
     archive: null,
   }
@@ -236,6 +247,12 @@ export function SettingsPage({ client, organizationId, userId, safetyPolicyOnly 
             onDelete={(item) => setDeleteTarget({ category: 'incident_category', item })}
           />
         )
+      case 'investigation-teams':
+        return <InvestigationTeamsSection client={client} organizationId={organizationId} severities={settings.severities} />
+      case 'investigation-deadlines':
+        return <InvestigationDeadlinesSection client={client} organizationId={organizationId} />
+      case 'verifiers':
+        return <VerifiersSection client={client} organizationId={organizationId} />
       case 'safety-policy':
         return <SafetyPolicySettingsSection client={client} />
       case 'policy-objectives':

@@ -102,7 +102,7 @@ export function InvestigationDeadlinesSection({ client, organizationId }: {
     >
       <div className="grid gap-6">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Critical severity (hours)" description={`= ${calculateDuration(form.critical_hours)}`}>
+          <Field label="Critical severity (hours)" hint={`= ${calculateDuration(form.critical_hours)}`}>
             <Input
               type="number"
               min="1"
@@ -113,7 +113,7 @@ export function InvestigationDeadlinesSection({ client, organizationId }: {
             />
           </Field>
 
-          <Field label="High severity (hours)" description={`= ${calculateDuration(form.high_hours)}`}>
+          <Field label="High severity (hours)" hint={`= ${calculateDuration(form.high_hours)}`}>
             <Input
               type="number"
               min="1"
@@ -124,7 +124,7 @@ export function InvestigationDeadlinesSection({ client, organizationId }: {
             />
           </Field>
 
-          <Field label="Medium severity (hours)" description={`= ${calculateDuration(form.medium_hours)}`}>
+          <Field label="Medium severity (hours)" hint={`= ${calculateDuration(form.medium_hours)}`}>
             <Input
               type="number"
               min="1"
@@ -135,7 +135,7 @@ export function InvestigationDeadlinesSection({ client, organizationId }: {
             />
           </Field>
 
-          <Field label="Low severity (hours)" description={`= ${calculateDuration(form.low_hours)}`}>
+          <Field label="Low severity (hours)" hint={`= ${calculateDuration(form.low_hours)}`}>
             <Input
               type="number"
               min="1"

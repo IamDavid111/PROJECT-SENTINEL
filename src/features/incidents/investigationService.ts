@@ -29,7 +29,7 @@ export const investigationTimelineEventSchema = z.object({
   investigation_id: z.string().uuid(),
   event_type: z.enum(['created', 'assigned', 'started', 'finding_added', 'status_changed', 'completed']),
   actor_id: z.string().uuid(),
-  details: z.record(z.unknown()),
+  details: z.record(z.string(), z.unknown()),
   created_at: z.string().datetime(),
 })
 
@@ -66,7 +66,7 @@ export async function getInvestigationTeamMembers(
     throw new InvestigationServiceError('Failed to load investigation team members.')
   }
 
-  return (data as unknown as Array<Record<string, unknown>>[]).map((item) => ({
+  return ((data || []) as Array<Record<string, unknown>>).map((item) => ({
     id: item.id as string,
     organization_id: item.organization_id as string,
     severity_level: item.severity_level as string,
