@@ -49,8 +49,7 @@ create policy investigation_timeline_events_org_members_view
       'Site Supervisor',
       'Safety Officer / HSE Officer',
       'Auditor',
-      'Executive / Management',
-      'Incident Reporter'
+      'Executive / Management'
     ]::public.membership_role[])
   );
 

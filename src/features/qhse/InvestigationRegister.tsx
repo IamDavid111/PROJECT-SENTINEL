@@ -1,9 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 
 import { Alert, Badge, Button, Card, DataTable, EmptyState, Skeleton } from '../../components/ui'
 import type { DataTableColumn } from '../../components/ui'
+import { InvestigationDialog } from './InvestigationDialog'
 
 const investigationRowSchema = z.object({
   investigation_id: z.uuid(),
@@ -14,6 +16,7 @@ const investigationRowSchema = z.object({
   due_at: z.iso.datetime({ offset: true }).nullable(),
   is_overdue: z.boolean(),
   no_team_assigned: z.boolean(),
+  can_edit: z.boolean(),
   assigned_team: z.array(z.object({
     user_id: z.uuid(),
     full_name: z.string(),
@@ -26,6 +29,14 @@ const investigationNotificationSchema = z.object({
   incident_id: z.uuid(),
   severity: z.string(),
   due_at: z.iso.datetime({ offset: true }),
+  created_at: z.iso.datetime({ offset: true }),
+})
+const incidentNotificationSchema = z.object({
+  id: z.uuid(),
+  notification_type: z.enum(['verification_ready', 'reopened']),
+  incident_id: z.uuid(),
+  severity: z.string(),
+  due_at: z.iso.datetime({ offset: true }).nullable(),
   created_at: z.iso.datetime({ offset: true }),
 })
 
@@ -50,6 +61,7 @@ export function InvestigationRegister({ client, organizationId }: {
   client: SupabaseClient
   organizationId: string
 }) {
+  const [selectedInvestigationId, setSelectedInvestigationId] = useState<string | null>(null)
   const investigations = useQuery({
     queryKey: ['investigation-register', organizationId],
     queryFn: async () => {
@@ -72,6 +84,20 @@ export function InvestigationRegister({ client, organizationId }: {
       return z.array(investigationNotificationSchema).parse(data)
     },
   })
+  const incidentNotifications = useQuery({
+    queryKey: ['incident-workflow-notifications', organizationId],
+    enabled: investigations.isSuccess,
+    queryFn: async () => {
+      const { data, error } = await client
+        .from('incident_workflow_notifications')
+        .select('id, notification_type, incident_id, severity, due_at, created_at')
+        .eq('organization_id', organizationId)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (error) throw new Error(error.message)
+      return z.array(incidentNotificationSchema).parse(data)
+    },
+  })
 
   const columns: DataTableColumn<InvestigationRow>[] = [
     {
@@ -89,7 +115,9 @@ export function InvestigationRegister({ client, organizationId }: {
       header: 'Status',
       cell: (row) => (
         <div className="flex flex-wrap gap-2">
-          <Badge tone={row.status === 'completed' ? 'success' : 'neutral'}>{row.status.replaceAll('_', ' ')}</Badge>
+          <Badge tone={row.status === 'completed' ? 'success' : 'neutral'}>
+            {row.status === 'completed' ? 'Investigated' : row.status.replaceAll('_', ' ')}
+          </Badge>
           {row.is_overdue && <Badge tone="danger">Overdue</Badge>}
         </div>
       ),
@@ -105,6 +133,15 @@ export function InvestigationRegister({ client, organizationId }: {
       cell: (row) => row.assigned_team.length
         ? <span className="text-sm">{row.assigned_team.map((member) => member.full_name).join(', ')}</span>
         : <span className="text-sm text-muted">No team assigned</span>,
+    },
+    {
+      id: 'investigate',
+      header: 'Investigation',
+      cell: (row) => row.can_edit ? (
+        <Button variant="outline" size="sm" onClick={() => setSelectedInvestigationId(row.investigation_id)}>
+          {row.status === 'completed' ? 'View record' : 'Investigate'}
+        </Button>
+      ) : <span className="text-xs text-muted">View only</span>,
     },
   ]
 
@@ -157,6 +194,27 @@ export function InvestigationRegister({ client, organizationId }: {
           ) : notifications.isPending ? (
             <Skeleton className="h-16" />
           ) : null}
+          {incidentNotifications.isError && <Alert tone="danger">{incidentNotifications.error.message}</Alert>}
+          {incidentNotifications.data?.length ? (
+            <section aria-label="Incident verification notifications" className="grid gap-2">
+              <h3 className="text-sm font-semibold text-foreground">Close-out and reopen notifications</h3>
+              {incidentNotifications.data.map((notification) => (
+                <div key={notification.id} className="rounded-xl border border-line px-4 py-3">
+                  <p className="text-sm font-medium text-foreground">
+                    {notification.notification_type === 'verification_ready'
+                      ? 'Incident ready for close-out verification'
+                      : 'Investigation reopened and assigned'}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Incident {notification.incident_id} · {notification.severity}
+                    {notification.due_at ? ` · Due ${formatDueAt(notification.due_at)}` : ''}
+                  </p>
+                </div>
+              ))}
+            </section>
+          ) : incidentNotifications.isPending ? (
+            <Skeleton className="h-16" />
+          ) : null}
           {investigations.data.length ? (
             <>
               {investigations.data.some((row) => row.no_team_assigned) && (
@@ -177,6 +235,13 @@ export function InvestigationRegister({ client, organizationId }: {
             />
           )}
         </div>
+      )}
+      {selectedInvestigationId && (
+        <InvestigationDialog
+          client={client}
+          investigationId={selectedInvestigationId}
+          onClose={() => setSelectedInvestigationId(null)}
+        />
       )}
     </Card>
   )

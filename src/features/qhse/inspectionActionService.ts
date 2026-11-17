@@ -222,12 +222,20 @@ async function notifyActionAssignment(client: SupabaseClient, actionId: string) 
   }
 }
 
-export type LinkedIncidentAction = Pick<ActionRecord, 'id' | 'incident_id' | 'type' | 'description' | 'assignee_id' | 'due_at' | 'status' | 'assigned_at' | 'resolved_at'>
+export type LinkedIncidentAction = Omit<Pick<ActionRecord, 'id' | 'incident_id' | 'type' | 'description' | 'assignee_id' | 'due_at' | 'status' | 'assigned_at' | 'resolved_at' | 'resolved_by'>, 'assignee_id'> & {
+  assignee_id: string | null
+}
+
+export async function getVerifierIncidentActions(client: SupabaseClient, incidentId: string): Promise<LinkedIncidentAction[]> {
+  const { data, error } = await client.rpc('get_verifier_incident_actions', { target_incident_id: incidentId })
+  if (error) throw new Error('Unable to load actions linked to this incident.')
+  return (data || []) as LinkedIncidentAction[]
+}
 
 export async function getActionsForIncidents(client: SupabaseClient, organizationId: string, incidentIds: string[]) {
   if (!incidentIds.length) return [] as LinkedIncidentAction[]
   const { data, error } = await client.from('actions')
-    .select('id, incident_id, type, description, assignee_id, due_at, status, assigned_at, resolved_at')
+    .select('id, incident_id, type, description, assignee_id, due_at, status, assigned_at, resolved_at, resolved_by')
     .eq('organization_id', organizationId)
     .in('incident_id', incidentIds)
     .order('assigned_at', { ascending: false })
@@ -245,19 +253,19 @@ export async function reassignAction(client: SupabaseClient, actionId: string, a
 
 export async function resolveAction(client: SupabaseClient, action: ActionRecord, notes: string, file?: File | null) {
   const context = await getOrganizationContext(client)
+  if (!notes.trim()) throw new Error('Enter resolution details before resolving this action.')
+  if (!file) throw new Error('Upload a photo or document as resolution evidence.')
   validateQhseFile(file)
   let path: string | null = null
-  if (file) {
-    path = `${context.organizationId}/actions/${action.id}/${context.userId}/${storageFilename(file)}`
-    await storeFile(client, path, file)
-  }
+  path = `${context.organizationId}/actions/${action.id}/${context.userId}/${storageFilename(file)}`
+  await storeFile(client, path, file)
   const { data, error } = await client.from('actions').update({
     status: 'resolved',
-    resolution_notes: notes.trim() || null,
+    resolution_notes: notes.trim(),
     proof_storage_path: path,
-    proof_file_name: file?.name || null,
-    proof_file_type: file?.type || null,
-    proof_file_size: file?.size || null,
+    proof_file_name: file.name,
+    proof_file_type: file.type,
+    proof_file_size: file.size,
   }).eq('id', action.id).eq('organization_id', context.organizationId).eq('status', 'open').select('id').maybeSingle()
   if (error || !data) {
     if (path) await client.storage.from(bucket).remove([path])

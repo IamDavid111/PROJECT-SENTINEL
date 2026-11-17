@@ -126,7 +126,14 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
 
   const finishMutation = async (successMessage: string) => {
     await refresh()
-    if (organizationId) await queryClient.invalidateQueries({ queryKey: ['dashboard', organizationId] })
+    if (organizationId) {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['dashboard', organizationId] }),
+        queryClient.invalidateQueries({ queryKey: ['incidents'] }),
+        queryClient.invalidateQueries({ queryKey: ['investigation-register'] }),
+        queryClient.invalidateQueries({ queryKey: ['incident-workflow-notifications'] }),
+      ])
+    }
     if (assignedOnly && organizationId && currentUserId) {
       await queryClient.invalidateQueries({ queryKey: ['assigned-action-count', organizationId, currentUserId] })
     }
@@ -324,6 +331,7 @@ export function ActionsWorkspace({ supabase, canManage, assignedOnly = false, sh
         busy={busy}
         resolutionAction={resolutionAction}
         resolutionNotes={resolutionNotes}
+        proofFile={proofFile}
         sites={sites}
         people={people}
         linkedIncidents={linkedIncidents}

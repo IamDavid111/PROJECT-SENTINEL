@@ -189,7 +189,7 @@ export async function getIncidents(client: SupabaseClient, filters: IncidentList
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
   let query = (scope === 'own'
-    ? client.rpc('get_my_incidents')
+    ? client.rpc('get_my_incidents', undefined, { count: 'exact' })
     : client.from('incidents'))
     .select('id, organization_id, reference_number, report_type, status, title, description, occurred_at, reported_at, site_id, facility_id, location, department, shift, work_activity_context, is_anonymous, reported_by, created_by, contractor_involved, contractor_organization, severity, potential_severity, incident_category, environmental_impact, injury_or_illness, property_damage, work_related, immediate_correction, priority, gps_coordinates, weather_conditions, equipment_involved, people_involved, witnesses, potential_root_cause, digital_signature, accuracy_confirmed, draft_stage, created_at, updated_at', { count: 'exact' })
     .eq('organization_id', context.organizationId)
@@ -507,6 +507,14 @@ async function isAnonymousEvidenceIncident(client: SupabaseClient, incidentId: s
     if (typeof data.is_anonymous !== 'boolean') throw new Error('Unable to verify incident evidence privacy.')
     return data.is_anonymous
   }
+  const { data: investigationContext, error: investigationContextError } = await client.rpc(
+    'get_investigation_evidence_context',
+    { target_incident_id: incidentId },
+  )
+  if (!investigationContextError && investigationContext?.organization_id === organizationId
+    && typeof investigationContext.is_anonymous === 'boolean') {
+    return investigationContext.is_anonymous
+  }
   const { data: context, error: contextError } = await client.rpc('anonymous_evidence_context', { target_incident_id: incidentId })
   if (contextError || context?.organizationId !== organizationId) throw new Error('Incident evidence is unavailable.')
   return true
@@ -549,6 +557,69 @@ export async function uploadIncidentEvidence(client: SupabaseClient, incidentId:
     throw new Error('Unable to record incident evidence.')
   }
   await client.from('activity_logs').insert({ organization_id: context.organizationId, user_id: context.userId, activity: 'Incident evidence uploaded', metadata: { incident_id: incidentId, evidence_id: data.id } })
+  return toIncidentEvidence(data as IncidentEvidenceRow)
+}
+
+export async function uploadInvestigationEvidence(client: SupabaseClient, incidentId: string, file: File): Promise<IncidentEvidence> {
+  const context = await getOrganizationContext(client)
+  const { data: investigationContext, error: contextError } = await client.rpc(
+    'get_investigation_evidence_context',
+    { target_incident_id: incidentId },
+  )
+  if (contextError || investigationContext?.organization_id !== context.organizationId) {
+    throw new Error('Investigation evidence is unavailable.')
+  }
+
+  const metadata = incidentEvidenceMetadataSchema.safeParse({
+    incidentId,
+    originalFilename: file.name,
+    mimeType: file.type,
+    fileSize: file.size,
+  })
+  if (!metadata.success) throw new Error(metadata.error.issues[0]?.message || 'Investigation evidence is invalid.')
+  if (file.size > documentLimit) throw new Error('Investigation documents must be 15 MB or smaller.')
+
+  const { data: existingEvidence, error: evidenceLookupError } = await client
+    .from('incident_evidence')
+    .select('file_size')
+    .eq('incident_id', incidentId)
+    .eq('organization_id', context.organizationId)
+  if (evidenceLookupError) throw new Error('Unable to verify the investigation attachment limit.')
+  const existingTotal = (existingEvidence || []).reduce((total, evidence) => total + Number(evidence.file_size || 0), 0)
+  if (existingTotal + file.size > totalEvidenceLimit) {
+    throw new Error('This upload would exceed the 250 MB total attachment limit for this incident.')
+  }
+
+  const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const storagePath = investigationContext.is_anonymous
+    ? `${context.organizationId}/${incidentId}/${crypto.randomUUID()}`
+    : `${context.organizationId}/${incidentId}/${context.userId}/${crypto.randomUUID()}-${safeFilename}`
+  const { error: uploadError } = await client.storage.from('incident-evidence').upload(storagePath, file, {
+    upsert: false,
+    contentType: file.type,
+  })
+  if (uploadError) throw new Error('Unable to upload investigation evidence.')
+
+  const { data, error } = await client.from('incident_evidence').insert({
+    organization_id: context.organizationId,
+    incident_id: incidentId,
+    storage_path: storagePath,
+    original_filename: file.name,
+    mime_type: file.type,
+    file_size: file.size,
+    uploaded_by: context.userId,
+  }).select('*').single()
+  if (error || !data) {
+    const { error: cleanupError } = await client.storage.from('incident-evidence').remove([storagePath])
+    if (cleanupError) throw new Error('Unable to record investigation evidence or remove the uploaded file.')
+    throw new Error('Unable to record investigation evidence.')
+  }
+  await client.from('activity_logs').insert({
+    organization_id: context.organizationId,
+    user_id: context.userId,
+    activity: 'Investigation evidence uploaded',
+    metadata: { incident_id: incidentId, evidence_id: data.id },
+  })
   return toIncidentEvidence(data as IncidentEvidenceRow)
 }
 

@@ -15,6 +15,7 @@ import {
   submitNewIncident,
   updateIncidentDraft,
   uploadIncidentEvidence,
+  uploadInvestigationEvidence,
   type IncidentActivity,
   type IncidentListResult,
 } from './incidentService'
@@ -200,6 +201,18 @@ export function useUploadIncidentEvidence(client: SupabaseClient) {
   const queryClient = useQueryClient()
   return useMutation<IncidentEvidence & { sanitization?: 'verified' | 'unverified' }, Error, { incidentId: string; file: File }>({
     mutationFn: ({ incidentId, file }) => uploadIncidentEvidence(client, incidentId, file),
+    onSuccess: (evidence) => {
+      queryClient.invalidateQueries({ queryKey: incidentQueryKeys.evidence(evidence.organizationId, evidence.incidentId) })
+      queryClient.invalidateQueries({ queryKey: incidentQueryKeys.detail(evidence.organizationId, evidence.incidentId) })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', evidence.organizationId] })
+    },
+  })
+}
+
+export function useUploadInvestigationEvidence(client: SupabaseClient) {
+  const queryClient = useQueryClient()
+  return useMutation<IncidentEvidence, Error, { incidentId: string; file: File }>({
+    mutationFn: ({ incidentId, file }) => uploadInvestigationEvidence(client, incidentId, file),
     onSuccess: (evidence) => {
       queryClient.invalidateQueries({ queryKey: incidentQueryKeys.evidence(evidence.organizationId, evidence.incidentId) })
       queryClient.invalidateQueries({ queryKey: incidentQueryKeys.detail(evidence.organizationId, evidence.incidentId) })

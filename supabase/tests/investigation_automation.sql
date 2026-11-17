@@ -15,11 +15,20 @@ values ('d2000000-0000-4000-8000-000000000001', 'INV_AUTOMATION_TEST',
   'Investigation Automation Test', 'Testing', '1-10', 'Nigeria', 'Lagos',
   'investigation-test@example.com', '12345678', 'd1000000-0000-4000-8000-000000000001');
 
+insert into public.company_settings(
+  organization_id, departments, severity_levels, incident_categories, working_hours
+) values (
+  'd2000000-0000-4000-8000-000000000001',
+  '["Operations"]', '["Critical","High","Low"]', '["Testing"]', '{"shifts":["Day"]}'
+);
+
 insert into public.profiles(id, organization_id, full_name, account_status)
 select ('d1000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
   'd2000000-0000-4000-8000-000000000001',
   'Investigation Test User ' || n, 'active'
 from generate_series(1, 5) n;
+
+select set_config('request.jwt.claim.sub', 'd1000000-0000-4000-8000-000000000001', true);
 
 insert into public.memberships(user_id, organization_id, role)
 select ('d1000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
@@ -35,6 +44,8 @@ insert into public.investigation_team_members(organization_id, severity_level, u
 values
   ('d2000000-0000-4000-8000-000000000001', 'High',
     'd1000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-000000000001'),
+  ('d2000000-0000-4000-8000-000000000001', 'High',
+    'd1000000-0000-4000-8000-000000000003', 'd1000000-0000-4000-8000-000000000001'),
   ('d2000000-0000-4000-8000-000000000001', 'Critical',
     'd1000000-0000-4000-8000-000000000005', 'd1000000-0000-4000-8000-000000000001');
 
@@ -55,6 +66,9 @@ begin
     'occurredAt', now() - interval '1 hour',
     'severity', 'High',
     'incidentCategory', 'Testing',
+    'department', 'Operations',
+    'shift', 'Day',
+    'weatherConditions', 'Sunny',
     'accuracyConfirmed', true
   ));
   perform set_config('test.investigation_identified_incident', submitted.id::text, true);
@@ -65,6 +79,9 @@ begin
     'occurredAt', now() - interval '1 hour',
     'severity', 'Low',
     'incidentCategory', 'Testing',
+    'department', 'Operations',
+    'shift', 'Day',
+    'weatherConditions', 'Sunny',
     'accuracyConfirmed', true
   ));
   perform set_config('test.investigation_unassigned_incident', submitted.id::text, true);
@@ -87,13 +104,33 @@ select extensions.ok(
    where incident_id = current_setting('test.investigation_identified_incident')::uuid),
   'identified investigation uses the configured severity deadline'
 );
+select set_config('request.jwt.claim.sub', 'd1000000-0000-4000-8000-000000000002', true);
 select extensions.is(
   (select count(*)::integer from public.investigation_notifications
    where incident_id = current_setting('test.investigation_identified_incident')::uuid
-     and user_id = 'd1000000-0000-4000-8000-000000000002'
+     and user_id = auth.uid()
      and notification_type = 'assigned'),
-  1, 'each configured active severity-team member receives one assignment notification'
+  1, 'the first High team member receives an assignment notification'
 );
+select extensions.ok(
+  (select severity = 'High' and due_at = (
+     select due_at from public.investigations
+     where incident_id = current_setting('test.investigation_identified_incident')::uuid
+   )
+   from public.investigation_notifications
+   where incident_id = current_setting('test.investigation_identified_incident')::uuid
+     and user_id = auth.uid() and notification_type = 'assigned'),
+  'assignment notification contains the incident, severity, and due date'
+);
+select set_config('request.jwt.claim.sub', 'd1000000-0000-4000-8000-000000000003', true);
+select extensions.is(
+  (select count(*)::integer from public.investigation_notifications
+   where incident_id = current_setting('test.investigation_identified_incident')::uuid
+     and user_id = auth.uid()
+     and notification_type = 'assigned'),
+  1, 'the second High team member receives an assignment notification'
+);
+select set_config('request.jwt.claim.sub', 'd1000000-0000-4000-8000-000000000001', true);
 select extensions.ok(
   (select no_team_assigned from public.investigations
    where incident_id = current_setting('test.investigation_unassigned_incident')::uuid),
@@ -109,11 +146,16 @@ begin
     'occurredAt', now() - interval '1 hour',
     'severity', 'Critical',
     'incidentCategory', 'Testing',
+    'department', 'Operations',
+    'shift', 'Day',
+    'weatherConditions', 'Sunny',
     'accuracyConfirmed', true
   ), 'investigation-automation-anonymous-test');
   perform set_config('test.investigation_anonymous_incident', result->>'id', true);
 end;
 $$;
+
+reset role;
 
 select extensions.is(
   (select count(*)::integer from public.investigations
@@ -164,6 +206,7 @@ update public.investigations
 set due_at = now() + interval '2 hours'
 where incident_id = current_setting('test.investigation_anonymous_incident')::uuid;
 
+set local role authenticated;
 select set_config('request.jwt.claim.sub', 'd1000000-0000-4000-8000-000000000005', true);
 select extensions.ok(public.can_access_investigations(), 'severity-team member can open the investigations area');
 select extensions.is(

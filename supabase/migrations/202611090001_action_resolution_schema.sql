@@ -394,7 +394,8 @@ values (
 on conflict (id) do update
 set name = excluded.name,
     public = false,
-    file_size_limit = excluded.file_size_limit,
+    file_size_limit = case when storage.buckets.file_size_limit is null then null
+      else greatest(storage.buckets.file_size_limit, excluded.file_size_limit) end,
     allowed_mime_types = excluded.allowed_mime_types;
 
 create policy action_resolution_evidence_select_authorized

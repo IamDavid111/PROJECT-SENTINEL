@@ -4,7 +4,7 @@ import {
   type SafetyDataset, type SafetyFilters, type SafetyIncident, type SafetyScope, type SafetySnapshot,
 } from './safetyIntelligenceContracts.ts'
 import {
-  isActionDueNotPassed, isClosedIncidentStatus, isDraftIncidentStatus, isOpenIncidentStatus,
+  calculateIncidentStatusCounts, effectiveIncidentSeverity, isActionDueNotPassed, isClosedIncidentStatus, isDraftIncidentStatus, isOpenIncidentStatus,
   isUnfinishedCorrectiveActionStatus, normalizeIncidentReportType, normalizeIncidentSeverity,
 } from './incidentReportFilters.ts'
 
@@ -12,9 +12,8 @@ const day = 86_400_000
 const severityRanks = { low: 1, medium: 2, high: 3, critical: 4 } as const
 
 export function effectiveSafetySeverity(actual: string | null, potential: string | null): number | null {
-  const supplied = [actual, potential].flatMap((value) => value?.trim() ? [normalizeIncidentSeverity(value)] : [])
-  if (!supplied.length || supplied.some((value) => !Object.hasOwn(severityRanks, value))) return null
-  return Math.max(...supplied.map((value) => severityRanks[value]))
+  const severity = effectiveIncidentSeverity(actual, potential)
+  return severity ? severityRanks[severity] : null
 }
 
 const validTimestamp = z.iso.datetime({ offset: true })
@@ -98,6 +97,7 @@ export function calculateSafetySnapshot(
   const uncategorized = selected.filter((row) => !row.incident_category?.trim()).length
   const highRisk = selected.filter(isHigh)
   const openHighRisk = highRisk.filter(isOpen)
+  const windowIncidentCounts = calculateIncidentStatusCounts(selected)
   const reportReasons = [
     ...(!sourceComplete('incidents') ? ['Incident retrieval is incomplete.'] : []),
     ...(missingReportedAt ? ['Some authorized reports have missing or invalid reporting timestamps.'] : []),
@@ -108,6 +108,7 @@ export function calculateSafetySnapshot(
     .filter((row) => !isDraftIncidentStatus(row.status) && (!scope.siteId || row.site_id === scope.siteId)
       && (allTime || between(basisValue(row), start, end)))
     .map((row) => [row.id, row])).values()]
+  const incidentListCounts = calculateIncidentStatusCounts(incidentListRows)
   const nearMissCount = incidentListRows.filter((row) => normalizeIncidentReportType(row.report_type) === 'near_miss').length
   // Outstanding means unfinished under the existing workflow, including work awaiting verification.
   // It is a current backlog, not actions attached only to newly reported incidents.
@@ -328,9 +329,9 @@ export function calculateSafetySnapshot(
     metrics: {
       incidentCounts: {
         state: uncertainReporting ? 'incomplete' : 'available', reasons: reportReasons,
-        total: incidentListRows.length,
-        open: incidentListRows.filter((row) => !isClosedIncidentStatus(row.status)).length,
-        closed: incidentListRows.filter((row) => isClosedIncidentStatus(row.status)).length,
+        total: incidentListCounts.total,
+        open: incidentListCounts.open,
+        closed: incidentListCounts.closed,
         ...(dataset.draftTotal === undefined ? {} : { drafts: dataset.draftTotal, draftScope: 'organization_open' as const }),
         nearMiss: nearMissCount,
       },
@@ -339,7 +340,7 @@ export function calculateSafetySnapshot(
         reasons: actionReasons, count: outstandingActions.length,
       },
       risk: { state: riskState, reasons: riskReasons, score, band: riskBand, sampleSize: selected.length - unclassified, changePoints: null, comparisonReason: 'Historical open-state observations are unavailable.' },
-      highRisk: { state: uncertainReporting || unclassified ? 'incomplete' : 'available', reasons: [...reportReasons, ...(unclassified ? ['Unknown severity reports are excluded from known high-risk counts.'] : [])], count: highRisk.length, openCount: openHighRisk.length },
+      highRisk: { state: uncertainReporting || unclassified ? 'incomplete' : 'available', reasons: [...reportReasons, ...(unclassified ? ['Unknown severity reports are excluded from known high-risk counts.'] : [])], count: windowIncidentCounts.highRisk, openCount: windowIncidentCounts.openHighRisk, closedCount: windowIncidentCounts.closedHighRisk },
       nearMiss: { state: uncertainReporting ? 'incomplete' : 'available', reasons: reportReasons, currentCount: nearMissCurrent, previousCount: nearMissPrevious, percentageChange, direction },
       category: { state: uncertainReporting ? 'incomplete' : category ? 'available' : 'unavailable', reasons: [...reportReasons, ...(!category ? ['No categorized reports in this window.'] : [])], label: category?.[0] ?? null, count: category?.[1] ?? 0, share: category && !uncertainReporting ? 100 * category[1] / selected.length : null, denominator: selected.length },
       resolution: { state: !resolutionComplete ? 'incomplete' : durations.length ? 'available' : 'insufficient', reasons: resolutionReasons, averageDays, previousAverageDays, changeDays: averageDays !== null && previousAverageDays !== null ? averageDays - previousAverageDays : null, sampleSize: durations.length, previousSampleSize: previousDurations.length, legacyClosedWithoutEvidence, invalidDurations },

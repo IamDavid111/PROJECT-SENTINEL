@@ -85,6 +85,7 @@ export function SafetyKpiCards({ snapshot }: { snapshot: SafetySnapshot }) {
     </MetricCard>
     <MetricCard title="High-Risk Incidents" tone="red" icon="danger" value={highKnown ? number(highRisk.count) : 'Unavailable'}>
       {highKnown && <small>{number(highRisk.openCount)} still open</small>}
+      {highKnown && <small>{number(highRisk.closedCount ?? Math.max(0, highRisk.count - highRisk.openCount))} closed</small>}
       {highKnown && highRisk.state === 'incomplete' && <small>Known counts only; incomplete coverage.</small>}
       {!hasReports && <small>No eligible reports in this window.</small>}
       <Reasons reasons={highRisk.reasons} />

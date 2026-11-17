@@ -190,7 +190,7 @@ export const safetySnapshotSchema = z.object({
       score: z.number().min(0).max(100).nullable(), band: band.nullable(), sampleSize: count,
       changePoints: z.null(), comparisonReason: z.literal('Historical open-state observations are unavailable.'),
     }),
-    highRisk: metricBase.extend({ count, openCount: count }),
+    highRisk: metricBase.extend({ count, openCount: count, closedCount: count.optional() }),
     nearMiss: metricBase.extend({
       currentCount: count, previousCount: count, percentageChange: z.number().nullable(),
       direction: z.enum(['up', 'down', 'unchanged', 'new_reporting', 'no_reports']),

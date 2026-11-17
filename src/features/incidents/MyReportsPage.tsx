@@ -5,9 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Alert,
   Badge,
-  Button,
   DataTable,
-  Dialog,
   ExportMenu,
   PageHeader,
   Pagination,
@@ -20,7 +18,6 @@ import { useIncidentOrganization, useIncidents } from './useIncidentData'
 import { getAllMatchingIncidents, getIncidentTypeCounts } from './incidentService'
 import { incidentReportTypes, type IncidentListFilters, type IncidentListScope, type IncidentSummary } from './incidentTypes'
 import { effectiveIncidentSeverityLabel } from '../../../supabase/functions/_shared/incidentReportFilters'
-import { IncidentClosureForm } from './IncidentClosure'
 import { getActionsForIncidents } from '../qhse/inspectionActionService'
 import type { LinkedIncidentAction } from '../qhse/inspectionActionService'
 import { activeSettingNames, formatDate, formatDateTime, incidentHref, label } from './incidentFormatting'
@@ -41,7 +38,7 @@ function SummaryStat({ label: statLabel, value }: { label: string; value: ReactN
 
 // The own view lists the current user's reports; the organization view lists incidents across the organization.
 // Both reuse this page's filters, table, and links for reopening drafts or viewing submitted incidents.
-export function MyReportsPage({ supabase, canExport = false, canViewAll = false, canClose = false, scope = 'organization' }: { supabase: SupabaseClient; canExport?: boolean; canViewAll?: boolean; canClose?: boolean; scope?: IncidentListScope }) {
+export function MyReportsPage({ supabase, canExport = false, canViewAll = false, scope = 'organization' }: { supabase: SupabaseClient; canExport?: boolean; canViewAll?: boolean; canClose?: boolean; scope?: IncidentListScope }) {
   const organization = useIncidentOrganization(supabase)
   const [sites, setSites] = useState<Array<{ id: string; name: string }>>([])
   const [settings, setSettings] = useState<Record<string, unknown>>({})
@@ -50,7 +47,6 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
   const [exportError, setExportError] = useState('')
   const [administrator, setAdministrator] = useState('Authenticated user')
   const [selectedScope, setSelectedScope] = useState(scope)
-  const [closingIncident, setClosingIncident] = useState<IncidentSummary | null>(null)
   const [filters, setFilters] = useState<IncidentListFilters>(() => {
     const requestedReportType = new URLSearchParams(window.location.hash.split('?')[1] || '').get('reportType')
     const reportType = scope === 'organization'
@@ -66,7 +62,7 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('get_my_report_notifications')
       if (error || !Array.isArray(data)) throw new Error('Unable to load your incident notifications.')
-      return data as Array<{ incident_id: string; status: 'investigation_assigned' | 'investigated' | 'closed' }>
+      return data as Array<{ incident_id: string; status: 'investigation_assigned' | 'investigated' | 'closed' | 'reopened' }>
     },
     enabled: Boolean(isOwnView && organization.data?.userId),
     refetchInterval: 60_000,
@@ -128,7 +124,6 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
   const changeScope = (nextScope: IncidentListScope) => {
     setSelectedScope(nextScope)
     setFilters((current) => ({ ...current, page: 1 }))
-    setClosingIncident(null)
   }
   const actionsByIncident = new Map<string, LinkedIncidentAction[]>()
   for (const action of linkedActions.data || []) {
@@ -186,7 +181,12 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
       header: 'Severity',
       cell: (incident) => <SeverityBadge severity={effectiveIncidentSeverityLabel(incident.severity, incident.potentialSeverity).toLowerCase()} />,
     },
-    { id: 'status', header: 'Status', cell: (incident) => <StatusBadge status={incident.status} /> },
+    { id: 'status', header: 'Status', cell: (incident) => (
+      <StatusBadge
+        status={incident.status}
+        label={incident.status === 'pending_verification' ? 'Resolved, awaiting verification' : undefined}
+      />
+    ) },
     {
       id: 'location',
       header: 'Site / department',
@@ -229,19 +229,13 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
       header: 'Manage',
       cell: (incident) => {
         const canSubmitDraft = incident.status === 'draft' && selectedScope === 'own'
-        const canCloseIncident = canClose && incident.status !== 'draft' && incident.status !== 'closed'
-        if (!canSubmitDraft && !canCloseIncident) return <span className="text-xs text-muted">—</span>
+        if (!canSubmitDraft) return <span className="text-xs text-muted">—</span>
         return (
           <div className="flex flex-wrap gap-1">
             {canSubmitDraft && (
               <a href={`#report-incident?draft=${incident.id}&submit=1`} className={buttonVariants({ size: 'sm' })}>
                 Submit
               </a>
-            )}
-            {canCloseIncident && (
-              <Button variant="danger" size="sm" disabled={Boolean(closingIncident)} onClick={() => setClosingIncident(incident)}>
-                Close
-              </Button>
             )}
           </div>
         )
@@ -286,10 +280,16 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
         <section className="rounded-xl border border-line p-4" aria-label="My incident notifications">
           <h2 className="text-sm font-semibold">Incident notifications</h2>
           <ul className="mt-2 grid gap-2">
-            {notifications.data?.map((notification, index) => (
+            {[...(notifications.data || [])].reverse().map((notification, index) => (
               <li key={`${notification.incident_id}-${notification.status}-${index}`} className="text-sm">
                 <a className="text-brand-dark underline" href={`#incident-detail?id=${notification.incident_id}`}>{notification.incident_id}</a>
-                {' · '}{notification.status.replaceAll('_', ' ')}
+                {' · '}{notification.status === 'investigation_assigned'
+                  ? 'Assigned for investigation'
+                  : notification.status === 'investigated'
+                    ? 'Investigated'
+                    : notification.status === 'reopened'
+                      ? 'Reopened'
+                      : 'Closed'}
               </li>
             ))}
           </ul>
@@ -325,23 +325,6 @@ export function MyReportsPage({ supabase, canExport = false, canViewAll = false,
         onReset={resetFilters}
         onRefresh={() => void incidents.refetch()}
       />
-
-      {closingIncident && canClose && (
-        <Dialog
-          open
-          onClose={() => setClosingIncident(null)}
-          title={`Close incident ${closingIncident.referenceNumber}`}
-          description={closingIncident.title}
-        >
-          <IncidentClosureForm
-            key={closingIncident.id}
-            variant="dialog"
-            client={supabase}
-            incident={closingIncident}
-            onDismiss={() => setClosingIncident(null)}
-          />
-        </Dialog>
-      )}
 
       <DataTable
         columns={columns}

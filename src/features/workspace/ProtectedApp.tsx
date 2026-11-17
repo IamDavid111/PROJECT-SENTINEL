@@ -944,7 +944,7 @@ export function ProtectedApp({ session, isDarkMode, onToggleTheme }: { session: 
           )}
           {route === 'dashboard' && <DashboardPage organizationId={organizationId} currentUserId={session.user.id} organizationName={organizationName} userName={profileName} role={legacyFeatureRole} canReportIncident={canAccess('report_incident')} canCreateInspection={canCreateInspections} canCreateCorrectiveAction={canManageActions} canStartAudit={canAccess('start_audit')} canViewReports={canAccess('view_reports')} supabase={supabase} />}
           {route === 'report-incident' && canAccess('report_incident') && <IncidentTypeSelectionPage key={`report-incident-${navResetKey}`} role={legacyFeatureRole} supabase={supabase} draftId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('draft') || undefined} />}
-          {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} canClose={canAccess('close_incidents')} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
+          {route === 'incident-detail' && <IncidentDetailPage supabase={supabase} canClose={canAccess('close_incidents')} canReopen={role === 'Super Administrator'} incidentId={new URLSearchParams(window.location.hash.split('?')[1] || '').get('id')} />}
           {route === 'incidents' && canAccess('view_all_incidents') && <MyReportsPage key="organization" supabase={supabase} scope="organization" canViewAll canClose={canAccess('close_incidents')} canExport={canAccess('export_reports')} />}
 
           {route === 'corrective-actions' && canManageActions && <ActionsWorkspace supabase={supabase} canManage showInspectionBack />}

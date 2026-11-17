@@ -40,26 +40,24 @@ declare
   incident_severity text;
 begin
   if new.level is distinct from old.level and new.level is not null then
-    select (d.critical_hours, d.high_hours, d.medium_hours, d.low_hours).*
+    select case lower(new.level)
+      when 'critical' then d.critical_hours
+      when 'high' then d.high_hours
+      when 'medium' then d.medium_hours
+      when 'low' then d.low_hours
+      else null
+    end
     into deadline_hours
     from public.investigation_deadlines d
     where d.organization_id = new.organization_id
     limit 1;
 
     if deadline_hours is null then
-      deadline_hours := case new.level
-        when 'Critical' then 24
-        when 'High' then 72
-        when 'Medium' then 168
-        when 'Low' then 336
-        else 72
-      end;
-    else
-      deadline_hours := case new.level
-        when 'Critical' then coalesce((select critical_hours from public.investigation_deadlines where organization_id = new.organization_id), 24)
-        when 'High' then coalesce((select high_hours from public.investigation_deadlines where organization_id = new.organization_id), 72)
-        when 'Medium' then coalesce((select medium_hours from public.investigation_deadlines where organization_id = new.organization_id), 168)
-        when 'Low' then coalesce((select low_hours from public.investigation_deadlines where organization_id = new.organization_id), 336)
+      deadline_hours := case lower(new.level)
+        when 'critical' then 24
+        when 'high' then 72
+        when 'medium' then 168
+        when 'low' then 336
         else 72
       end;
     end if;

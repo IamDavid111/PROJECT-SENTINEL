@@ -4,8 +4,7 @@ grant select, insert, update on public.inspections, public.actions to authentica
 do $$
 begin
   update storage.buckets
-  set public = false,
-      file_size_limit = 10485760
+  set public = false
   where id = 'incident-evidence';
 
   if not found then

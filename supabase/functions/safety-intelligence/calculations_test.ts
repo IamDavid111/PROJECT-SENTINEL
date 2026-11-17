@@ -1,7 +1,7 @@
 import { calculateSafetySnapshot, effectiveSafetySeverity } from '../_shared/safetyIntelligenceCalculations.ts'
 import { safetyFiltersSchema, safetyIncidentSchema, safetyResponseSchema, safetySnapshotSchema } from '../_shared/safetyIntelligenceContracts.ts'
 import {
-  incidentSeverityFilterPatterns, isActionDueNotPassed, isOpenIncidentStatus,
+  calculateIncidentStatusCounts, incidentSeverityFilterPatterns, isActionDueNotPassed, isOpenIncidentStatus,
   isUnfinishedCorrectiveActionStatus, normalizeIncidentReportType, normalizeIncidentSeverity, normalizeIncidentStatus,
 } from '../_shared/incidentReportFilters.ts'
 import { asOf, assert, dataset, equal, id, incident, org, scope, site } from './fixtures_test.ts'
@@ -261,6 +261,38 @@ Deno.test('incident counts use distinct IDs, normalized status and occurred_at w
   assert(rejected, 'Foreign organization entered KPI calculations')
 })
 
+Deno.test('dashboard, executive analytics, and incident report status counts agree', () => {
+  const rows = [
+    incident(0, { status: 'submitted', severity: 'High' }),
+    incident(1, { status: 'pending_verification', severity: 'Critical' }),
+    incident(2, { status: 'closed', severity: 'High' }),
+    incident(3, { status: 'closed', severity: 'Low', potential_severity: 'Medium' }),
+    incident(4, { status: 'draft', severity: 'Critical' }),
+    incident(5, { status: 'submitted', severity: 'High', potential_severity: 'Unmapped severity' }),
+  ]
+  const dashboardCounts = calculateIncidentStatusCounts(rows)
+  const reportOpenCount = rows.filter((row) => isOpenIncidentStatus(row.status)).length
+  const reportClosedCount = rows.filter((row) => normalizeIncidentStatus(row.status) === 'closed').length
+  const data = dataset(rows)
+  data.draftTotal = 1
+  const executiveCounts = snapshot(data).metrics
+
+  equal(
+    [dashboardCounts.total, dashboardCounts.open, dashboardCounts.closed, dashboardCounts.highRisk,
+      dashboardCounts.closedHighRisk],
+    [5, 3, 2, 3, 1],
+  )
+  equal([reportOpenCount, reportClosedCount], [dashboardCounts.open, dashboardCounts.closed])
+  equal(
+    [executiveCounts.incidentCounts?.total, executiveCounts.incidentCounts?.open, executiveCounts.incidentCounts?.closed,
+      executiveCounts.highRisk.count, executiveCounts.highRisk.openCount, executiveCounts.highRisk.closedCount],
+    [dashboardCounts.total, dashboardCounts.open, dashboardCounts.closed, dashboardCounts.highRisk,
+      dashboardCounts.openHighRisk, dashboardCounts.closedHighRisk],
+  )
+  equal(executiveCounts.incidentCounts?.drafts, 1)
+  assert(!JSON.stringify(snapshot(data)).includes(rows[4].id), 'Executive Analytics exposed a draft incident detail')
+})
+
 Deno.test('outstanding action backlog uses distinct unfinished actions with authorized parents, not the KPI window', () => {
   const data = dataset([incident(0, { reported_at: '2025-01-01T00:00:00Z' })])
   const statuses = ['open', 'assigned', 'in_progress', 'pending_verification', 'verified', 'closed', 'rejected'] as const
@@ -295,7 +327,7 @@ Deno.test('risk formula, severity mapping, unknown classifications and minimum c
   const result = snapshot(data)
   equal(result.metrics.risk.score, 34)
   equal(result.metrics.risk.band, 'Medium')
-  equal(result.metrics.highRisk, { state: 'available', reasons: [], count: 40, openCount: 20 })
+  equal(result.metrics.highRisk, { state: 'available', reasons: [], count: 40, openCount: 20, closedCount: 20 })
   equal(result.metrics.risk.changePoints, null)
   equal(effectiveSafetySeverity(' low ', 'CRITICAL'), 4)
   equal(effectiveSafetySeverity('Low', 'Unmapped custom severity'), null)

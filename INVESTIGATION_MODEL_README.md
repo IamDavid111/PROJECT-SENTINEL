@@ -286,14 +286,28 @@ The register is available as an Investigations tab in the inspection area. Super
 
 Targeted coverage for both submission paths, role/team visibility, overdue state, and anonymous identity omission is in `supabase/tests/investigation_automation.sql`.
 
+## Investigation Record and Closure
+
+Migration `202611180006_investigation_record_workflow.sql` adds the team-facing investigation dialog, private record read/save RPCs, and links report files and optional attachments to existing incident-evidence records. Report documents are limited to PDF or Word files; anonymous evidence continues through the existing sanitized `incident-evidence` workflow and does not use or alter the separate anonymous evidence bucket.
+
+The record can be saved before completion. Closing requires immediate causes, a valid 5 Whys, Fishbone, or Fault Tree analysis with at least one root cause, and a valid investigation report. The RPC sets the investigation to `completed`, records `closed_at` and a timeline event, and relies on the existing private reporter-status notification trigger to emit `investigated`; it does not change the incident status.
+
+Client validation and root cause generation are covered by `src/features/incidents/investigationRecordValidation.test.ts`. Server validation, method persistence/reload, report type enforcement, and separation from incident closure are covered by `supabase/tests/investigation_record_workflow.sql`.
+
+## Action Close-Out, Verification, and Reopening
+
+Migration `202611180008_incident_verification_reopen.sql` requires resolution details and a valid uploaded photo or document before an action can be resolved. When the investigation is complete and all linked actions are resolved, the incident moves to `pending_verification` and closure-access delegates and Super Administrators receive in-app notifications.
+
+Verifiers must view the investigation and cannot confirm an incident if they resolved any linked action. Only verifier confirmation changes an incident to `closed`. Super Administrators can reopen a closed incident or completed investigation, assign an active handler, provide an optional reason, and notify the handler. Anonymous reporter data remains private in investigation views.
+
+The targeted SQL regression suite in `supabase/tests/investigation_record_workflow.sql` covers these server-side rules, including report validation, action resolution evidence, verifier separation, verifier-only closure, reopening, and anonymous-view privacy.
+
 ## Future Enhancements
 
-1. **Investigation assignment notifications**: Notify assigned team members
-2. **Deadline alerts**: Escalation based on due date proximity
-3. **Finding linking**: Connect findings to root cause categories
-4. **Team templates**: Save/load team configurations by severity
-5. **SLA tracking**: Monitor deadline compliance metrics
-6. **Audit log**: Enhanced audit trail of investigation changes
+1. **Finding linking**: Connect findings to root cause categories
+2. **Team templates**: Save/load team configurations by severity
+3. **SLA tracking**: Monitor deadline compliance metrics
+4. **Audit log**: Enhanced audit trail of investigation changes
 
 ## Files Created
 
